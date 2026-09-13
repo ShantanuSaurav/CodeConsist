@@ -3,8 +3,7 @@
  * its child runners) can import. Keeps one source of truth for logic that must
  * behave identically in the browser and on the server - the grader especially.
  */
-import { mkdir, stat, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,14 +19,9 @@ export async function compileTsModule(entryTs, outName) {
   await mkdir(GENERATED_DIR, { recursive: true });
   const outFile = path.join(GENERATED_DIR, outName);
 
-  if (existsSync(outFile)) {
-    try {
-      const [src, out] = await Promise.all([stat(entryTs), stat(outFile)]);
-      if (out.mtimeMs >= src.mtimeMs) return outFile;
-    } catch {
-      /* rebuild */
-    }
-  }
+  // Always rebuild. It costs ~50ms at startup, and the alternative - deciding
+  // freshness from the ENTRY file's mtime alone - silently kept a stale bundle
+  // whenever an imported dependency changed and the entry did not.
 
   const esbuild = (await import('esbuild')).default;
   await esbuild.build({

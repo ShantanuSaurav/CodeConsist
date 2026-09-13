@@ -15,7 +15,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -149,11 +149,21 @@ app.post(
       return res.status(409).json({ error: 'That username is taken.' });
     }
 
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // bcrypt took tens of milliseconds and yielded the event loop; another
+    // registration for the same email may have landed meanwhile. Re-check
+    // synchronously, right before the insert, so two concurrent sign-ups
+    // cannot both pass the earlier check and create duplicate accounts.
+    if (store.findUserByEmail(email) || store.findUserByUsername(username)) {
+      return res.status(409).json({ error: 'That email or username was just taken.' });
+    }
+
     const user = store.insertUser({
       id: crypto.randomUUID(),
       email,
       username,
-      passwordHash: await bcrypt.hash(password, 10),
+      passwordHash,
       isPremium: false,
       createdAt: new Date().toISOString()
     });
@@ -206,9 +216,83 @@ app.get('/api/progress', requireAuth, (req, res) => {
   res.json({ progress: recalc(store.getProgress(req.user.id)) });
 });
 
+/* ------------------------------------------------------------ verification */
+
+/** Is `answer` correct for a non-code challenge? Pure, synchronous. */
+function gradeAnswer(challenge, answer) {
+  switch (challenge.type) {
+    case 'quiz':
+    case 'output_prediction':
+      return Number(answer) === challenge.correctIndex;
+    case 'multi_select':
+      return Array.isArray(answer) && grading.sameSet(answer.map(Number), challenge.correctIndices ?? []);
+    case 'fill_blank':
+      return (
+        Array.isArray(answer) &&
+        answer.length === (challenge.blanks ?? []).length &&
+        (challenge.blanks ?? []).every((b, i) =>
+          grading.checkBlank(String(answer[i] ?? ''), b.answer, b.alternatives ?? [])
+        )
+      );
+    case 'pseudocode_order':
+      return (
+        Array.isArray(answer) &&
+        answer.length === (challenge.pseudocodeLines ?? []).length &&
+        answer.every((line, i) => String(line) === challenge.pseudocodeLines[i])
+      );
+    default:
+      return false;
+  }
+}
+
 /**
- * Record a solve. The server owns the XP maths: the client says *which*
- * challenge and how much help it took, never how much XP it earned.
+ * Decide whether a submission genuinely solves the challenge, using only
+ * things the server controls. Returns { ok, verified, reason }.
+ *
+ *   verified=true   the server checked it itself
+ *   verified=false  the server has no engine for it (Python without a local
+ *                   CPython) and is taking the client's word - reported
+ *                   honestly rather than pretended
+ *
+ * Before this existed /api/progress/solve took a challengeId and paid out.
+ * One fetch loop from the browser console marked all 200 challenges solved.
+ */
+async function verifySubmission(challenge, body) {
+  const isCode = challenge.type === 'code_runner' || challenge.type === 'debug';
+
+  if (!isCode) {
+    if (body.answer === undefined) return { ok: false, verified: true, reason: 'No answer was submitted.' };
+    return { ok: gradeAnswer(challenge, body.answer), verified: true, reason: 'Answer checked by the server.' };
+  }
+
+  const code = typeof body.code === 'string' ? body.code : '';
+  if (!code.trim()) return { ok: false, verified: true, reason: 'No code was submitted.' };
+  if (code.length > 100_000) return { ok: false, verified: true, reason: 'Submission is too large.' };
+
+  if (challenge.language === 'javascript') {
+    const result = await runJsInChild({
+      code,
+      entryFunction: challenge.entryFunction,
+      testCases: challenge.testCases ?? []
+    });
+    return { ok: result.status === 'passed', verified: true, reason: 'Tests run by the server.' };
+  }
+
+  if (challenge.language === 'python') {
+    const result = runPythonLocally(code, challenge.entryFunction, challenge.testCases ?? []);
+    if (result.skipped) {
+      return { ok: true, verified: false, reason: 'No local Python; accepted on the client report.' };
+    }
+    return { ok: result.passed, verified: true, reason: 'Tests run by the server (local CPython).' };
+  }
+
+  return { ok: false, verified: true, reason: `No server engine for ${challenge.language}.` };
+}
+
+/**
+ * Record a solve. The server owns both the verdict and the XP maths: the client
+ * says WHICH challenge, WHAT it answered, and how much help it took - never
+ * whether it was right and never how much XP it earned.
  */
 app.post(
   '/api/progress/solve',
@@ -220,6 +304,11 @@ app.post(
 
     const challenge = getChallenge(challengeId);
     if (!challenge) return res.status(404).json({ error: 'Unknown challenge.' });
+
+    const verdict = await verifySubmission(challenge, req.body ?? {});
+    if (!verdict.ok) {
+      return res.status(422).json({ error: 'That submission does not solve the challenge.', reason: verdict.reason });
+    }
 
     const progress = store.getProgress(req.user.id);
     const today = leveling.dayKey();
@@ -251,44 +340,91 @@ app.post(
     };
     next.bestStreak = Math.max(progress.bestStreak ?? 0, next.streak);
     next.level = leveling.levelFromXp(next.xp);
-
-    // A stage is complete once every one of its challenges is.
-    const snapshot = contentSnapshot();
-    const stageIds = new Set(next.completedStages);
-    for (const stage of snapshot.stages) {
-      const inStage = snapshot.challenges.filter((c) => c.stageId === stage.id);
-      if (inStage.length && inStage.every((c) => next.completedChallenges.includes(c.id))) {
-        stageIds.add(stage.id);
-      }
-    }
-    next.completedStages = [...stageIds];
+    next.completedStages = completedStagesFor(next.completedChallenges);
 
     store.setProgress(req.user.id, next);
-    res.json({ progress: next, awardedXp: awarded, score, firstSolve });
+    res.json({ progress: next, awardedXp: awarded, score, firstSolve, verified: verdict.verified });
   })
 );
 
-/** Merge a guest's local progress into the account they just signed into. */
+/**
+ * Merge a guest's local progress into the account they just signed into.
+ *
+ * The client says WHICH challenges it solved. The server decides what that is
+ * worth, from its own content - it never copies an XP number, a level, or a
+ * challenge id it has never heard of from the request body. The previous
+ * version took max(xp) straight from the client, which both let anyone set
+ * their own score and, when merging two genuinely separate pools, silently
+ * discarded the smaller one while still marking its challenges solved.
+ */
+function completedStagesFor(completedIds) {
+  const snapshot = contentSnapshot();
+  const solved = new Set(completedIds);
+  return snapshot.stages
+    .filter((stage) => {
+      const inStage = snapshot.challenges.filter((c) => c.stageId === stage.id);
+      return inStage.length > 0 && inStage.every((c) => solved.has(c.id));
+    })
+    .map((stage) => stage.id);
+}
+
+const MAX_PLAUSIBLE_STREAK = 400;
+
 app.post('/api/progress/merge', requireAuth, (req, res) => {
   const incoming = req.body?.progress ?? {};
   const current = store.getProgress(req.user.id);
 
+  const known = new Set(current.completedChallenges ?? []);
+  const incomingIds = Array.isArray(incoming.completedChallenges)
+    ? incoming.completedChallenges.map(String)
+    : [];
+
+  // Only ids that exist, and only ones this account has not already been paid for.
+  const newIds = [...new Set(incomingIds)].filter((id) => !known.has(id) && getChallenge(id));
+
+  const incomingAttempts = incoming.attempts && typeof incoming.attempts === 'object' ? incoming.attempts : {};
+  const attempts = { ...(current.attempts ?? {}) };
+  let awarded = 0;
+
+  for (const id of newIds) {
+    const challenge = getChallenge(id);
+    const a = incomingAttempts[id] ?? {};
+    const tries = Math.max(1, Math.min(50, Number(a.attempts) || 1));
+    const hints = Math.max(0, Math.min(10, Number(a.hintsUsed) || 0));
+    // Same maths as a live solve, so a guest is paid exactly what they would
+    // have been paid signed in - no more for having been offline.
+    awarded += leveling.xpForSolve(challenge.xpReward, tries, hints);
+    attempts[id] = {
+      challengeId: id,
+      score: leveling.scoreSolve(tries, hints),
+      attempts: tries,
+      hintsUsed: hints,
+      solvedAt: typeof a.solvedAt === 'string' ? a.solvedAt : new Date().toISOString()
+    };
+  }
+
+  const completedChallenges = [...known, ...newIds];
+  const clampStreak = (v) => Math.max(0, Math.min(MAX_PLAUSIBLE_STREAK, Number(v) || 0));
+  const dayRe = /^\d{4}-\d{2}-\d{2}$/;
+
   const merged = {
     ...current,
-    xp: Math.max(current.xp, Number(incoming.xp) || 0),
-    bestStreak: Math.max(current.bestStreak ?? 0, Number(incoming.bestStreak) || 0),
-    streak: Math.max(current.streak ?? 0, Number(incoming.streak) || 0),
-    lastActiveDay: [current.lastActiveDay, incoming.lastActiveDay].filter(Boolean).sort().pop() ?? null,
-    completedChallenges: [
-      ...new Set([...(current.completedChallenges ?? []), ...(incoming.completedChallenges ?? [])])
-    ],
-    completedStages: [...new Set([...(current.completedStages ?? []), ...(incoming.completedStages ?? [])])],
-    attempts: { ...(incoming.attempts ?? {}), ...(current.attempts ?? {}) }
+    xp: current.xp + awarded,
+    bestStreak: Math.max(current.bestStreak ?? 0, clampStreak(incoming.bestStreak)),
+    streak: Math.max(current.streak ?? 0, clampStreak(incoming.streak)),
+    lastActiveDay:
+      [current.lastActiveDay, incoming.lastActiveDay]
+        .filter((d) => typeof d === 'string' && dayRe.test(d))
+        .sort()
+        .pop() ?? null,
+    completedChallenges,
+    completedStages: completedStagesFor(completedChallenges),
+    attempts
   };
   merged.level = leveling.levelFromXp(merged.xp);
 
   store.setProgress(req.user.id, merged);
-  res.json({ progress: merged });
+  res.json({ progress: merged, mergedChallenges: newIds.length, awardedXp: awarded });
 });
 
 app.post('/api/progress/reset', requireAuth, (req, res) => {
@@ -328,44 +464,100 @@ app.get('/api/leaderboard', (_req, res) => {
 
 /* ------------------------------------------------------------------ grading */
 
-/** Authoritative check for non-code challenges. */
+/** Authoritative check for non-code challenges, without recording anything. */
 app.post(
   '/api/grade',
   asyncRoute(async (req, res) => {
     const challenge = getChallenge(String(req.body?.challengeId ?? ''));
     if (!challenge) return res.status(404).json({ error: 'Unknown challenge.' });
-    const answer = req.body?.answer;
-    let correct = false;
-
-    switch (challenge.type) {
-      case 'quiz':
-      case 'output_prediction':
-        correct = Number(answer) === challenge.correctIndex;
-        break;
-      case 'multi_select':
-        correct = Array.isArray(answer) && grading.sameSet(answer.map(Number), challenge.correctIndices ?? []);
-        break;
-      case 'fill_blank':
-        correct =
-          Array.isArray(answer) &&
-          answer.length === (challenge.blanks ?? []).length &&
-          (challenge.blanks ?? []).every((b, i) =>
-            grading.checkBlank(String(answer[i] ?? ''), b.answer, b.alternatives ?? [])
-          );
-        break;
-      case 'pseudocode_order':
-        correct =
-          Array.isArray(answer) &&
-          answer.length === (challenge.pseudocodeLines ?? []).length &&
-          answer.every((line, i) => String(line) === challenge.pseudocodeLines[i]);
-        break;
-      default:
-        return res.status(400).json({ error: `${challenge.type} is graded by running its tests.` });
+    if (challenge.type === 'code_runner' || challenge.type === 'debug') {
+      return res.status(400).json({ error: `${challenge.type} is graded by running its tests.` });
     }
-
-    res.json({ correct, explanation: challenge.explanation });
+    res.json({ correct: gradeAnswer(challenge, req.body?.answer), explanation: challenge.explanation });
   })
 );
+
+/* ------------------------------------------------------------ local python */
+
+let pythonExe;
+/** A local CPython, found once. undefined = not probed, null = none. */
+function findPython() {
+  if (pythonExe !== undefined) return pythonExe;
+  pythonExe = null;
+  for (const candidate of ['python3', 'python', 'py']) {
+    try {
+      const out = execFileSync(candidate, ['-c', 'import sys; print(sys.version_info[0])'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000
+      });
+      if (out.trim().startsWith('3')) {
+        pythonExe = candidate;
+        break;
+      }
+    } catch {
+      /* next */
+    }
+  }
+  if (pythonExe) console.log(`[python] using ${pythonExe} to verify Python solves`);
+  else console.log('[python] no local CPython - Python solves will be accepted on the client report');
+  return pythonExe;
+}
+
+// Evaluates the source ONCE and calls the entry per case, matching the browser
+// (Pyodide) and the validator, so a mutable-default-argument bug is observable
+// everywhere or nowhere.
+const PYTHON_HARNESS = [
+  'import json, sys',
+  '_src = json.loads(sys.stdin.readline())',
+  '_cases = json.loads(sys.stdin.readline())',
+  '_ns = {}',
+  'try:',
+  '    exec(_src["code"], _ns)',
+  'except Exception:',
+  '    print(json.dumps({"passed": False})); sys.exit(0)',
+  '_fn = _ns.get(_src["entry"])',
+  'if not callable(_fn):',
+  '    print(json.dumps({"passed": False})); sys.exit(0)',
+  '_ok = True',
+  'for _tc in _cases:',
+  '    try:',
+  '        _v = _fn(*eval("(" + _tc["input"] + ",)", _ns))',
+  '        try:',
+  '            _got = json.dumps(_v)',
+  '        except TypeError:',
+  '            _got = json.dumps(repr(_v))',
+  '        _exp = _tc["expected"].replace("True", "true").replace("False", "false").replace("None", "null")',
+  '        try:',
+  '            _same = json.loads(_got) == json.loads(_exp)',
+  '        except Exception:',
+  '            _same = _got.strip() == _tc["expected"].strip()',
+  '        if not _same:',
+  '            _ok = False',
+  '    except Exception:',
+  '        _ok = False',
+  'print(json.dumps({"passed": _ok}))'
+].join('\n');
+
+/**
+ * Run a Python submission against its tests with the local interpreter, the
+ * same way the content validator does. { skipped: true } when there is none.
+ */
+function runPythonLocally(code, entryFunction, testCases) {
+  const exe = findPython();
+  if (!exe) return { skipped: true };
+  try {
+    const out = execFileSync(exe, ['-c', PYTHON_HARNESS], {
+      input: JSON.stringify({ code, entry: entryFunction }) + '\n' + JSON.stringify(testCases) + '\n',
+      encoding: 'utf8',
+      timeout: 15000,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    return JSON.parse(out.trim().split('\n').pop());
+  } catch {
+    return { passed: false };
+  }
+}
 
 /* ---------------------------------------------------------------- execution */
 
@@ -542,8 +734,8 @@ bootstrap()
 
       console.error(
         `\n  Port ${PORT} is still in use after ${BIND_RETRY_MS.length + 1} attempts.\n` +
-          `  Stop whatever is on it, or start the API elsewhere with\n` +
-          `    API_PORT=4001 npm run dev:api   (and set VITE_API_PROXY to match).\n`
+          `  Stop whatever is on it, or put API_PORT=4001 in a .env file and restart.\n` +
+          `  (Set VITE_API_PROXY=http://localhost:4001 there too so the web app can find it.)\n`
       );
       process.exit(1);
     });

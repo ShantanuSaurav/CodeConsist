@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "concurrently -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "vite",
-    "dev:api": "node --watch-path=./server/index.js --watch-path=./server/content.js --watch-path=./server/db.js --watch-path=./server/build.js --watch-path=./server/runner --watch-path=./src/data --watch-path=./src/lib server/index.js",
+    "dev:api": "node --env-file-if-exists=.env --watch-path=./server/index.js --watch-path=./server/content.js --watch-path=./server/db.js --watch-path=./server/build.js --watch-path=./server/runner --watch-path=./src/data --watch-path=./src/lib server/index.js",
     "build": "npm run content:index && tsc && vite build",
     "preview": "vite preview",
-    "start": "node server/index.js",
+    "start": "node --env-file-if-exists=.env server/index.js",
     "typecheck": "tsc --noEmit",
     "content:index": "node scripts/build-index.mjs",
     "content:validate": "node scripts/validate-content.mjs",
@@ -23,7 +23,8 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "esbuild": "^0.28.2"
   },
   "devDependencies": {
     "@types/canvas-confetti": "^1.9.0",
@@ -31,12 +32,11 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.2.4",
-    "esbuild": "^0.28.2",
     "typescript": "^5.7.3",
     "vite": "^6.2.0"
   },
   "description": "CodeQuest - a daily practice app for developers. Runs end to end on localhost.",
   "engines": {
-    "node": ">=18.17"
+    "node": ">=22.9"
   }
 }

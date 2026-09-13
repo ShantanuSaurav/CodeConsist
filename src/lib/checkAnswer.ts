@@ -1,8 +1,11 @@
 /**
  * Client-side answer checking for the non-code challenge types.
  *
- * The server re-checks everything on /api/grade and owns XP, so this is about
- * instant feedback rather than trust.
+ * This is for instant feedback, not trust. When signed in, the submitted
+ * answer is sent with the solve and POST /api/progress/solve re-checks it with
+ * the same rules before paying any XP; a disagreement is a 422 and the local
+ * award is rolled back. (For a while the comment here claimed that and the
+ * server did no such thing - see the git history.)
  */
 import { Challenge } from '../types';
 import { checkBlank, sameSet } from './grading';
@@ -134,7 +137,7 @@ export function shuffleLines(challenge: Challenge): string[] {
  * keeps working for content added later.
  *
  * Only the presentation moves: answers are still stored and graded as original
- * indices, so `checkAnswer` and the server's /api/grade need no knowledge of it.
+ * indices, so `checkAnswer` and the server's verification need no knowledge of it.
  * The permutation is seeded from the challenge id, so it is stable across
  * re-renders and identical for every learner.
  */

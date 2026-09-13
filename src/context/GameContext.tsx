@@ -20,7 +20,7 @@ import {
 } from '../types';
 import { applyProgress, contentService } from '../services/contentService';
 import { compilerService, ExecuteOptions } from '../services/compilerService';
-import { api, OfflineError, getToken, setToken } from '../lib/api';
+import { api, ApiError, OfflineError, getToken, setToken } from '../lib/api';
 import { STORAGE_KEYS, readJson, readString, writeJson, writeString, remove } from '../lib/storage';
 import { currentStreak, dayKey, levelFromXp, nextStreak, xpForSolve } from '../lib/leveling';
 
@@ -35,6 +35,10 @@ export interface Toast {
 export interface SolveOptions {
   attempts?: number;
   hintsUsed?: number;
+  /** The answer as submitted, so the server can verify it before paying XP. */
+  answer?: unknown;
+  /** The code as submitted, for coding challenges. */
+  code?: string;
 }
 
 export interface GameContextType {
@@ -415,18 +419,35 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // The server is authoritative when signed in; reconcile after the fact so
       // the UI never waits on the network to feel responsive.
-      if (user && serverStatus === 'online' && getToken()) {
+      if (user && user.provider !== 'guest' && serverStatus === 'online' && getToken()) {
         try {
-          const { progress } = await api.solve(challenge.id, attempts, hintsUsed);
+          const { progress } = await api.solve(challenge.id, attempts, hintsUsed, {
+            answer: options.answer,
+            code: options.code
+          });
           setStats((prev) => ({
             ...prev,
+            // Union rather than overwrite: anything solved locally while this
+            // request was in flight must not be erased by an older snapshot.
             ...progress,
-            level: levelFromXp(progress.xp),
+            xp: Math.max(prev.xp, progress.xp),
+            completedChallenges: [...new Set([...prev.completedChallenges, ...progress.completedChallenges])],
+            level: levelFromXp(Math.max(prev.xp, progress.xp)),
             streak: currentStreak(progress.streak, progress.lastActiveDay),
             isPremium: prev.isPremium
           }));
         } catch (err) {
-          if (!(err instanceof OfflineError)) {
+          if (err instanceof OfflineError) {
+            // Kept locally; the next session restore pushes it up.
+            notify('Server unreachable - this solve is saved here and will sync later.', 'info');
+          } else if (err instanceof ApiError && err.status === 422) {
+            // The server re-checked the submission and disagreed. Its verdict
+            // wins: take the local award back rather than show XP that does
+            // not exist on the leaderboard.
+            setStats(stats);
+            notify('The server did not accept that answer, so no XP was awarded.', 'error');
+            return 0;
+          } else {
             notify('Progress saved locally, but the server rejected it.', 'error');
           }
         }

@@ -65,8 +65,18 @@ export const PracticeModal: React.FC = () => {
   const dialogRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * Which challenge the in-flight code run belongs to, or null when there is
+   * none. A run can take seconds (the first Python run downloads a runtime),
+   * and the learner is free to move to another challenge meanwhile. Its
+   * result must then be dropped, not written onto whatever challenge is now on
+   * screen - which used to mark a quiz "Correct" before it had been read.
+   */
+  const runOwner = useRef<string | null>(null);
+
   /** Wipe everything that belongs to a single challenge. */
   const resetForChallenge = useCallback((next: Challenge | undefined) => {
+    runOwner.current = null;
     setAnswer(next ? emptyAnswer(next) : null);
     setAnswerFor(next?.id);
     setChecked(false);
@@ -114,8 +124,12 @@ export const PracticeModal: React.FC = () => {
   }, [activeChallengeIndex, challenges.length, goToChallenge]);
 
   const award = useCallback(
-    async (target: Challenge, usedAttempts: number) => {
-      const xp = await completeChallenge(target, { attempts: usedAttempts, hintsUsed: revealedHints });
+    async (target: Challenge, usedAttempts: number, submission: { answer?: unknown; code?: string }) => {
+      const xp = await completeChallenge(target, {
+        attempts: usedAttempts,
+        hintsUsed: revealedHints,
+        ...submission
+      });
       setSessionXp((prev) => prev + xp);
       setSessionSolved((prev) => (prev.includes(target.id) ? prev : [...prev, target.id]));
     },
@@ -130,11 +144,15 @@ export const PracticeModal: React.FC = () => {
     const correct = checkAnswer(challenge, currentAnswer);
     setIsCorrect(correct);
     setChecked(true);
-    if (correct) await award(challenge, nextAttempts);
+    if (correct) await award(challenge, nextAttempts, { answer: currentAnswer });
   }, [challenge, checked, attempts, currentAnswer, award]);
 
   const handleRun = useCallback(async () => {
     if (!challenge || isRunning) return;
+    const owner = challenge.id;
+    runOwner.current = owner;
+    const stillMine = () => runOwner.current === owner;
+
     setIsRunning(true);
     setProgressMessage('');
     setExecResult(null);
@@ -148,14 +166,20 @@ export const PracticeModal: React.FC = () => {
         challenge.language,
         challenge.entryFunction,
         challenge.testCases ?? [],
-        { onProgress: setProgressMessage }
+        { onProgress: (message) => stillMine() && setProgressMessage(message) }
       );
-      setExecResult(result);
       const passed = result.status === 'passed';
-      setIsCorrect(passed);
-      setChecked(true);
-      if (passed) await award(challenge, nextAttempts);
+      // Only the on-screen verdict belongs to whichever challenge is showing.
+      // A pass is a pass: the XP goes to the challenge that was actually run,
+      // whether or not the learner is still looking at it.
+      if (stillMine()) {
+        setExecResult(result);
+        setIsCorrect(passed);
+        setChecked(true);
+      }
+      if (passed) await award(challenge, nextAttempts, { code });
     } catch (err: any) {
+      if (!stillMine()) return;
       setExecResult({
         status: 'error',
         stderr: err?.message ?? String(err),
@@ -164,8 +188,10 @@ export const PracticeModal: React.FC = () => {
       setChecked(true);
       setIsCorrect(false);
     } finally {
-      setIsRunning(false);
-      setProgressMessage('');
+      if (stillMine()) {
+        setIsRunning(false);
+        setProgressMessage('');
+      }
     }
   }, [challenge, isRunning, attempts, code, executeCode, award]);
 

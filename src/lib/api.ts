@@ -142,12 +142,27 @@ export const api = {
     return request('/content', { auth: false });
   },
 
+  /**
+   * Record a solve. The server re-checks the submission itself before paying
+   * any XP - `answer` for choice/blank/order challenges, `code` for coding
+   * ones - so the client's own verdict is a preview, never the decision.
+   */
   async solve(
     challengeId: string,
     attempts: number,
-    hintsUsed: number
-  ): Promise<{ progress: ServerProgress; awardedXp: number; score: number; firstSolve: boolean }> {
-    return request('/progress/solve', { method: 'POST', body: { challengeId, attempts, hintsUsed } });
+    hintsUsed: number,
+    submission: { answer?: unknown; code?: string } = {}
+  ): Promise<{
+    progress: ServerProgress;
+    awardedXp: number;
+    score: number;
+    firstSolve: boolean;
+    verified: boolean;
+  }> {
+    return request('/progress/solve', {
+      method: 'POST',
+      body: { challengeId, attempts, hintsUsed, ...submission }
+    });
   },
 
   async mergeProgress(progress: Partial<ServerProgress>): Promise<{ progress: ServerProgress }> {
