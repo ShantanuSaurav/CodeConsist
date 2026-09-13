@@ -96,194 +96,154 @@ function runInWorker(
   });
 }
 
-/* ------------------------------------------------------------------ Pyodide */
+/* ------------------------------------------------------------------ Python */
 
-let pyodideInstance: any = null;
-let pyodidePromise: Promise<any> | null = null;
+/**
+ * Python runs in a dedicated Worker (src/lib/python.worker.js). Two reasons,
+ * both learned the hard way:
+ *
+ *  - Pyodide's runPython is synchronous. On the main thread an infinite loop
+ *    froze the entire tab; the only way to interrupt synchronous code is to
+ *    terminate the thread it runs on.
+ *  - Each run gets a fresh namespace, so definitions from one challenge cannot
+ *    leak into the next and make wrong code pass.
+ *
+ * The worker is kept alive between runs so the ~10 MB runtime is downloaded
+ * once. It is only thrown away when a run has to be killed.
+ */
+const PYTHON_LOAD_TIMEOUT_MS = 120_000;
+const PYTHON_RUN_TIMEOUT_MS = 8_000;
 
-function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
-    if (existing) {
-      if (existing.dataset.loaded === 'true') resolve();
-      else {
-        existing.addEventListener('load', () => resolve());
-        existing.addEventListener('error', () => reject(new Error('Failed to load ' + src)));
-      }
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = src;
-    script.onload = () => {
-      script.dataset.loaded = 'true';
-      resolve();
-    };
-    script.onerror = () => reject(new Error(`Could not download the Python runtime from ${src}`));
-    document.head.appendChild(script);
-  });
+let pythonWorker: Worker | null = null;
+let pythonJobId = 0;
+let pythonRuntimeReady = false;
+
+function getPythonWorker(): Worker {
+  if (!pythonWorker) {
+    pythonWorker = new Worker(new URL('../lib/python.worker.js', import.meta.url));
+    pythonRuntimeReady = false;
+  }
+  return pythonWorker;
 }
 
-async function getPyodide(onProgress?: (message: string) => void): Promise<any> {
-  if (pyodideInstance) return pyodideInstance;
-  if (!pyodidePromise) {
-    pyodidePromise = (async () => {
-      const indexURL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
-      onProgress?.('Downloading the Python runtime (about 10 MB, once per session)...');
-      if (!(window as any).loadPyodide) await loadScript(`${indexURL}pyodide.js`);
-      onProgress?.('Starting CPython...');
-      const instance = await (window as any).loadPyodide({ indexURL });
-      pyodideInstance = instance;
-      return instance;
-    })().catch((err) => {
-      pyodidePromise = null;
-      throw err;
-    });
-  }
-  return pyodidePromise;
+function killPythonWorker(): void {
+  pythonWorker?.terminate();
+  pythonWorker = null;
+  pythonRuntimeReady = false;
 }
 
 /** Is Python ready without a download? Lets the UI warn before a long wait. */
 export function isPythonReady(): boolean {
-  return pyodideInstance !== null;
+  return pythonRuntimeReady;
 }
 
-async function runPython(
+function runPython(
   code: string,
   entryFunction: string | undefined,
   testCases: TestCase[],
   onProgress?: (message: string) => void
 ): Promise<ExecutionResult> {
-  const started = performance.now();
-  let pyodide: any;
-  try {
-    pyodide = await getPyodide(onProgress);
-  } catch (e: any) {
-    return {
-      status: 'error',
-      stderr:
-        `${e?.message ?? e}\n\nPython runs through Pyodide, which is downloaded from a CDN on ` +
-        `first use. Check your connection and try again.`,
-      engine: 'none',
-      testResults: []
+  return new Promise((resolve) => {
+    const worker = getPythonWorker();
+    const id = ++pythonJobId;
+    const started = performance.now();
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const elapsed = () => `${(performance.now() - started).toFixed(0)}ms (CPython ${PYODIDE_VERSION} Wasm)`;
+
+    const finish = (result: ExecutionResult, kill = false) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+      if (kill) killPythonWorker();
+      resolve({ engine: 'pyodide', time: elapsed(), ...result });
     };
-  }
 
-  const stdout: string[] = [];
-  const stderr: string[] = [];
-  pyodide.setStdout({ batched: (msg: string) => stdout.push(msg) });
-  pyodide.setStderr({ batched: (msg: string) => stderr.push(msg) });
-
-  const elapsed = () => `${(performance.now() - started).toFixed(0)}ms (CPython ${PYODIDE_VERSION} Wasm)`;
-
-  try {
-    await pyodide.runPythonAsync(code);
-  } catch (e: any) {
-    return {
-      status: 'error',
-      stdout: stdout.join('\n'),
-      stderr: formatPythonError(e),
-      engine: 'pyodide',
-      time: elapsed(),
-      testResults: []
+    const arm = (ms: number, message: string) => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => finish({ status: 'error', stderr: message, testResults: [] }, true), ms);
     };
-  }
 
-  if (!testCases.length) {
-    return {
-      status: 'passed',
-      stdout: stdout.join('\n') || 'Program finished with no output.',
-      engine: 'pyodide',
-      time: elapsed(),
-      testResults: []
-    };
-  }
+    const onMessage = (event: MessageEvent<any>) => {
+      const msg = event.data;
+      if (!msg || msg.id !== id) return;
 
-  if (!entryFunction) {
-    return {
-      status: 'error',
-      stderr: 'This challenge has test cases but no entry function was configured.',
-      engine: 'pyodide',
-      testResults: []
-    };
-  }
+      if (msg.type === 'progress') {
+        onProgress?.(msg.message);
+        return;
+      }
+      if (msg.type === 'ready') {
+        pythonRuntimeReady = true;
+        // The runtime is up; from here on a hang is the submission's fault.
+        arm(
+          PYTHON_RUN_TIMEOUT_MS,
+          `Your code ran for over ${PYTHON_RUN_TIMEOUT_MS / 1000}s without finishing. That usually means a loop whose condition never becomes false.`
+        );
+        return;
+      }
+      if (msg.type !== 'result') return;
 
-  const defined = pyodide.runPython(
-    `callable(globals().get(${JSON.stringify(entryFunction)}))`
-  );
-  if (!defined) {
-    return {
-      status: 'error',
-      stdout: stdout.join('\n'),
-      stderr: `NameError: no function named "${entryFunction}" was defined. Check the spelling and the indentation.`,
-      engine: 'pyodide',
-      time: elapsed(),
-      testResults: []
-    };
-  }
+      if (msg.status !== 'ran') {
+        finish({ status: msg.status, stdout: msg.stdout, stderr: msg.stderr, testResults: [] });
+        return;
+      }
 
-  // Serialise through JSON so the comparison rules match every other engine.
-  pyodide.runPython(`
-import json as __cq_json
+      // Grade here, on the main thread, with the shared rules.
+      const testResults: TestResult[] = [];
+      let allPassed = true;
+      for (const r of msg.testResults as any[]) {
+        if (r.error !== undefined) {
+          allPassed = false;
+          testResults.push({ input: r.input, expected: r.expected, actual: r.error, passed: false, logs: r.logs });
+          continue;
+        }
+        let actual: unknown;
+        try {
+          actual = JSON.parse(r.json);
+        } catch {
+          actual = r.json;
+        }
+        const passed = matchesExpected(actual, r.expected);
+        if (!passed) allPassed = false;
+        testResults.push({
+          input: r.input,
+          expected: r.expected,
+          actual: displayValue(actual),
+          passed,
+          logs: r.logs,
+          timeMs: r.timeMs
+        });
+      }
 
-def __cq_call(__fn_name, __args_src):
-    __fn = globals()[__fn_name]
-    __args = eval("(" + __args_src + ",)")
-    __value = __fn(*__args)
-    try:
-        return __cq_json.dumps(__value)
-    except TypeError:
-        return __cq_json.dumps(repr(__value))
-`);
-
-  const testResults: TestResult[] = [];
-  let allPassed = true;
-
-  for (const tc of testCases) {
-    const before = stdout.length;
-    const caseStart = performance.now();
-    try {
-      const json = pyodide.runPython(
-        `__cq_call(${JSON.stringify(entryFunction)}, ${JSON.stringify(tc.input)})`
-      );
-      const actual = JSON.parse(String(json));
-      const passed = matchesExpected(actual, tc.expected);
-      if (!passed) allPassed = false;
-      testResults.push({
-        input: tc.input,
-        expected: tc.expected,
-        actual: displayValue(actual),
-        passed,
-        logs: stdout.slice(before).join('\n'),
-        timeMs: Math.round((performance.now() - caseStart) * 100) / 100
+      finish({
+        status: allPassed ? 'passed' : 'failed',
+        stdout: msg.stdout,
+        stderr: msg.stderr,
+        testResults
       });
-    } catch (e: any) {
-      allPassed = false;
-      testResults.push({
-        input: tc.input,
-        expected: tc.expected,
-        actual: formatPythonError(e),
-        passed: false,
-        logs: stdout.slice(before).join('\n')
-      });
-    }
-  }
+    };
 
-  return {
-    status: allPassed ? 'passed' : 'failed',
-    stdout: stdout.join('\n'),
-    stderr: stderr.length ? stderr.join('\n') : undefined,
-    engine: 'pyodide',
-    time: elapsed(),
-    testResults
-  };
-}
+    const onError = (event: ErrorEvent) => {
+      finish({ status: 'error', stderr: event.message || 'The Python worker crashed.', testResults: [] }, true);
+    };
 
-/** Pyodide errors arrive with a long JS stack glued on; keep the Python part. */
-function formatPythonError(e: any): string {
-  const raw = String(e?.message ?? e);
-  const marker = raw.indexOf('Traceback (most recent call last)');
-  const python = marker >= 0 ? raw.slice(marker) : raw;
-  return python.split('\n').slice(0, 12).join('\n').trim();
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+
+    // Until the runtime reports ready, the only thing that can be slow is the
+    // download, so the budget is generous.
+    arm(
+      pythonRuntimeReady ? PYTHON_RUN_TIMEOUT_MS : PYTHON_LOAD_TIMEOUT_MS,
+      pythonRuntimeReady
+        ? `Your code ran for over ${PYTHON_RUN_TIMEOUT_MS / 1000}s without finishing.`
+        : 'The Python runtime took too long to download. Check your connection and try again.'
+    );
+
+    worker.postMessage({ id, code, entryFunction, testCases });
+  });
 }
 
 /* ------------------------------------------------------------------ Judge0 */
