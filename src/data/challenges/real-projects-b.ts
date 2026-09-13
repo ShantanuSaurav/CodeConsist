@@ -124,7 +124,9 @@ export const challenges: Challenge[] = [
       { input: '[120, 30, 9, 400, 75], 50', expected: '75' },
       { input: '[], 99', expected: 'null' },
       { input: '[7, 7, 7], 100', expected: '7' },
-      { input: '[1, 2, 3, 4], 0', expected: '1' }
+      { input: '[1, 2, 3, 4], 0', expected: '1' },
+      { input: '[1, 2, 3, 4], 50', expected: '2' },
+      { input: '[2, 4, 6, 8, 10, 12, 14, 16], 25', expected: '4' }
     ],
     solutionCode:
       'function percentile(samples, p) {\n' +
@@ -198,12 +200,12 @@ export const challenges: Challenge[] = [
       'const groups = new Set(errs.map(fingerprint));\n' +
       'console.log([...groups].join(" | "));',
     options: [
-      'TypeError:user N has no id | RangeError:user N has no id',
       'TypeError:user N has no id | TypeError:user N has no id | RangeError:user N has no id',
+      'TypeError:user N has no id | RangeError:user N has no id',
       'RangeError:user N has no id | TypeError:user N has no id',
       'TypeError:user 8123 has no id | TypeError:user 9074 has no id | RangeError:user 8123 has no id'
     ],
-    correctIndex: 0,
+    correctIndex: 1,
     hints: [
       'The regex strips the part of the message that differs between reports.',
       'A Set drops repeats but keeps the order in which values were first added.'
@@ -225,9 +227,9 @@ export const challenges: Challenge[] = [
     pseudocodeLines: [
       'ACKNOWLEDGE the page so it stops escalating to the next responder',
       'DECLARE an incident and name one incident commander',
-      'POST an initial status update: investigating, impact not yet known',
-      'MITIGATE first - roll back the last deploy before diagnosing the cause',
-      'VERIFY error rate and latency have returned to baseline',
+      'POST the first status update in the commander\'s name: investigating, impact not yet known',
+      'MITIGATE before diagnosing - roll back the last deploy, then change the status to fix in progress',
+      'VERIFY error rate and latency have returned to baseline after the rollback',
       'RESOLVE the incident and post the all-clear update',
       'RUN a blameless postmortem and file action items with owners and dates'
     ],
@@ -253,24 +255,23 @@ export const challenges: Challenge[] = [
       'const BUDGET_BYTES = 180 * 1024;\n' +
       '\n' +
       'function main(stats) {\n' +
-      '  // Users download the compressed bytes, so budget those.\n' +
       '  const size = stats.___;\n' +
       '  if (size > BUDGET_BYTES) {\n' +
       '    console.error("over budget by " + (size - BUDGET_BYTES) + " B");\n' +
-      '    process.___(1);\n' +
+      '    process.exit(___);\n' +
       '  }\n' +
       '  console.log("bundle within budget");\n' +
       '}',
     blanks: [
       { answer: 'gzipBytes', choices: ['gzipBytes', 'rawBytes', 'sourceMapBytes'] },
-      { answer: 'exit', choices: ['exit', 'abort', 'kill'] }
+      { answer: '1', choices: ['1', '0', 'null'] }
     ],
     hints: [
       'A budget should track what travels over the network, not what sits on disk.',
-      'CI decides pass or fail from the status the process returns, not from what it printed.'
+      'CI decides pass or fail from the exit status the process returns, not from what it printed, and an absent status counts as success.'
     ],
     explanation:
-      'Transfer size is what users wait for, so budget the compressed bytes rather than the raw or source-map bytes. Printing to stderr leaves the exit code at 0 and the build stays green, so the check must call process.exit(1) to actually enforce the budget.',
+      'Transfer size is what users wait for, so budget the compressed bytes rather than the raw or source-map bytes. Printing to stderr does not change the exit status, so the check must end the process with a non-zero code such as 1 for CI to mark the build failed. process.exit(0) reports success, and process.exit(null) falls back to process.exitCode, which is still 0.',
     xpReward: 70,
     tags: ['performance-budget', 'ci-cd', 'bundle-size']
   },
@@ -282,7 +283,7 @@ export const challenges: Challenge[] = [
     difficulty: 'hard',
     language: 'javascript',
     prompt:
-      'This function groups raw error events into issues. The counts are right, but every issue reports the wrong firstSeen timestamp. Find the bug and fix it.',
+      'This function groups raw error events (already in chronological order) into issues. The counts are right, but every issue that fired more than once reports the wrong firstSeen timestamp. Find the bug and fix it.',
     starterCode:
       'function groupErrors(events) {\n' +
       '  const groups = new Map();\n' +
@@ -375,7 +376,7 @@ export const challenges: Challenge[] = [
     difficulty: 'hard',
     language: 'javascript',
     prompt:
-      'Return the 1-based line numbers that leak a secret. A line leaks when it contains an AWS key id (AKIA followed by exactly 16 uppercase letters or digits) or assigns a credential: a name ending in password, secret, token or api_key (case-insensitive), then =, then 8 or more non-space characters. Lines whose trimmed text starts with # are comments and never count.',
+      'Return the 1-based line numbers that leak a secret, each line at most once. A line leaks when it contains an AWS key id (AKIA followed by exactly 16 uppercase letters or digits, not more) or assigns a credential: a name ending in password, secret, token or api_key (case-insensitive), then = with optional spaces around it, then a value of 8 or more consecutive non-space characters. Lines whose trimmed text starts with # are comments and never count.',
     starterCode:
       'function findSecrets(lines) {\n' +
       '  // your code here\n' +
@@ -402,6 +403,18 @@ export const challenges: Challenge[] = [
         input:
           '["TOKEN=aaaaaaaa", "  # AKIAIOSFODNN7EXAMPLE", "AKIAIOSFODNN7EXAMPLE"]',
         expected: '[1, 3]'
+      },
+      {
+        input: '["AWS_SECRET=AKIAIOSFODNN7EXAMPLE", "x=1"]',
+        expected: '[1]'
+      },
+      {
+        input: '["KEY=AKIAIOSFODNN7EXAMPLE12", "KEY=AKIAIOSFODNN7EXAMPL"]',
+        expected: '[]'
+      },
+      {
+        input: '["password=abc defghij", "secret=12345678"]',
+        expected: '[2]'
       }
     ],
     solutionCode:
@@ -423,7 +436,7 @@ export const challenges: Challenge[] = [
       'Trim the line first: a comment can be indented.'
     ],
     explanation:
-      'A secret scanner is a set of narrow rules run per line, with a comment skip so documented placeholders do not become alerts. The length floor on the credential value is what keeps DB_PASSWORD=short and other obvious non-secrets out of the report, and low false positives are the only reason anyone keeps a scanner in CI.',
+      'A secret scanner is a set of narrow rules run per line, with a comment skip so documented placeholders do not become alerts, and a line is reported once even when several rules match it. Word boundaries around the AKIA pattern enforce the exact length, and the length floor on the credential value (counted in non-space characters) keeps DB_PASSWORD=short and other obvious non-secrets out of the report; low false positives are the only reason anyone keeps a scanner in CI.',
     xpReward: 110,
     tags: ['secrets-scanning', 'security', 'regex', 'ci-cd']
   }

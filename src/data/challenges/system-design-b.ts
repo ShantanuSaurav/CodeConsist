@@ -67,12 +67,12 @@ export const challenges: Challenge[] = [
       '}\n' +
       'console.log(before.join(",") + " | " + after.join(",") + " | " + moved);',
     options: [
-      '2,3,0,1 | 1,2,3,4 | 4',
       '2,3,0,1 | 1,2,3,4 | 1',
       '2,3,0,1 | 1,2,3,4 | 2',
-      '2,3,0,1 | 2,3,0,1 | 0'
+      '2,3,0,1 | 2,3,0,1 | 0',
+      '2,3,0,1 | 1,2,3,4 | 4'
     ],
-    correctIndex: 0,
+    correctIndex: 3,
     hints: [
       'The four hashes are 166, 167, 168 and 169. Work out each remainder twice.',
       'Do not assume that adding one shard only moves the keys that belong on it.'
@@ -131,12 +131,12 @@ export const challenges: Challenge[] = [
       'const row = await db.replica.findUser(userId);\n' +
       'res.render("profile", row);',
     options: [
-      'The replicas apply the primary log asynchronously, so a read that arrives inside the replication window returns the pre-update row and converges a moment later',
       'The write is never committed for those users, so the update is lost; wrapping the update in an explicit transaction fixes it',
+      'The replicas apply the primary log asynchronously, so a read that arrives inside the replication window returns the pre-update row and converges a moment later',
       'The browser is caching the redirect target, so the old page is re-rendered from disk without hitting the server',
       'The replicas have permanently diverged from the primary and need a full resync before they can serve reads again'
     ],
-    correctIndex: 0,
+    correctIndex: 1,
     hints: [
       'A reload always shows the new name, so the data really did reach durable storage.',
       'Ask how long it takes for a committed write to appear on a replica.'
@@ -165,7 +165,7 @@ export const challenges: Challenge[] = [
     options: [
       'The server has to store the key alongside the response it produced, so a replay can return that original response instead of charging again',
       'The client generates the key once, before the first attempt, and reuses it for every retry of that same request',
-      'A retry that arrives while the first attempt is still running must also be handled, usually by inserting the key under a unique constraint before doing any work',
+      'A replay that reuses the key with a different body should be rejected outright, because it is not the same request and must not receive the cached response',
       'GET is already idempotent, so attaching a key to a GET is what makes retrying it safe',
       'Generating a fresh key on each retry is fine as long as the request body is byte-for-byte identical',
       'The key can be skipped if the client only retries after a network timeout, because a timeout means the request never reached the server'
@@ -176,7 +176,7 @@ export const challenges: Challenge[] = [
       'A timeout tells you nothing about whether the server processed the request.'
     ],
     explanation:
-      'Idempotency is implemented by remembering the key and the outcome it produced: the first request claims the key, does the work, and stores its response, and any replay of that key returns the stored response. That only works if the client reuses one key across retries, and the claim must be atomic, usually a unique index insert, so two simultaneous retries cannot both pass the check. A timeout is ambiguous by nature, which is exactly why the key is needed.',
+      'Idempotency is implemented by remembering the key and the outcome it produced: the first request does the work and stores its response, and any replay of that key returns the stored response. That only works if the client reuses one key across retries, and the server must also fingerprint the body, because a replay with a different payload under the same key is a client bug that should fail (typically 422), not silently receive someone else\'s charge. A timeout is ambiguous by nature, which is exactly why the key is needed, and GET was safe to retry before any header existed.',
     xpReward: 70,
     tags: ['idempotency', 'retries', 'apis']
   },
@@ -193,7 +193,7 @@ export const challenges: Challenge[] = [
       'READ the Idempotency-Key header FROM the request',
       'IF the key IS MISSING THEN REJECT WITH 400 AND STOP',
       'TRY TO INSERT a row FOR the key WITH status "in_progress"',
-      'IF THE INSERT HIT THE UNIQUE CONSTRAINT THEN RETURN the stored response',
+      'IF THE INSERT HIT THE UNIQUE CONSTRAINT THEN RETURN the stored response, OR 409 IF that row IS STILL "in_progress"',
       'CHARGE the card, PASSING the key AS the provider reference',
       'STORE the response AND SET the key row TO status "done"',
       'RETURN the response'
@@ -203,7 +203,7 @@ export const challenges: Challenge[] = [
       'The claim on the key has to be made before the money moves, not after.'
     ],
     explanation:
-      'Claiming the key with an insert that a unique constraint can reject is the whole trick: the database decides which of two racing retries is the first attempt, and the loser is told to read the stored response rather than charge again. Charging before the key row exists would leave a successful charge with nothing recording it, so a later retry would bill the card a second time.',
+      'Claiming the key with an insert that a unique constraint can reject is the whole trick: the database decides which of two racing retries is the first attempt, and the loser either returns the stored response or, if the winner has not finished yet, a 409 telling the client to retry shortly rather than charge again. Charging before the key row exists would leave a successful charge with nothing recording it, so a later retry would bill the card a second time.',
     xpReward: 110,
     tags: ['idempotency', 'retries', 'payments']
   },
@@ -229,7 +229,8 @@ export const challenges: Challenge[] = [
       { input: '2, 1, [0, 0, 0, 1, 1]', expected: '3' },
       { input: '5, 0, [0, 1, 2, 3, 4, 5, 6]', expected: '5' },
       { input: '4, 2, [0, 10, 10, 10, 10, 10]', expected: '5' },
-      { input: '1, 0.5, [0, 1, 2, 4]', expected: '3' }
+      { input: '1, 0.5, [0, 1, 2, 4]', expected: '3' },
+      { input: '1, 0.5, [0, 1, 2, 3]', expected: '2' }
     ],
     solutionCode:
       'function tokenBucket(capacity, refillPerSec, requests) {\n' +
@@ -251,7 +252,7 @@ export const challenges: Challenge[] = [
       'Math.min against capacity is what stops a long idle period from banking unlimited burst.'
     ],
     explanation:
-      'A token bucket allows bursts up to capacity and a sustained rate of refillPerSec, which is why the fourth case allows only 5 requests after a 10 second idle gap rather than 21: the accrued tokens are clamped to capacity. Refilling lazily on each arrival means the limiter needs no timer, just the last-seen timestamp and the current token count.',
+      'A token bucket allows bursts up to capacity and a sustained rate of refillPerSec, which is why the fourth case admits only 4 of the 5 requests that arrive at second 10: the 20 tokens accrued during the idle gap are clamped to capacity, so one request is refused. Refilling lazily on each arrival means the limiter needs no timer, just the last-seen timestamp and the current token count, and a half token is not enough to spend, which is why the last case refuses the requests at seconds 1 and 3.',
     xpReward: 70,
     tags: ['rate-limiting', 'token-bucket', 'throttling']
   },
@@ -387,6 +388,10 @@ export const challenges: Challenge[] = [
       {
         input: '2, 0, ["fail", "fail", "ok"]',
         expected: '{ "executed": 3, "rejected": 0, "state": "CLOSED" }'
+      },
+      {
+        input: '2, 1, ["fail", "fail", "ok", "ok", "fail", "ok"]',
+        expected: '{ "executed": 5, "rejected": 1, "state": "CLOSED" }'
       }
     ],
     solutionCode:

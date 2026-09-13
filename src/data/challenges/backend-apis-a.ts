@@ -261,6 +261,12 @@ export const challenges: Challenge[] = [
       {
         input: '"application/json, text/html", ["text/html", "application/json"]',
         expected: '"text/html"'
+      },
+      // q=0 is a refusal, not a low score: a solution that merely ranks it
+      // below everything else still returns text/html here instead of null.
+      {
+        input: '"text/html;q=0", ["text/html", "application/json"]',
+        expected: 'null'
       }
     ],
     solutionCode:

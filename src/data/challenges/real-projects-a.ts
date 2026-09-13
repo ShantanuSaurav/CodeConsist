@@ -44,31 +44,45 @@ export const challenges: Challenge[] = [
   {
     id: 'stage-10-a02',
     stageId: 'stage-10',
-    title: 'Every environment variable is a string',
+    title: 'Blue-green is only a pointer flip',
     type: 'output_prediction',
     difficulty: 'easy',
     language: 'javascript',
-    prompt: 'The object below is what process.env looks like in staging. What does this print?',
+    prompt: 'This simulates a blue-green router with one slot per environment. What does it print?',
     codeSnippet:
-      'const env = {\n' +
-      '  PORT: "8080",\n' +
-      '  ENABLE_CACHE: "false",\n' +
-      '  TIMEOUT: "0"\n' +
-      '};\n' +
-      'const port = Number(env.PORT) + 1;\n' +
-      'const cache = Boolean(env.ENABLE_CACHE);\n' +
-      'const timeout = Number(env.TIMEOUT) || 30;\n' +
-      'console.log(port, cache, timeout);',
-    options: ['8081 true 30', '8081 false 30', '8081 true 0', '8081 false 0'],
-    hints: [
-      'Boolean() only asks whether the string is empty, not what it says.',
-      'The || operator falls through for every falsy value, and 0 is falsy.'
+      'const slots = { blue: "v1.8.0", green: "v1.9.0" };\n' +
+      'let live = "blue";\n' +
+      '\n' +
+      'function idle() {\n' +
+      '  return live === "blue" ? "green" : "blue";\n' +
+      '}\n' +
+      'function deploy(version) {\n' +
+      '  slots[idle()] = version;\n' +
+      '  live = idle();\n' +
+      '}\n' +
+      'function rollback() {\n' +
+      '  live = idle();\n' +
+      '}\n' +
+      '\n' +
+      'deploy("v2.0.0");\n' +
+      'rollback();\n' +
+      'deploy("v2.0.1");\n' +
+      'console.log(live, slots.blue, slots.green);',
+    options: [
+      'blue v2.0.1 v2.0.0',
+      'green v1.8.0 v2.0.1',
+      'green v2.0.0 v2.0.1',
+      'blue v1.8.0 v2.0.1'
     ],
-    correctIndex: 0,
+    correctIndex: 1,
+    hints: [
+      'Track two things separately: what each slot holds, and which slot the router currently points at.',
+      'Only deploy writes into a slot, and it always writes into whichever slot is idle at that moment.'
+    ],
     explanation:
-      'Environment variables always arrive as text, so the non-empty string "false" is truthy and Boolean(env.ENABLE_CACHE) is true; a flag has to be compared against the text instead. Number("0") is 0, which is falsy, so || silently replaces a deliberate zero with the default of 30.',
+      'Blue-green keeps two complete environments, and a deploy or a rollback changes only which one the router calls live. The first deploy writes v2.0.0 into the idle green slot and makes it live; rollback just points the router back at the untouched blue; the second deploy then overwrites green again because it is once more the idle slot. Blue holds v1.8.0 throughout, which is exactly what makes the rollback instant.',
     xpReward: 40,
-    tags: ['environment-config', 'coercion', 'twelve-factor']
+    tags: ['blue-green', 'rollback', 'deployment']
   },
   {
     id: 'stage-10-a03',
@@ -85,12 +99,12 @@ export const challenges: Challenge[] = [
       'set-weight v1.8.0=50 v1.9.0=50\n' +
       'set-weight v1.8.0=0  v1.9.0=100',
     options: [
-      'Blue-green: two complete environments exist and traffic is cut over in one step',
+      'Blue-green: two complete environments exist and all traffic is cut over from one to the other in a single step',
+      'Rolling: instances are replaced a batch at a time and every healthy instance serves an equal share of the traffic',
       'Canary: a small slice of live traffic reaches the new version first and grows only while the metrics stay healthy',
-      'Rolling: instances are replaced a batch at a time and every healthy instance serves an equal share',
-      'Recreate: the old version is stopped, then the new version is started'
+      'Recreate: every instance of the old version is stopped before any instance of the new version is started'
     ],
-    correctIndex: 1,
+    correctIndex: 2,
     hints: [
       'Look at how much production traffic the new version gets in the first step.',
       'Two of these strategies never split live traffic between versions on purpose.'
@@ -168,32 +182,31 @@ export const challenges: Challenge[] = [
   {
     id: 'stage-10-a06',
     stageId: 'stage-10',
-    title: 'Expand before you contract',
+    title: 'A column the running release cannot see',
     type: 'fill_blank',
     difficulty: 'medium',
     language: 'sql',
     prompt:
-      'This migration renames users.email to users.contact_email without downtime. Fill in the blanks.',
+      'The orders table is live, and the release currently running inserts rows that never mention currency. Fill in the blanks so the new NOT NULL column lands without breaking those inserts, and the safety net is removed once every release sets the value itself.',
     codeSnippet:
-      '-- Step 1 runs while the old release still writes to email.\n' +
-      'ALTER TABLE users ADD COLUMN contact_email TEXT;\n' +
-      'UPDATE users SET contact_email = ___\n' +
-      '  WHERE contact_email IS NULL;\n' +
+      '-- Migration 1 ships before any code knows about currency.\n' +
+      'ALTER TABLE orders\n' +
+      "  ADD COLUMN currency CHAR(3) NOT NULL ___ 'USD';\n" +
       '\n' +
-      '-- Step 2: ship code that writes both columns and reads the new one.\n' +
-      '\n' +
-      '-- Step 3, in a LATER release, once nothing reads the old column:\n' +
-      'ALTER TABLE users ___ COLUMN email;',
+      '-- Migration 2 ships only after every release sets currency\n' +
+      '-- explicitly on insert.\n' +
+      'ALTER TABLE orders\n' +
+      '  ALTER COLUMN currency ___ DEFAULT;',
     blanks: [
-      { answer: 'email', choices: ['email', 'contact_email', 'NULL'] },
-      { answer: 'DROP', choices: ['DROP', 'RENAME', 'ADD'] }
+      { answer: 'DEFAULT', choices: ['DEFAULT', 'CHECK', 'UNIQUE'] },
+      { answer: 'DROP', choices: ['DROP', 'SET', 'ADD'] }
     ],
     hints: [
-      'The backfill has to copy the values that already exist somewhere.',
-      'Step 3 is the contract half of expand/contract, and it deletes something.'
+      'Ask what happens to an INSERT that omits a NOT NULL column.',
+      'Migration 2 takes the safety net away, so it removes something rather than changing it.'
     ],
     explanation:
-      'Expand/contract keeps the schema readable by both the old and the new release at every moment: add the nullable column, backfill it from the old one, deploy code that writes both, and only remove the old column in a later release. A rename done in one migration breaks whichever release is still running the instant it lands, and leaves nothing to roll back to.',
+      'A NOT NULL column with no default rejects every INSERT that omits it, and the release still running omits it, so the DEFAULT is what keeps the old code working the moment the column exists; it also fills the rows that are already there. Once every release sets currency itself, dropping the default means a forgotten value fails loudly at insert time instead of silently becoming USD.',
     xpReward: 70,
     tags: ['migrations', 'zero-downtime', 'sql']
   },
@@ -247,7 +260,10 @@ export const challenges: Challenge[] = [
       { input: '{"enabled": true, "rollout": 0, "allowList": []}, "z"', expected: 'false' },
       { input: '{"enabled": true, "rollout": 50, "allowList": []}, "z"', expected: 'true' },
       { input: '{"enabled": true, "rollout": 50, "allowList": []}, "a"', expected: 'false' },
-      { input: '{"enabled": true, "rollout": 100, "allowList": []}, "a"', expected: 'true' }
+      { input: '{"enabled": true, "rollout": 100, "allowList": []}, "a"', expected: 'true' },
+      { input: '{"enabled": true, "rollout": 97, "allowList": []}, "a"', expected: 'false' },
+      { input: '{"enabled": true, "rollout": 96, "allowList": []}, "ab"', expected: 'true' },
+      { input: '{"enabled": true, "rollout": 95, "allowList": []}, "ab"', expected: 'false' }
     ],
     solutionCode:
       'function isEnabled(flag, userId) {\n' +
@@ -305,6 +321,10 @@ export const challenges: Challenge[] = [
       {
         input: '{"requests": 100000, "errors": 50}, {"requests": 1000, "errors": 20}',
         expected: '"rollback"'
+      },
+      {
+        input: '{"requests": 10000, "errors": 100}, {"requests": 1000, "errors": 20}',
+        expected: '"hold"'
       }
     ],
     solutionCode:
@@ -318,7 +338,7 @@ export const challenges: Challenge[] = [
       '}',
     hints: [
       'The canary serves a fraction of the traffic, so compare like with like.',
-      'Divide each error count by its own request count before comparing them.'
+      'Thirty errors out of five hundred requests is a very different thing from thirty errors out of ten thousand.'
     ],
     explanation:
       'The canary takes a small slice of traffic, so its raw error count is almost always lower than the baseline count no matter how broken it is, and a comparison of counts promotes every release. Comparing errors per request normalises for traffic volume, and the request-count floor stops the pipeline from judging a rate computed from a handful of calls.',
