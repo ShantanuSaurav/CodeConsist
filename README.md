@@ -51,7 +51,9 @@ Backend → SQL → Git and Testing → System Design → Shipping.
 - JavaScript runs in a sandboxed Node child process (`node:vm`, no `require`,
   no `fs`, hard-killed after 8s). If the API is down it runs in a Web Worker,
   which the main thread can terminate — the only way to stop an infinite loop.
-- Python is CPython compiled to WebAssembly (Pyodide), downloaded once per session.
+- Python is CPython compiled to WebAssembly (Pyodide) in a Web Worker, so an
+  infinite loop is killed after 8s instead of freezing the tab. Each run gets a
+  fresh namespace; the runtime itself is downloaded once per session.
 - C, C++, Java and Go run only if you configure a Judge0 endpoint. Without one the
   app says there is no runtime rather than pretending to compile.
 
@@ -59,6 +61,17 @@ Backend → SQL → Git and Testing → System Design → Shipping.
 day-based streaks and a leaderboard, stored in `server/data/db.json` (atomic
 writes, so a crash mid-save cannot truncate it). Play as a guest and your local
 progress is merged into the account when you sign in.
+
+The server owns the verdict as well as the XP. A solve sends what you answered;
+the server re-checks it - quiz, blanks and ordering by the same rules the
+browser used, JavaScript by running the tests in its own sandbox, Python through
+a local CPython when one is installed - and only then pays out. Solves made
+while the API was unreachable are kept locally and pushed up on the next visit.
+
+**Sandboxing.** Submitted JavaScript runs in a `node:vm` context that receives
+nothing from the host realm - not even a console callback, since any host
+object's `.constructor` chain leads back to the real `process`. Code
+generation (`eval`, `new Function`) is disabled inside it. Do not loosen this.
 
 ## Commands
 
@@ -116,8 +129,8 @@ server too, so "correct" and "level 4" mean the same thing on both sides.
 
 ## Configuration
 
-None required. `.env.example` lists the optional knobs (API port, JWT secret,
-Judge0 credentials).
+None required. Copy `.env.example` to `.env` for the optional knobs (API port,
+JWT secret, Judge0 credentials); both the API and Vite read it.
 
 The `supabase/` directory is left over from an earlier hosted design and is not
 wired up — the local API replaced it.
