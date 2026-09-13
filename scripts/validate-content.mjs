@@ -92,60 +92,41 @@ const TYPES = new Set([
 const DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
 const EXECUTABLE = new Set(['javascript', 'python']);
 
+/**
+ * Mirrors server/runner/js-runner.mjs on the three things that decide a grade:
+ * a bare context with no host objects, strict mode, and invoking the entry
+ * INSIDE the context so the vm timeout actually bounds it. A host-side
+ * `fn(...args)` is outside the vm's control - a planted infinite loop in a
+ * `debug` starter used to hang `npm run check` forever.
+ */
 function runJsSolution(challenge) {
   const { solutionCode, entryFunction, testCases = [] } = challenge;
-  const logs = [];
-  const sandbox = {
-    console: { log: (...a) => logs.push(a.join(' ')), error: () => {}, warn: () => {}, info: () => {} },
-    Math,
-    JSON,
-    Object,
-    Array,
-    String,
-    Number,
-    Boolean,
-    Map,
-    Set,
-    WeakMap,
-    WeakSet,
-    Date,
-    RegExp,
-    Error,
-    TypeError,
-    RangeError,
-    isNaN,
-    isFinite,
-    parseInt,
-    parseFloat,
-    BigInt,
-    Promise,
-    Symbol,
-    Infinity,
-    NaN,
-    undefined
-  };
-  const context = vm.createContext(sandbox);
+  const context = vm.createContext(Object.create(null));
+  vm.runInContext(
+    'var __logs = []; globalThis.console = { log: function(){ __logs.push([].slice.call(arguments).join(" ")); }, error: function(){}, warn: function(){}, info: function(){} };',
+    context
+  );
   const results = [];
 
-  let fn;
   try {
-    const script = new vm.Script(`${solutionCode}\n;globalThis.__entry = ${entryFunction};`);
-    script.runInContext(context, { timeout: 3000 });
-    fn = sandbox.__entry;
+    new vm.Script(`"use strict";\n${solutionCode}`).runInContext(context, { timeout: 3000 });
+    const defined = new vm.Script(
+      `globalThis.__entry = typeof ${entryFunction} === 'function' ? ${entryFunction} : null; globalThis.__entry !== null`
+    ).runInContext(context, { timeout: 1000 });
+    if (!defined) {
+      return { fatal: `entryFunction "${entryFunction}" is not defined by solutionCode` };
+    }
   } catch (e) {
     return { fatal: `solutionCode failed to evaluate: ${e.message}` };
-  }
-  if (typeof fn !== 'function') {
-    return { fatal: `entryFunction "${entryFunction}" is not defined by solutionCode` };
   }
 
   for (const tc of testCases) {
     try {
-      const args = new vm.Script(`[${tc.input}]`).runInContext(context, { timeout: 2000 });
-      const actual = fn(...args);
+      const actual = new vm.Script(`__entry(...[${tc.input}])`).runInContext(context, { timeout: 2000 });
       results.push({ tc, actual });
     } catch (e) {
-      results.push({ tc, error: e.message });
+      const timedOut = /timed out/i.test(e?.message ?? '');
+      results.push({ tc, error: timedOut ? 'timed out after 2000ms (infinite loop?)' : e.message });
     }
   }
   return { results };

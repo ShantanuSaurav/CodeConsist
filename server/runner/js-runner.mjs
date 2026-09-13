@@ -25,55 +25,74 @@ function readStdin() {
   });
 }
 
-function makeSandbox(logs) {
-  const push = (level) => (...args) => {
-    if (logs.text.length > MAX_LOG_CHARS) return;
-    const line = args
-      .map((a) => {
+/**
+ * Build the execution context.
+ *
+ * This is the whole security boundary, so the rule is worth stating plainly:
+ * NOTHING from the host realm is placed inside the context. Not builtins, and
+ * not even a console callback.
+ *
+ * Every host-realm object - `Object`, `Array`, and a host function alike -
+ * carries a .constructor that resolves to the HOST `Function`, and from there
+ * `Function('return this')()` is the host global: the real `process`, with
+ * env, fs bindings and spawn. The previous allow-list of host builtins handed
+ * submitted code a full unauthenticated RCE through exactly that chain.
+ *
+ * A fresh context already has its own `Object`, `Array`, `Math`, `JSON`,
+ * `Promise` and the rest, so the submission needs nothing passed in. The one
+ * thing it needs that a bare context lacks is `console` - so that is defined
+ * INSIDE the context, writing to a context-realm array, and the host reads
+ * that array out afterwards. Host reading sandbox objects is safe; sandbox
+ * reaching host objects is the thing that must never happen.
+ */
+function makeContext() {
+  // codeGeneration off: no eval / new Function / WebAssembly inside the sandbox.
+  // Not the primary boundary (that is 'no host objects cross in'), but it removes
+  // a whole class of trick for free.
+  const context = vm.createContext(Object.create(null), {
+    codeGeneration: { strings: false, wasm: false }
+  });
+  vm.runInContext(
+    `
+    var __cq_logs = [];
+    var __cq_len = 0;
+    (function () {
+      var MAX = ${MAX_LOG_CHARS};
+      function fmt(a) {
         if (typeof a === 'string') return a;
-        try {
-          return JSON.stringify(a);
-        } catch {
-          return String(a);
-        }
-      })
-      .join(' ');
-    logs.text += (logs.text ? '\n' : '') + (level === 'error' ? 'error: ' : '') + line;
-  };
+        try { var s = JSON.stringify(a); return s === undefined ? String(a) : s; }
+        catch (e) { return String(a); }
+      }
+      function push(prefix) {
+        return function () {
+          if (__cq_len >= MAX) return;
+          var line = prefix;
+          for (var i = 0; i < arguments.length; i++) line += (i ? ' ' : '') + fmt(arguments[i]);
+          var room = MAX - __cq_len;
+          if (line.length > room) line = line.slice(0, room) + '… [output truncated]';
+          __cq_logs.push(line);
+          __cq_len += line.length;
+        };
+      }
+      var log = push('');
+      var err = push('error: ');
+      globalThis.console = { log: log, info: log, debug: log, warn: log, error: err };
+    })();
+    `,
+    context,
+    { filename: 'console.js' }
+  );
+  return context;
+}
 
-  // An explicit allow-list. No require, no process, no fs, no fetch.
-  return {
-    console: { log: push('log'), info: push('log'), warn: push('log'), error: push('error'), debug: push('log') },
-    Math,
-    JSON,
-    Object,
-    Array,
-    String,
-    Number,
-    Boolean,
-    Map,
-    Set,
-    WeakMap,
-    WeakSet,
-    Date,
-    RegExp,
-    Error,
-    TypeError,
-    RangeError,
-    SyntaxError,
-    Promise,
-    Symbol,
-    BigInt,
-    Infinity,
-    NaN,
-    isNaN,
-    isFinite,
-    parseInt,
-    parseFloat,
-    encodeURIComponent,
-    decodeURIComponent,
-    structuredClone
-  };
+/** Everything the submission printed, joined. Read from outside the context. */
+function readLogs(context) {
+  try {
+    const lines = vm.runInContext('__cq_logs', context);
+    return Array.from(lines, (l) => String(l)).join('\n');
+  } catch {
+    return '';
+  }
 }
 
 async function main() {
@@ -89,14 +108,15 @@ async function main() {
   const { code, entryFunction, testCases = [], gradingPath } = payload;
   const grading = await import(gradingPath);
 
-  const logs = { text: '' };
-  const sandbox = makeSandbox(logs);
-  const context = vm.createContext(sandbox);
+  const context = makeContext();
+  const logs = { get text() { return readLogs(context); } };
 
   // 1. Evaluate the submission.
   let hasEntry = false;
   try {
-    new vm.Script(String(code), { filename: 'submission.js' }).runInContext(context, {
+    // Strict mode, for parity with the browser worker and the validator: the
+    // same submission must grade the same way on every engine.
+    new vm.Script('"use strict";\n' + String(code), { filename: 'submission.js' }).runInContext(context, {
       timeout: SETUP_TIMEOUT_MS
     });
     if (entryFunction) {
