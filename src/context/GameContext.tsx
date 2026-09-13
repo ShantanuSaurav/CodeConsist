@@ -224,70 +224,115 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error('unreachable');
     };
 
-    (async () => {
+    /** Restore the account behind a saved token, reconciling local progress. */
+    const restoreSession = async () => {
+      if (!getToken()) return;
       try {
-        await waitForServer();
+        const { user: me, progress } = await api.me();
         if (cancelled) return;
-        setServerStatus('online');
+        setUser(me);
 
-        // Refresh content in case challenges were edited since the last build.
-        const fresh = await contentService.loadFromApi();
-        if (!cancelled && fresh) setBundle(fresh);
+        // Anything solved while the API was unreachable lives only in this
+        // browser, and the server's copy is behind. Spreading the server
+        // response over local state would delete that work on the next
+        // load, so push the local copy up first and adopt the union.
+        //
+        // Only if the local copy is THIS account's (or a guest's). A copy
+        // tagged with someone else's id is a previous user's, and must not
+        // be pushed into this account.
+        const local = statsRef.current;
+        const localBelongsHere = !local.ownerId || local.ownerId === me.id;
+        const serverSolved = new Set(progress.completedChallenges ?? []);
+        const localIsAhead =
+          localBelongsHere &&
+          ((local.completedChallenges ?? []).some((id) => !serverSolved.has(id)) ||
+            local.xp > (progress.xp ?? 0));
 
-        // Restore the session if a token survived a reload.
-        if (getToken()) {
+        let reconciled = progress;
+        if (localIsAhead) {
           try {
-            const { user: me, progress } = await api.me();
-            if (cancelled) return;
-            setUser(me);
-
-            // Anything solved while the API was unreachable lives only in this
-            // browser, and the server's copy is behind. Spreading the server
-            // response over local state would delete that work on the next
-            // load, so push the local copy up first and adopt the union.
-            const local = statsRef.current;
-            const serverSolved = new Set(progress.completedChallenges ?? []);
-            const localIsAhead =
-              (local.completedChallenges ?? []).some((id) => !serverSolved.has(id)) ||
-              local.xp > (progress.xp ?? 0);
-
-            let reconciled = progress;
-            if (localIsAhead) {
-              try {
-                reconciled = (await api.mergeProgress(local)).progress;
-              } catch {
-                // Could not reach the server after all - keep the local copy
-                // rather than discarding work.
-                reconciled = {
-                  ...progress,
-                  xp: Math.max(local.xp, progress.xp ?? 0),
-                  completedChallenges: [
-                    ...new Set([...(progress.completedChallenges ?? []), ...(local.completedChallenges ?? [])])
-                  ]
-                };
-              }
-            }
-            if (cancelled) return;
-
-            setStats((prev) => ({
-              ...prev,
-              ...reconciled,
-              level: levelFromXp(reconciled.xp),
-              streak: currentStreak(reconciled.streak, reconciled.lastActiveDay),
-              isPremium: me.isPremium
-            }));
+            reconciled = (await api.mergeProgress(local)).progress;
           } catch {
-            setToken(null);
+            // Could not reach the server after all - keep the local copy
+            // rather than discarding work.
+            reconciled = {
+              ...progress,
+              xp: Math.max(local.xp, progress.xp ?? 0),
+              completedChallenges: [
+                ...new Set([...(progress.completedChallenges ?? []), ...(local.completedChallenges ?? [])])
+              ]
+            };
           }
         }
-      } catch {
-        if (!cancelled) setServerStatus('offline');
+        if (cancelled) return;
+
+        setStats((prev) => ({
+          ...prev,
+          ...reconciled,
+          level: levelFromXp(reconciled.xp),
+          streak: currentStreak(reconciled.streak, reconciled.lastActiveDay),
+          isPremium: me.isPremium,
+          ownerId: me.id
+        }));
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          // The token is expired or revoked. Say so - the old code dropped the
+          // token silently and left the nav claiming the user was signed in
+          // while every solve quietly stopped reaching the server.
+          setToken(null);
+          setUser(null);
+          notify('Your session has expired. Sign in again to keep syncing.', 'info');
+        }
+        // Any other failure (server hiccup) keeps the token for the next probe.
       }
-    })();
+    };
+
+    let wasOnline = false;
+
+    /** One health probe; flips serverStatus either way and restores on recovery. */
+    const probe = async (initial: boolean) => {
+      try {
+        if (initial) await waitForServer();
+        else await api.health();
+        if (cancelled) return;
+        const recovered = !wasOnline;
+        wasOnline = true;
+        setServerStatus('online');
+
+        if (recovered) {
+          // Refresh content in case challenges were edited since the last build.
+          const fresh = await contentService.loadFromApi();
+          if (!cancelled && fresh) setBundle(fresh);
+          await restoreSession();
+        }
+      } catch {
+        if (cancelled) return;
+        wasOnline = false;
+        setServerStatus('offline');
+      }
+    };
+
+    probe(true);
+
+    // The verdict used to be decided once at mount and never revisited, so an
+    // API started AFTER the page loaded stayed "offline" (with the sign-in form
+    // disabled, telling the user to start the very server that was running),
+    // and an API that died stayed "connected". Re-probe on a slow cadence and
+    // whenever the browser says connectivity changed.
+    const interval = window.setInterval(() => probe(false), 30_000);
+    const onOnline = () => probe(false);
+    const onFocus = () => probe(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('focus', onFocus);
 
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('focus', onFocus);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ------------------------------------------------------- practice session */
@@ -485,20 +530,40 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...progress,
         level: levelFromXp(progress.xp ?? 0),
         streak: currentStreak(progress.streak ?? 0, progress.lastActiveDay ?? null),
-        isPremium: profile.isPremium
+        isPremium: profile.isPremium,
+        ownerId: profile.id
       }));
     },
     []
   );
 
+  /**
+   * What local progress may be carried into an account on sign-in.
+   *
+   * Only GUEST progress (no owner) is merged. Anything tagged with a different
+   * account's id belongs to whoever used this browser before - on a shared or
+   * lab machine, signing in used to hand the next user all of the previous
+   * user's solves. Progress already tagged with THIS account is the server's
+   * own cache and needs no merge (the session-restore path reconciles it).
+   */
+  const mergeableGuestProgress = useCallback(
+    (forUserId: string): UserStats | null => {
+      if (stats.completedChallenges.length === 0) return null;
+      if (stats.ownerId && stats.ownerId !== forUserId) return null;
+      if (stats.ownerId === forUserId) return null;
+      return stats;
+    },
+    [stats]
+  );
+
   const loginWithEmail = useCallback(
     async (email: string, password: string) => {
       const res = await api.login(email, password);
-      // Carry anything solved as a guest into the account.
       let progress = res.progress;
-      if (stats.completedChallenges.length > 0) {
+      const guest = mergeableGuestProgress(res.user.id);
+      if (guest) {
         try {
-          progress = (await api.mergeProgress(stats)).progress;
+          progress = (await api.mergeProgress(guest)).progress;
         } catch {
           /* keep the server copy */
         }
@@ -506,16 +571,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       adoptSession(res.user, progress);
       notify(`Welcome back, ${res.user.username}.`, 'success');
     },
-    [stats, adoptSession, notify]
+    [mergeableGuestProgress, adoptSession, notify]
   );
 
   const signupWithEmail = useCallback(
     async (email: string, username: string, password: string) => {
       const res = await api.register(email, username, password);
       let progress = res.progress;
-      if (stats.completedChallenges.length > 0) {
+      const guest = mergeableGuestProgress(res.user.id);
+      if (guest) {
         try {
-          progress = (await api.mergeProgress(stats)).progress;
+          progress = (await api.mergeProgress(guest)).progress;
         } catch {
           /* keep the server copy */
         }
@@ -523,7 +589,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       adoptSession(res.user, progress);
       notify(`Account created. Welcome, ${res.user.username}.`, 'success');
     },
-    [stats, adoptSession, notify]
+    [mergeableGuestProgress, adoptSession, notify]
   );
 
   const continueAsGuest = useCallback(() => {
@@ -538,10 +604,30 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [stats.isPremium, notify]);
 
   const logout = useCallback(async () => {
+    // Anything solved while the server was unreachable exists only here. Push
+    // it up before clearing, or signing out would be the one action that
+    // loses work.
+    let synced = true;
+    if (user && user.provider !== 'guest' && getToken() && stats.completedChallenges.length > 0) {
+      try {
+        await api.mergeProgress(stats);
+      } catch {
+        synced = false;
+      }
+    }
+
+    if (!synced) {
+      notify('Could not reach the server to save your latest progress. Try again in a moment.', 'error');
+      return;
+    }
+
     setToken(null);
     setUser(null);
-    notify('Signed out. Your local progress is still here.', 'info');
-  }, [notify]);
+    // The account's progress lives on the server; the local copy is a cache
+    // and must not be left for the next person who signs in on this browser.
+    setStats({ ...INITIAL_STATS });
+    notify('Signed out. Your progress is saved to your account.', 'info');
+  }, [user, stats, notify]);
 
   const upgradeToPro = useCallback(async () => {
     if (user && user.provider !== 'guest' && serverStatus === 'online' && getToken()) {
@@ -581,7 +667,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { leaderboard: rows } = await api.leaderboard();
       setLeaderboard(rows);
     } catch {
-      setLeaderboard([]);
+      // Keep whatever was on screen. Clearing to [] made a failed request
+      // indistinguishable from an empty board, and the dashboard then told a
+      // user with accounts on it "No accounts yet - sign up and you will be first".
     }
   }, []);
 

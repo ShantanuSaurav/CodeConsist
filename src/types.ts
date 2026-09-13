@@ -145,6 +145,13 @@ export interface UserStats {
   completedStages: string[];
   attempts: Record<string, ChallengeAttempt>;
   isPremium?: boolean;
+  /**
+   * Which account this local copy belongs to; absent for guest progress.
+   * Signing in merges GUEST progress into the account - it must never merge
+   * a previous user's progress on a shared machine, and it must never merge
+   * one account's cached copy into another.
+   */
+  ownerId?: string;
 }
 
 export interface UserProfile {

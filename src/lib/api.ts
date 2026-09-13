@@ -49,7 +49,11 @@ async function request<T>(
   const token = auth ? getToken() : null;
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  // The timer covers headers AND body. Clearing it as soon as headers arrived
+  // left the body read unbounded, and a connection dropped mid-body surfaced
+  // as a raw TypeError instead of the OfflineError the app branches on.
   let response: Response;
+  let text: string;
   try {
     response = await fetch(`${BASE}${path}`, {
       method,
@@ -57,13 +61,13 @@ async function request<T>(
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal
     });
+    text = await response.text();
   } catch {
     throw new OfflineError();
   } finally {
     clearTimeout(timer);
   }
 
-  const text = await response.text();
   let payload: any = null;
   if (text) {
     try {

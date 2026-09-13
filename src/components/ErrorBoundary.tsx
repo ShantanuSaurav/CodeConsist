@@ -26,8 +26,8 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
       <div className="crash-screen">
         <h1>Something broke.</h1>
         <p>
-          The page hit an error it could not recover from. Your progress is saved in this browser,
-          so reloading will not lose it.
+          The page hit an error it could not recover from. Progress is saved as you go — to this
+          browser, and to your account when you are signed in — so reloading should not lose it.
         </p>
         <pre>{this.state.error.message}</pre>
         <div className="crash-actions">
