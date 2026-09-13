@@ -56,13 +56,17 @@ const STAGE_ORDER = new Map(STAGE_META.map((s, i) => [s.id, i]));
 /**
  * Stage order, then authored order within a stage. Batch files are imported
  * alphabetically, which would otherwise open the library on stage 4.
+ *
+ * Within a stage the ORIGINAL position is the tiebreak - not the id text. An
+ * id sort put stage-11-a10 before stage-11-a2 the moment an author skipped
+ * zero-padding, and taught a curriculum out of order.
  */
 export const ALL_CHALLENGES: Challenge[] = RAW_CHALLENGES.map((c, i) => ({ c, i }))
   .sort((a, b) => {
     const stageDelta =
       (STAGE_ORDER.get(a.c.stageId) ?? 999) - (STAGE_ORDER.get(b.c.stageId) ?? 999);
     if (stageDelta !== 0) return stageDelta;
-    return a.c.id.localeCompare(b.c.id) || a.i - b.i;
+    return a.i - b.i;
   })
   .map(({ c }) => c);
 

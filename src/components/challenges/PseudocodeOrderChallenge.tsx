@@ -45,9 +45,11 @@ export const PseudocodeOrderChallenge: React.FC<Props> = ({
       e.preventDefault();
       const target = index + (e.key === 'ArrowUp' ? -1 : 1);
       move(index, target);
-      // Keep focus on the row that moved.
+      // Keep focus on the row that moved. React nulls e.currentTarget once the
+      // handler returns, so the list must be captured NOW, not inside the rAF
+      // - reading it there threw and the focus restore silently never ran.
+      const list = e.currentTarget.parentElement;
       requestAnimationFrame(() => {
-        const list = e.currentTarget.parentElement;
         const next = list?.children[Math.max(0, Math.min(lines.length - 1, target))] as HTMLElement | undefined;
         next?.focus();
       });

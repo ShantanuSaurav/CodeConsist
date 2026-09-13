@@ -83,7 +83,7 @@ export const Navbar: React.FC = () => {
               onClick={() => setProfileOpen((v) => !v)}
               aria-label="Account and settings"
               aria-expanded={isProfileOpen}
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
             >
               {user ? (
                 <span className="profile-initial">{user.username.charAt(0).toUpperCase()}</span>
@@ -96,7 +96,7 @@ export const Navbar: React.FC = () => {
             </button>
 
             {isProfileOpen && (
-              <div className="profile-dropdown open" role="menu">
+              <div className="profile-dropdown open" role="group" aria-label="Account and settings">
                 <div className="dropdown-header">
                   {user ? `Signed in as ${user.username}` : 'Not signed in'}
                 </div>
@@ -214,7 +214,12 @@ export const Navbar: React.FC = () => {
         </button>
       </header>
 
-      <div className={`nav-mobile ${isMobileOpen ? 'open' : ''}`.trim()}>
+      <div
+        className={`nav-mobile ${isMobileOpen ? 'open' : ''}`.trim()}
+        // @ts-expect-error - inert is in every current browser; React's typings lag.
+        inert={isMobileOpen ? undefined : ''}
+        aria-hidden={!isMobileOpen}
+      >
         <a href="#journey" onClick={closeMobile}>
           /path
         </a>

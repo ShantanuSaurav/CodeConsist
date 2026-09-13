@@ -59,7 +59,7 @@
 .modal-stage-badge {
   font-family: var(--font-mono);
   font-size: 0.74rem;
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 0.25rem;
@@ -318,7 +318,7 @@
   gap: 0.75rem;
   flex-wrap: wrap;
 }
-.code-engine { font-family: var(--font-mono); font-size: 0.74rem; color: var(--accent-2); }
+.code-engine { font-family: var(--font-mono); font-size: 0.74rem; color: var(--accent-2-ink); }
 .code-challenge-bar-actions { display: flex; align-items: center; gap: 0.85rem; }
 
 .test-panel {
@@ -433,7 +433,7 @@
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
   padding-top: 0.15rem;
 }
 
@@ -476,7 +476,7 @@
   flex-wrap: wrap;
 }
 .footer-left { display: flex; align-items: baseline; gap: 0.85rem; }
-.challenge-xp-reward { font-family: var(--font-display); color: var(--accent-2); font-size: 1rem; }
+.challenge-xp-reward { font-family: var(--font-display); color: var(--accent-2-ink); font-size: 1rem; }
 .footer-count { font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink-faint); }
 .footer-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 

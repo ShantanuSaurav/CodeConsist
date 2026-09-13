@@ -34,7 +34,8 @@ export const Hero: React.FC = () => {
       </div>
 
       {/* Spline 3D Robot */}
-      <div className="hero-spline-wrap" aria-hidden="true">
+      {/* @ts-expect-error - inert is in every current browser; React's typings lag. */}
+      <div className="hero-spline-wrap" aria-hidden="true" inert="">
         <spline-viewer url="https://prod.spline.design/9951u9cumiw2Ehj8/scene.splinecode"></spline-viewer>
       </div>
     </section>

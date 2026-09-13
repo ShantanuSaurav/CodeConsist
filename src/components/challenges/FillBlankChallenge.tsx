@@ -1,6 +1,6 @@
 import React from 'react';
 import { Challenge } from '../../types';
-import { Answer, wrongPositions } from '../../lib/checkAnswer';
+import { Answer, choiceOrder, wrongPositions } from '../../lib/checkAnswer';
 import { CodeBlock } from '../CodeBlock';
 
 interface Props {
@@ -48,7 +48,7 @@ export const FillBlankChallenge: React.FC<Props> = ({ challenge, answer, onAnswe
           aria-label={`Blank ${index + 1}`}
         >
           <option value="">choose…</option>
-          {blank.choices.map((choice) => (
+          {choiceOrder(challenge, index, blank.choices).map((choice) => (
             <option key={choice} value={choice}>
               {choice}
             </option>

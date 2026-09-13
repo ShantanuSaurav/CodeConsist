@@ -7,6 +7,7 @@ import { OptionsChallenge } from './challenges/OptionsChallenge';
 import { FillBlankChallenge } from './challenges/FillBlankChallenge';
 import { PseudocodeOrderChallenge } from './challenges/PseudocodeOrderChallenge';
 import { CodeChallenge } from './challenges/CodeChallenge';
+import { useFocusTrap } from '../lib/useFocusTrap';
 
 const TYPE_LABELS: Record<Challenge['type'], string> = {
   quiz: 'Multiple choice',
@@ -247,6 +248,20 @@ export const PracticeModal: React.FC = () => {
 
       if (typing) return;
 
+      // A focused control owns its own Enter. Intercepting it here used to
+      // turn Enter on "Skip" into Try again, Enter on "Show a hint" into
+      // grading the answer, and Enter on the close button into a run - every
+      // button in the dialog was hijacked for keyboard users. The shortcut
+      // only applies when nothing interactive has focus.
+      const onControl =
+        target &&
+        (target.tagName === 'BUTTON' ||
+          target.tagName === 'A' ||
+          target.getAttribute('role') === 'button' ||
+          target.isContentEditable ||
+          (target.tabIndex >= 0 && target !== dialogRef.current));
+      if (onControl && e.key === 'Enter') return;
+
       // Number keys pick an option on choice-style challenges. They address the
       // option in the position the learner SEES, so they must go through the
       // same display permutation the list is rendered with.
@@ -293,10 +308,10 @@ export const PracticeModal: React.FC = () => {
     handleTryAgain
   ]);
 
-  // Focus the dialog so screen readers announce it and Escape works at once.
-  useEffect(() => {
-    if (activeStage) dialogRef.current?.focus();
-  }, [activeStage]);
+  // Trap Tab inside the dialog while open, restore focus to the opener on close,
+  // and recover focus when the control that had it is replaced (Check answer
+  // becoming Next challenge used to drop focus to <body>).
+  useFocusTrap(dialogRef, Boolean(activeStage));
 
   /* ----------------------------------------------------------------- render */
 

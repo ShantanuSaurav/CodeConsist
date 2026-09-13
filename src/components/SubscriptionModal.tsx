@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useGame } from '../context/GameContext';
+import { useFocusTrap } from '../lib/useFocusTrap';
 
 interface SubscriptionModalProps {
   isOpen: boolean;
@@ -16,6 +17,9 @@ const PERKS = [
 export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose }) => {
   const { stats, upgradeToPro } = useGame();
   const [loading, setLoading] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useFocusTrap(dialogRef, isOpen);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -46,6 +50,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
         role="dialog"
         aria-modal="true"
         aria-label="CodeQuest Pro"
+        ref={dialogRef}
+        tabIndex={-1}
       >
         <div className="modal-header">
           <div>

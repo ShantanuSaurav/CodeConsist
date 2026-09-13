@@ -186,7 +186,7 @@ async function load() {
     files
       .map((f, i) => `export { challenges as c${i} } from ${JSON.stringify(rel(path.join(CHALLENGE_DIR, f)))};`)
       .join('\n') +
-      `\nexport { optionOrder } from ${JSON.stringify(rel(path.join(ROOT, 'src', 'lib', 'checkAnswer.ts')))};\n`,
+      `\nexport { optionOrder, choiceOrder } from ${JSON.stringify(rel(path.join(ROOT, 'src', 'lib', 'checkAnswer.ts')))};\n`,
     'utf8'
   );
 
@@ -204,11 +204,12 @@ async function load() {
   const mod = await import(pathToFileURL(out).href);
   const all = files.flatMap((_, i) => mod['c' + i] ?? []);
   const optionOrder = mod.optionOrder;
+  const choiceOrder = mod.choiceOrder;
   await rm(TMP, { recursive: true, force: true });
-  return { all, fileCount: files.length, optionOrder };
+  return { all, fileCount: files.length, optionOrder, choiceOrder };
 }
 
-const { all, fileCount, optionOrder } = await load();
+const { all, fileCount, optionOrder, choiceOrder } = await load();
 
 for (const c of all) {
   checkHintLeakage(c);
@@ -251,6 +252,19 @@ for (const c of all) {
   }
 }
 
+/* Blank-choice bias: the answer's DISPLAYED position among a blank's chips. */
+const blankPositions = {};
+let blanksWithChoices = 0;
+for (const c of all) {
+  if (c.type !== 'fill_blank') continue;
+  (c.blanks ?? []).forEach((b, i) => {
+    if (!Array.isArray(b.choices) || b.choices.length < 2) return;
+    const shown = choiceOrder(c, i, b.choices).indexOf(b.answer);
+    blankPositions[shown] = (blankPositions[shown] ?? 0) + 1;
+    blanksWithChoices++;
+  });
+}
+
 /* --------------------------------------------------------------- reporting */
 
 console.log(`\nLinted ${all.length} challenges across ${fileCount} file(s).\n`);
@@ -264,6 +278,20 @@ if (single > 0) {
   const worst = Math.max(...Object.values(positions));
   if (worst / single > 0.4) {
     console.log(`  ^ warning: ${Math.round((worst / single) * 100)}% of answers sit at one position; a learner could guess it.\n`);
+  } else {
+    console.log('');
+  }
+}
+
+if (blanksWithChoices > 0) {
+  const spread = Object.entries(blankPositions)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([i, n]) => `${i}:${n} (${Math.round((n / blanksWithChoices) * 100)}%)`)
+    .join('  ');
+  console.log(`  blank answer position as displayed, over ${blanksWithChoices} blanks with chips -> ${spread}`);
+  const worst = Math.max(...Object.values(blankPositions));
+  if (worst / blanksWithChoices > 0.5) {
+    console.log(`  ^ warning: ${Math.round((worst / blanksWithChoices) * 100)}% of blank answers land on one chip position.\n`);
   } else {
     console.log('');
   }

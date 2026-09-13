@@ -154,6 +154,24 @@ export function optionOrder(challenge: Challenge): number[] {
   return order;
 }
 
+/**
+ * Display order for one blank's choice chips. Same reasoning as optionOrder:
+ * authors put the answer first (92% of blanks in this bank), and the dropdown
+ * rendered them verbatim, so "pick the first entry" solved most of them.
+ * Choices are compared by TEXT, so no index mapping is needed - only the order
+ * moves. Seeded per blank so it is stable and identical for every learner.
+ */
+export function choiceOrder(challenge: Challenge, blankIndex: number, choices: string[]): string[] {
+  if (choices.length < 2) return choices;
+  const order = choices.slice();
+  const random = seedFrom(`${challenge.id}:blank:${blankIndex}`);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
 export function moveItem<T>(items: T[], from: number, to: number): T[] {
   if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return items;
   const next = [...items];

@@ -9,6 +9,9 @@
   --ink-faint: #8B8B93;
   --accent:    #4839FF;
   --accent-2:  #FFB020;
+  /* Amber as TEXT. #FFB020 on white is 1.7:1 - unreadable for low vision.
+     Fills and borders keep --accent-2; anything that has to be read uses this. */
+  --accent-2-ink: #8A5A00;
   --danger:    #FF5A4E;
   --ok:        #00B873;
   --line:      rgba(7, 7, 10, 0.14);
@@ -36,6 +39,7 @@
   --ink-faint: #55555F;
   --accent:    #4839FF;
   --accent-2:  #FFB020;
+  --accent-2-ink: #FFC861;
   --danger:    #FF5A4E;
   --ok:        #3ED8A8;
   --line:      rgba(243, 241, 234, 0.14);

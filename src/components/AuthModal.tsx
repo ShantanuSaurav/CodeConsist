@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useGame } from '../context/GameContext';
+import { useFocusTrap } from '../lib/useFocusTrap';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -16,11 +17,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Falls back to the dialog itself when the email field is disabled (offline).
+  useFocusTrap(dialogRef, isOpen, () =>
+    firstFieldRef.current && !firstFieldRef.current.disabled ? firstFieldRef.current : dialogRef.current
+  );
 
   useEffect(() => {
     if (!isOpen) return;
     setError('');
-    firstFieldRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -55,6 +61,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         role="dialog"
         aria-modal="true"
         aria-label={mode === 'signup' ? 'Create an account' : 'Sign in'}
+        ref={dialogRef}
+        tabIndex={-1}
       >
         <div className="modal-header">
           <div>

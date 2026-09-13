@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { SupportedLanguage } from '../types';
 
 interface CodeEditorProps {
@@ -67,6 +67,16 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
 
+    // A locked (solved) editor must stay locked. These handlers call onChange
+    // directly, which sails past the browser's readOnly enforcement.
+    if (readOnly) {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        el.blur();
+      }
+      return;
+    }
+
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
       onSubmit?.();
@@ -132,6 +142,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     }
   };
 
+  const hintId = useId();
+
   return (
     <div className={`code-editor ${focused ? 'is-focused' : ''}`.trim()}>
       <div className="code-editor-gutter" ref={gutterRef} aria-hidden="true">
@@ -154,9 +166,17 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         autoComplete="off"
         readOnly={readOnly}
         aria-label={ariaLabel}
+        aria-describedby={hintId}
         rows={lineCount}
-        style={{ height: `calc(${lineCount} * var(--code-line-height))` }}
+        // Include the vertical padding: without it the content box was ~1.2
+        // lines shorter than the line count, the textarea scrolled internally,
+        // and the gutter (which cannot scroll) drifted off the code it labels.
+        style={{ height: `calc(${lineCount} * var(--code-line-height) + 1.7rem)` }}
       />
+      {/* Tab indents here, which is a keyboard trap unless the exit is stated. */}
+      <span id={hintId} className="code-editor-hint" aria-live="off">
+        {focused ? 'Tab indents · Esc leaves the editor' : ''}
+      </span>
     </div>
   );
 };

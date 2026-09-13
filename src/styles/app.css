@@ -67,7 +67,7 @@
   display: block;
   font-family: var(--font-mono);
   font-size: 0.78rem;
-  color: var(--accent-2);
+  color: var(--accent-2-ink);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: 0.35rem;
@@ -89,12 +89,12 @@
   white-space: nowrap;
 }
 .pill-easy   { color: var(--ok);      border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
-.pill-medium { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 45%, transparent); }
+.pill-medium { color: var(--accent-2-ink); border-color: color-mix(in srgb, var(--accent-2) 45%, transparent); }
 .pill-hard   { color: var(--danger);  border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .pill-type   { color: var(--accent);  border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .pill-lang   { color: var(--ink-faint); }
 .pill-done   { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
-.pill-pro    { color: var(--accent-2); border-color: var(--accent-2); margin-left: 0.5rem; }
+.pill-pro    { color: var(--accent-2-ink); border-color: var(--accent-2-ink); margin-left: 0.5rem; }
 
 /* --------------------------------------------------------------- code block */
 
@@ -158,19 +158,18 @@
 .tok-keyword  { color: var(--accent); font-weight: 600; }
 .tok-string   { color: var(--ok); }
 .tok-comment  { color: var(--ink-faint); font-style: italic; }
-.tok-number   { color: var(--accent-2); }
-.tok-function { color: var(--accent-2); }
+.tok-number   { color: var(--accent-2-ink); }
+.tok-function { color: var(--accent-2-ink); }
 .tok-operator { color: var(--ink-dim); }
 .tok-plain    { color: var(--ink); }
 
 [data-theme='dark'] .tok-keyword { color: #9d92ff; }
 [data-theme='dark'] .tok-string  { color: #5fe3b0; }
-[data-theme='dark'] .tok-number,
-[data-theme='dark'] .tok-function { color: #ffc861; }
 
 /* -------------------------------------------------------------- code editor */
 
 .code-editor {
+  position: relative;
   display: flex;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -178,6 +177,21 @@
   overflow: hidden;
   flex: none;
   transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+
+/* "Tab indents · Esc leaves the editor" - shown only while focused, so the
+   keyboard trap that Tab-to-indent creates always has its exit on screen. */
+.code-editor-hint {
+  position: absolute;
+  right: 0.6rem;
+  bottom: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-faint);
+  background: color-mix(in srgb, var(--bg-raise) 85%, transparent);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  pointer-events: none;
 }
 .code-editor.is-focused {
   border-color: var(--accent);
@@ -352,7 +366,7 @@ kbd {
 }
 .pro-pill { color: var(--ok); border-color: var(--ok); font-weight: 600; }
 
-.nav-link-pro { color: var(--accent-2) !important; font-weight: 600; }
+.nav-link-pro { color: var(--accent-2-ink) !important; font-weight: 600; }
 .profile-initial { font-family: var(--font-label); font-weight: 700; font-size: 0.9rem; }
 
 .profile-dropdown { padding-bottom: 0.75rem; }
@@ -481,7 +495,7 @@ kbd {
   margin-top: auto;
   padding-top: 0.4rem;
 }
-.library-xp { color: var(--accent-2); }
+.library-xp { color: var(--accent-2-ink); }
 .library-best { font-family: var(--font-mono); font-size: 0.74rem; color: var(--ok); }
 .library-card .btn { justify-content: center; }
 
@@ -543,7 +557,7 @@ kbd {
 .board-list li.is-you { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .board-rank { font-family: var(--font-mono); color: var(--ink-faint); }
 .board-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.board-xp { font-family: var(--font-mono); color: var(--accent-2); }
+.board-xp { font-family: var(--font-mono); color: var(--accent-2-ink); }
 .board-solved { font-family: var(--font-mono); font-size: 0.76rem; color: var(--ink-faint); }
 
 /* --------------------------------------------------------------- playground */
