@@ -5,10 +5,10 @@
  * server can never drift. We compile it once with esbuild and cache the result
  * as JSON, rebuilding whenever a source file is newer than the cache.
  */
-import { readdir, stat, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { readdir, stat, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -37,41 +37,34 @@ async function newestSourceMtime() {
 
 async function compile() {
   const esbuild = (await import('esbuild')).default;
-  const tmp = path.join(CACHE_DIR, `build-${process.pid}`);
-  await mkdir(tmp, { recursive: true });
 
-  const rel = (target) => {
-    const r = path.relative(tmp, target).split(path.sep).join('/');
-    return r.startsWith('.') ? r : './' + r;
-  };
-
-  const entry = path.join(tmp, 'entry.mjs');
-  await writeFile(
-    entry,
-    `export { ALL_CHALLENGES, buildStages } from ${JSON.stringify(rel(path.join(SRC_DATA, 'index.ts')))};\n` +
-      `export { STAGE_META } from ${JSON.stringify(rel(path.join(SRC_DATA, 'stages.ts')))};\n`,
-    'utf8'
-  );
-
-  const out = path.join(tmp, 'bundle.mjs');
-  await esbuild.build({
-    entryPoints: [entry],
+  // Bundle in memory and import it as a data: URL. Writing a temp file and
+  // importing THAT made it a module `node --watch` tracked, so deleting it
+  // afterwards restarted the server.
+  const result = await esbuild.build({
+    stdin: {
+      contents: [
+        "export { ALL_CHALLENGES, buildStages } from './index';",
+        "export { STAGE_META } from './stages';"
+      ].join('\n'),
+      resolveDir: SRC_DATA,
+      loader: 'ts'
+    },
     bundle: true,
     format: 'esm',
     platform: 'node',
     target: 'node18',
-    outfile: out,
+    write: false,
     logLevel: 'silent'
   });
+  const code = result.outputFiles[0].text;
+  const mod = await import('data:text/javascript;base64,' + Buffer.from(code, 'utf8').toString('base64'));
 
-  const mod = await import(pathToFileURL(out).href + `?t=${Date.now()}`);
-  const payload = {
+  return {
     builtAt: new Date().toISOString(),
     stages: mod.STAGE_META,
     challenges: mod.ALL_CHALLENGES
   };
-  await rm(tmp, { recursive: true, force: true });
-  return payload;
 }
 
 /** Load the challenge bank, rebuilding the cache when the sources changed. */

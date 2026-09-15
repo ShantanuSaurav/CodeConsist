@@ -6,10 +6,12 @@ export const Stats: React.FC = () => {
 
   const figures = useMemo(() => {
     const languages = new Set(allChallenges.map((c) => c.language));
+    const lessons = allChallenges.filter((c) => !c.isStageTest);
+    const tests = allChallenges.filter((c) => c.isStageTest);
     const executable = allChallenges.filter((c) => c.type === 'code_runner' || c.type === 'debug');
     return [
-      { value: String(allChallenges.length), label: 'challenges, every one hand-checked' },
-      { value: String(stages.length), label: 'stages from first variable to production' },
+      { value: String(lessons.length), label: 'lessons, every one hand-checked' },
+      { value: String(tests.length), label: 'stage tests - real coding problems that gate each stage' },
       { value: String(executable.length), label: 'coding problems graded by real test runs' },
       { value: String(languages.size), label: 'languages and notations covered' }
     ];

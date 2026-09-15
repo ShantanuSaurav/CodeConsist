@@ -655,3 +655,35 @@ kbd {
   .library-controls { flex-direction: column; align-items: stretch; }
   .toast-stack { left: 1rem; right: 1rem; max-width: none; }
 }
+
+/* ---------------------------------------------------------------- stage tests */
+
+.pill-test { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+
+/* A stage whose lessons are done but whose test is not. */
+.path-test { border-bottom-color: var(--accent); }
+.path-test .path-state { color: var(--accent); font-weight: 600; }
+
+.path-test-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--ink-faint);
+}
+.path-test-badge.is-ready { color: var(--accent); }
+.path-test-badge.is-passed { color: var(--ok); }
+.path-test-name { color: var(--ink-faint); font-family: var(--font-body); }
+
+.path-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+.btn-solve-quiet {
+  color: var(--ink-dim);
+  background: transparent;
+  border-color: var(--line);
+}
+
+@media (max-width: 720px) {
+  .path-actions { grid-column: 2; justify-content: flex-start; }
+}

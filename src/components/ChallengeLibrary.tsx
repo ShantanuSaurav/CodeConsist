@@ -1,6 +1,7 @@
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import { useGame } from '../context/GameContext';
 import { Challenge, Difficulty } from '../types';
+import { stageStatus } from '../services/contentService';
 
 const TYPE_LABELS: Record<Challenge['type'], string> = {
   quiz: 'Quiz',
@@ -13,6 +14,7 @@ const TYPE_LABELS: Record<Challenge['type'], string> = {
 };
 
 type StatusFilter = 'all' | 'todo' | 'solved';
+type TypeFilter = Challenge['type'] | 'stage_test' | 'all';
 
 /**
  * Search and filter across the whole bank.
@@ -21,11 +23,11 @@ type StatusFilter = 'all' | 'todo' | 'solved';
  * drill one specific thing ("show me every SQL debug challenge I have not done").
  */
 export const ChallengeLibrary: React.FC = () => {
-  const { allChallenges, stages, stats, openPractice, openSubModal } = useGame();
+  const { allChallenges, stages, stats, openPractice, openStageTest, openSubModal } = useGame();
 
   const [query, setQuery] = useState('');
   const [difficulty, setDifficulty] = useState<Difficulty | 'all'>('all');
-  const [type, setType] = useState<Challenge['type'] | 'all'>('all');
+  const [type, setType] = useState<TypeFilter>('all');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [stageId, setStageId] = useState<string | 'all'>('all');
   const [limit, setLimit] = useState(24);
@@ -52,7 +54,9 @@ export const ChallengeLibrary: React.FC = () => {
     const needle = deferredQuery.trim().toLowerCase();
     return allChallenges.filter((c) => {
       if (difficulty !== 'all' && c.difficulty !== difficulty) return false;
-      if (type !== 'all' && c.type !== type) return false;
+      if (type === 'stage_test') {
+        if (!c.isStageTest) return false;
+      } else if (type !== 'all' && (c.type !== type || c.isStageTest)) return false;
       if (stageId !== 'all' && c.stageId !== stageId) return false;
 
       const solved = stats.completedChallenges.includes(c.id);
@@ -78,8 +82,9 @@ export const ChallengeLibrary: React.FC = () => {
         <div>
           <h2 className="section-title">Every challenge</h2>
           <p className="section-sub">
-            {allChallenges.length} challenges across {stages.length} stages. You have solved{' '}
-            {solvedCount}.
+            {allChallenges.filter((c) => !c.isStageTest).length} lessons and{' '}
+            {allChallenges.filter((c) => c.isStageTest).length} stage tests across {stages.length} stages. You have
+            solved {solvedCount}.
           </p>
         </div>
       </div>
@@ -108,10 +113,11 @@ export const ChallengeLibrary: React.FC = () => {
 
         <select
           value={type}
-          onChange={(e) => setType(e.target.value as Challenge['type'] | 'all')}
+          onChange={(e) => setType(e.target.value as TypeFilter)}
           aria-label="Filter by challenge type"
         >
           <option value="all">All types</option>
+          <option value="stage_test">Stage tests</option>
           {Object.entries(TYPE_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -171,14 +177,21 @@ export const ChallengeLibrary: React.FC = () => {
             {visible.map((c) => {
               const solved = stats.completedChallenges.includes(c.id);
               const needsPro = premiumStages.has(c.stageId);
-              const locked = lockedStages.has(c.stageId) && !needsPro;
+              const stage = stages.find((s) => s.id === c.stageId);
+              // A stage test is gated on its lessons, not on the previous stage.
+              const testLocked = Boolean(c.isStageTest) && stage ? !stageStatus(stage, stats).testUnlocked : false;
+              const locked = (lockedStages.has(c.stageId) && !needsPro) || (testLocked && !solved);
               const best = stats.attempts[c.id];
 
               return (
                 <li key={c.id} className={`library-card ${solved ? 'is-solved' : ''}`.trim()}>
                   <div className="library-card-head">
                     <span className={`pill pill-${c.difficulty}`}>{c.difficulty}</span>
-                    <span className="pill pill-type">{TYPE_LABELS[c.type]}</span>
+                    {c.isStageTest ? (
+                      <span className="pill pill-test">Stage test</span>
+                    ) : (
+                      <span className="pill pill-type">{TYPE_LABELS[c.type]}</span>
+                    )}
                     {solved && <span className="pill pill-done">solved</span>}
                   </div>
 
@@ -195,11 +208,29 @@ export const ChallengeLibrary: React.FC = () => {
                   <button
                     type="button"
                     className="btn btn-line btn-sm"
-                    onClick={() => (needsPro ? openSubModal() : openPractice(c.stageId, c.id))}
+                    onClick={() =>
+                      needsPro ? openSubModal() : c.isStageTest ? openStageTest(c.stageId) : openPractice(c.stageId, c.id)
+                    }
                     disabled={locked}
-                    title={locked ? 'Finish the earlier stages to unlock this' : undefined}
+                    title={
+                      locked
+                        ? testLocked
+                          ? 'Solve every lesson in this stage to unlock its test'
+                          : 'Finish the earlier stages to unlock this'
+                        : undefined
+                    }
                   >
-                    {locked ? 'Locked' : needsPro ? 'Unlock with Pro' : solved ? 'Practise again' : 'Solve'}
+                    {locked
+                      ? testLocked
+                        ? 'Finish the lessons first'
+                        : 'Locked'
+                      : needsPro
+                        ? 'Unlock with Pro'
+                        : solved
+                          ? 'Practise again'
+                          : c.isStageTest
+                            ? 'Take the test'
+                            : 'Solve'}
                   </button>
                 </li>
               );

@@ -18,7 +18,7 @@ import {
   UserProfile,
   UserStats
 } from '../types';
-import { applyProgress, contentService } from '../services/contentService';
+import { applyProgress, contentService, stageStatus } from '../services/contentService';
 import { compilerService, ExecuteOptions } from '../services/compilerService';
 import { api, ApiError, OfflineError, getToken, setToken } from '../lib/api';
 import { STORAGE_KEYS, readJson, readString, writeJson, writeString, remove } from '../lib/storage';
@@ -61,8 +61,14 @@ export interface GameContextType {
 
   /* practice session */
   activeStage: Stage | null;
+  /** 'lessons' walks the stage's challenges; 'test' holds only the stage test. */
+  activeMode: 'lessons' | 'test';
+  /** The challenges the open session is walking through. */
+  activeChallenges: Challenge[];
   activeChallengeIndex: number;
   openPractice: (stageId?: string, challengeId?: string) => void;
+  /** Open a stage's mandatory test. Refuses (with a toast) until every lesson is solved. */
+  openStageTest: (stageId: string) => void;
   closePractice: () => void;
   goToChallenge: (index: number) => void;
 
@@ -169,6 +175,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (user) writeJson(STORAGE_KEYS.user, user);
     else remove(STORAGE_KEYS.user);
+  }, [user]);
+
+  // Read inside the handshake effect without making it a dependency.
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
   }, [user]);
 
   /* -------------------------------------------------------------- content */
@@ -284,7 +296,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           notify('Your session has expired. Sign in again to keep syncing.', 'info');
         }
-        // Any other failure (server hiccup) keeps the token for the next probe.
+        // Any other failure (server hiccup) keeps the token and tries again
+        // shortly, rather than waiting for the 30s probe.
+        window.setTimeout(() => {
+          if (!cancelled && getToken() && !userRef.current) restoreSession();
+        }, 2500);
       }
     };
 
@@ -304,8 +320,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Refresh content in case challenges were edited since the last build.
           const fresh = await contentService.loadFromApi();
           if (!cancelled && fresh) setBundle(fresh);
-          await restoreSession();
         }
+
+        // Restore on recovery, and ALSO on any later probe that finds a saved
+        // token with no signed-in user. A transient failure during the first
+        // attempt (the API restarting under --watch, say) used to leave the
+        // page signed out until a manual reload, because restore only ran on
+        // the offline -> online transition.
+        const needsRestore = getToken() && (recovered || !userRef.current || userRef.current.provider === 'guest');
+        if (needsRestore) await restoreSession();
       } catch {
         if (cancelled) return;
         wasOnline = false;
@@ -337,6 +360,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /* ------------------------------------------------------- practice session */
   const [activeStageId, setActiveStageId] = useState<string | null>(null);
+  const [activeMode, setActiveMode] = useState<'lessons' | 'test'>('lessons');
   const [activeChallengeIndex, setActiveChallengeIndex] = useState(0);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isSubModalOpen, setSubModalOpen] = useState(false);
@@ -345,6 +369,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     () => (activeStageId ? stages.find((s) => s.id === activeStageId) ?? null : null),
     [activeStageId, stages]
   );
+
+  const activeChallenges = useMemo<Challenge[]>(() => {
+    if (!activeStage) return [];
+    if (activeMode === 'test') return activeStage.test ? [activeStage.test] : [];
+    return activeStage.challenges;
+  }, [activeStage, activeMode]);
 
   const openPractice = useCallback(
     (stageId?: string, challengeId?: string) => {
@@ -378,14 +408,47 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         index = firstUnsolved >= 0 ? firstUnsolved : 0;
       }
 
+      setActiveMode('lessons');
       setActiveStageId(target.id);
       setActiveChallengeIndex(index);
     },
     [stages, stats.isPremium, stats.completedChallenges, notify]
   );
 
+  /**
+   * The stage test is mandatory and gated: it opens only once every lesson in
+   * the stage is solved, and the next stage does not open until it is passed.
+   */
+  const openStageTest = useCallback(
+    (stageId: string) => {
+      const target = stages.find((s) => s.id === stageId);
+      if (!target || !target.test) {
+        notify('This stage has no test.', 'error');
+        return;
+      }
+      if (target.isPremium && !stats.isPremium) {
+        setSubModalOpen(true);
+        return;
+      }
+      if (target.state === 'Locked') {
+        notify('Finish the earlier stages first.', 'error');
+        return;
+      }
+      const status = stageStatus(target, stats);
+      if (!status.lessonsDone) {
+        notify(`Solve all ${status.total} lessons in ${target.name} to unlock its test (${status.done} done).`, 'info');
+        return;
+      }
+      setActiveMode('test');
+      setActiveStageId(target.id);
+      setActiveChallengeIndex(0);
+    },
+    [stages, stats, notify]
+  );
+
   const closePractice = useCallback(() => {
     setActiveStageId(null);
+    setActiveMode('lessons');
     setActiveChallengeIndex(0);
   }, []);
 
@@ -691,8 +754,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       notify,
       dismissToast,
       activeStage,
+      activeMode,
+      activeChallenges,
       activeChallengeIndex,
       openPractice,
+      openStageTest,
       closePractice,
       goToChallenge,
       isAuthModalOpen,
@@ -725,8 +791,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       notify,
       dismissToast,
       activeStage,
+      activeMode,
+      activeChallenges,
       activeChallengeIndex,
       openPractice,
+      openStageTest,
       closePractice,
       goToChallenge,
       isAuthModalOpen,

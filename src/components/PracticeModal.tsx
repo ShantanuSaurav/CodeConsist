@@ -8,6 +8,7 @@ import { FillBlankChallenge } from './challenges/FillBlankChallenge';
 import { PseudocodeOrderChallenge } from './challenges/PseudocodeOrderChallenge';
 import { CodeChallenge } from './challenges/CodeChallenge';
 import { useFocusTrap } from '../lib/useFocusTrap';
+import { stageStatus } from '../services/contentService';
 
 const TYPE_LABELS: Record<Challenge['type'], string> = {
   quiz: 'Multiple choice',
@@ -23,16 +24,22 @@ const isCodeType = (c: Challenge) => c.type === 'code_runner' || c.type === 'deb
 
 export const PracticeModal: React.FC = () => {
   const {
+    stages,
     activeStage,
+    activeMode,
+    activeChallenges,
     activeChallengeIndex,
     closePractice,
     goToChallenge,
+    openStageTest,
+    openPractice,
     completeChallenge,
     executeCode,
     stats
   } = useGame();
 
-  const challenges = activeStage?.challenges ?? [];
+  const isTestMode = activeMode === 'test';
+  const challenges = activeChallenges;
   const challenge: Challenge | undefined = challenges[activeChallengeIndex];
 
   /* ------------------------------------------------------------ per-challenge state */
@@ -323,6 +330,8 @@ export const PracticeModal: React.FC = () => {
   if (!activeStage || !challenge) return null;
 
   const hints = challenge.hints ?? [];
+  const { testPassed } = stageStatus(activeStage, stats);
+  const nextStage = stages[stages.findIndex((s) => s.id === activeStage.id) + 1];
   const canCheck = isAnswerComplete(challenge, currentAnswer);
   const alreadySolved = stats.completedChallenges.includes(challenge.id);
   const percent = Math.round(((activeChallengeIndex + (checked && isCorrect ? 1 : 0)) / challenges.length) * 100);
@@ -343,9 +352,12 @@ export const PracticeModal: React.FC = () => {
           <div className="modal-header-main">
             <div className="modal-stage-badge">
               <span aria-hidden="true">{activeStage.icon}</span> Stage {activeStage.index} ·{' '}
+              {isTestMode ? 'Stage test · ' : ''}
               {activeStage.name}
             </div>
-            <h3 className="modal-title">{finished ? 'Stage complete' : challenge.title}</h3>
+            <h3 className="modal-title">
+              {finished ? (isTestMode ? 'Stage cleared' : 'Lessons complete') : challenge.title}
+            </h3>
             {!finished && (
               <div className="modal-meta">
                 <span className={`pill pill-${challenge.difficulty}`}>{challenge.difficulty}</span>
@@ -365,7 +377,7 @@ export const PracticeModal: React.FC = () => {
           <div className="modal-progress-bar" style={{ width: `${percent}%` }} />
         </div>
 
-        {!finished && (
+        {!finished && !isTestMode && (
           <nav className="challenge-dots" aria-label="Challenges in this stage">
             {challenges.map((c, i) => {
               const done = stats.completedChallenges.includes(c.id);
@@ -389,12 +401,34 @@ export const PracticeModal: React.FC = () => {
           {finished ? (
             <div className="celebration-view">
               <div className="celebration-icon" aria-hidden="true">
-                🏆
+                {isTestMode || testPassed ? '🏆' : '📝'}
               </div>
-              <h2 className="celebration-title">{activeStage.name} cleared</h2>
-              <p>
-                You solved {sessionSolved.length} of {challenges.length} challenges this session.
-              </p>
+
+              {isTestMode ? (
+                <>
+                  <h2 className="celebration-title">{activeStage.name} cleared</h2>
+                  <p>
+                    You passed the stage test.
+                    {nextStage
+                      ? ` Stage ${nextStage.index} - ${nextStage.name} - is now open.`
+                      : ' That was the last stage.'}
+                  </p>
+                </>
+              ) : testPassed ? (
+                <>
+                  <h2 className="celebration-title">{activeStage.name} complete</h2>
+                  <p>Every lesson and the stage test are done.</p>
+                </>
+              ) : (
+                <>
+                  <h2 className="celebration-title">Lessons complete</h2>
+                  <p>
+                    {sessionSolved.length > 0 ? `${sessionSolved.length} solved this session. ` : ''}
+                    One more step: the {activeStage.name} stage test. It is a single coding problem on
+                    what you just learned, and passing it is what unlocks the next stage.
+                  </p>
+                </>
+              )}
 
               <div className="celebration-stats">
                 <div className="celebration-stat-box">
@@ -403,9 +437,9 @@ export const PracticeModal: React.FC = () => {
                 </div>
                 <div className="celebration-stat-box">
                   <strong>
-                    {solvedInStage}/{challenges.length}
+                    {solvedInStage}/{activeStage.challenges.length}
                   </strong>
-                  <span>Stage solved</span>
+                  <span>Lessons solved</span>
                 </div>
                 <div className="celebration-stat-box">
                   <strong>{stats.streak}</strong>
@@ -414,17 +448,85 @@ export const PracticeModal: React.FC = () => {
               </div>
 
               <div className="celebration-actions">
-                <button type="button" className="btn btn-line btn-lg" onClick={restartStage}>
-                  Replay stage
-                </button>
-                <button type="button" className="btn btn-solid btn-lg" onClick={closePractice}>
-                  Back to the path
-                </button>
+                {!isTestMode && activeStage.test && !testPassed ? (
+                  <>
+                    <button type="button" className="btn btn-line btn-lg" onClick={closePractice}>
+                      Later
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-solid btn-lg"
+                      onClick={() => openStageTest(activeStage.id)}
+                    >
+                      Take the stage test →
+                    </button>
+                  </>
+                ) : isTestMode && nextStage && nextStage.state !== 'Locked' ? (
+                  <>
+                    <button type="button" className="btn btn-line btn-lg" onClick={closePractice}>
+                      Back to the path
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-solid btn-lg"
+                      onClick={() => openPractice(nextStage.id)}
+                    >
+                      Start Stage {nextStage.index} →
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {!isTestMode && (
+                      <button type="button" className="btn btn-line btn-lg" onClick={restartStage}>
+                        Replay stage
+                      </button>
+                    )}
+                    <button type="button" className="btn btn-solid btn-lg" onClick={closePractice}>
+                      Back to the path
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ) : (
             <>
               <p className="challenge-prompt">{challenge.prompt}</p>
+
+              {challenge.isStageTest && (challenge.examples?.length || challenge.constraints?.length) ? (
+                <div className="problem-panel">
+                  {challenge.examples?.map((ex, i) => (
+                    <div className="problem-example" key={i}>
+                      <div className="problem-head">Example {i + 1}</div>
+                      <dl>
+                        <dt>Input</dt>
+                        <dd>
+                          <code>{ex.input}</code>
+                        </dd>
+                        <dt>Output</dt>
+                        <dd>
+                          <code>{ex.output}</code>
+                        </dd>
+                        {ex.explanation && (
+                          <>
+                            <dt>Why</dt>
+                            <dd>{ex.explanation}</dd>
+                          </>
+                        )}
+                      </dl>
+                    </div>
+                  ))}
+                  {challenge.constraints?.length ? (
+                    <div className="problem-constraints">
+                      <div className="problem-head">Constraints</div>
+                      <ul>
+                        {challenge.constraints.map((c, i) => (
+                          <li key={i}>{c}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* The snippet, always in full. fill_blank renders its own copy
                   because the inputs live inside it. */}
@@ -491,7 +593,9 @@ export const PracticeModal: React.FC = () => {
                       <span>{hint}</span>
                     </div>
                   ))}
-                  {revealedHints < hints.length && !(checked && isCorrect) && (
+                  {revealedHints < hints.length &&
+                    !(checked && isCorrect) &&
+                    (!challenge.isStageTest || attempts >= 1) && (
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm"
@@ -563,9 +667,11 @@ export const PracticeModal: React.FC = () => {
                 </button>
               ) : checked ? (
                 <>
-                  <button type="button" className="btn btn-line" onClick={advance}>
-                    Skip
-                  </button>
+                  {!isTestMode && (
+                    <button type="button" className="btn btn-line" onClick={advance}>
+                      Skip
+                    </button>
+                  )}
                   <button type="button" className="btn btn-solid" onClick={handleTryAgain}>
                     Try again
                   </button>

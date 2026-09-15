@@ -49,6 +49,13 @@ export interface TestResult {
   timeMs?: number;
 }
 
+/** A worked example shown on a stage test, LeetCode-style. */
+export interface WorkedExample {
+  input: string;
+  output: string;
+  explanation?: string;
+}
+
 export interface Blank {
   /** Accepted answer (compared case-sensitively after trimming). */
   answer: string;
@@ -100,6 +107,17 @@ export interface Challenge {
   /** Reference solution, revealed only after the learner asks for it. */
   solutionCode?: string;
 
+  /**
+   * Marks the stage's mandatory coding test. One per stage; unlocked once every
+   * lesson in the stage is solved, and the next stage stays locked until it is
+   * passed. Presented with examples and constraints rather than hints.
+   */
+  isStageTest?: boolean;
+  /** Worked examples, for stage tests. */
+  examples?: WorkedExample[];
+  /** Input guarantees the solution may rely on, for stage tests. */
+  constraints?: string[];
+
   /** Shown one at a time, on demand, before the answer is given away. */
   hints?: string[];
   /** Always shown after answering. Explains *why*. */
@@ -113,12 +131,19 @@ export interface Stage {
   index: string;
   slug?: string;
   name: string;
-  state: 'Completed' | 'In progress' | 'Locked';
+  /**
+   * 'Test pending' = every lesson solved, stage test not yet passed. The next
+   * stage does not open until it is.
+   */
+  state: 'Completed' | 'Test pending' | 'In progress' | 'Locked';
   description: string;
   isPremium?: boolean;
   /** Emoji or short glyph used on the path list. */
   icon?: string;
+  /** The lessons. Does NOT include the stage test. */
   challenges: Challenge[];
+  /** The mandatory coding test for this stage, if it has one. */
+  test?: Challenge;
 }
 
 /* ==========================================================================

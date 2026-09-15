@@ -1,7 +1,8 @@
 # CodeQuest
 
-A daily practice app for developers. 200 hand-checked challenges across 10 stages,
-graded by really running your code.
+A daily practice app for developers. 200 hand-checked lessons across 10 stages,
+each stage capped by a LeetCode-style coding test, all graded by really running
+your code.
 
 Everything runs on your machine. No cloud account, no Docker, no native build step.
 
@@ -31,7 +32,7 @@ npm start          # app + API together on http://localhost:4000
 
 ## What is in the box
 
-**200 challenges, 20 per stage**, in seven formats:
+**200 lessons, 20 per stage**, in seven formats, plus one stage test each:
 
 | Type | What you do |
 | --- | --- |
@@ -45,6 +46,15 @@ npm start          # app + API together on http://localhost:4000
 
 The path runs Programming Basics → Python → Data Structures → Algorithms → Web →
 Backend → SQL → Git and Testing → System Design → Shipping.
+
+**Stage tests.** Every stage ends in a mandatory coding problem on its own topic
+- run-length encoding for Basics, an LRU cache for Data Structures, a sliding
+window for Algorithms, a route matcher for Backend, an in-memory INNER JOIN for
+SQL, a rate limiter for System Design, and so on. It unlocks once all 20 lessons
+in the stage are solved, and the **next stage stays locked until it is passed**.
+Tests are presented LeetCode-style: statement, worked examples, constraints, a
+mix of visible and hidden test cases, and no hints until you have made an
+attempt. Nothing can be skipped.
 
 **Three real execution engines, and no faking.**
 
@@ -90,7 +100,9 @@ generation (`eval`, `new Function`) is disabled inside it. Do not loosen this.
 ## Adding challenges
 
 Challenges live in `src/data/challenges/<stage-slug>-<batch>.ts`, each exporting
-`challenges: Challenge[]`. `docs/CONTENT_AUTHORING.md` has the rules and
+`challenges: Challenge[]`. Stage tests live in `stage-tests.ts` with
+`isStageTest: true`, `examples` and `constraints`; the index splits them out
+into `stage.test`. `docs/CONTENT_AUTHORING.md` has the rules and
 `src/data/challenges/programming-basics-a.ts` shows every type.
 
 After adding a file:

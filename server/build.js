@@ -3,7 +3,7 @@
  * its child runners) can import. Keeps one source of truth for logic that must
  * behave identically in the browser and on the server - the grader especially.
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,21 +19,32 @@ export async function compileTsModule(entryTs, outName) {
   await mkdir(GENERATED_DIR, { recursive: true });
   const outFile = path.join(GENERATED_DIR, outName);
 
-  // Always rebuild. It costs ~50ms at startup, and the alternative - deciding
-  // freshness from the ENTRY file's mtime alone - silently kept a stale bundle
-  // whenever an imported dependency changed and the entry did not.
-
+  // Always compile, so a change in any transitive import is picked up (an
+  // mtime check on the entry file alone missed those). But only WRITE when
+  // the output differs: the server imports this file, `node --watch` watches
+  // every imported module, and rewriting an identical bundle on each start
+  // produced an infinite restart loop.
   const esbuild = (await import('esbuild')).default;
-  await esbuild.build({
+  const result = await esbuild.build({
     entryPoints: [entryTs],
     bundle: true,
     format: 'esm',
     platform: 'node',
     target: 'node18',
-    outfile: outFile,
+    write: false,
     logLevel: 'silent'
   });
-  // Touch so the mtime comparison above is stable even on coarse filesystems.
-  await writeFile(path.join(GENERATED_DIR, '.gitignore'), '*\n', 'utf8');
+  const next = result.outputFiles[0].text;
+
+  let current = null;
+  try {
+    current = await readFile(outFile, 'utf8');
+  } catch {
+    /* first build */
+  }
+  if (current !== next) await writeFile(outFile, next, 'utf8');
+
+  const ignore = path.join(GENERATED_DIR, '.gitignore');
+  if (!(await readFile(ignore, 'utf8').catch(() => null))) await writeFile(ignore, '*\n', 'utf8');
   return outFile;
 }

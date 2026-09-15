@@ -66,10 +66,19 @@ export const ALL_CHALLENGES: Challenge[] = RAW_CHALLENGES.map((c, i) => ({ c, i 
   })
   .map(({ c }) => c);
 
-/** Challenges grouped by stage, in stage order, preserving authored order. */
+/**
+ * Challenges grouped by stage, in stage order, preserving authored order.
+ * The stage test (isStageTest) is split out into \`stage.test\`; \`stage.challenges\`
+ * holds only the lessons.
+ */
 export function buildStages(): Stage[] {
   const byStage = new Map<string, Challenge[]>();
+  const testByStage = new Map<string, Challenge>();
   for (const challenge of ALL_CHALLENGES) {
+    if (challenge.isStageTest) {
+      testByStage.set(challenge.stageId, challenge);
+      continue;
+    }
     const bucket = byStage.get(challenge.stageId);
     if (bucket) bucket.push(challenge);
     else byStage.set(challenge.stageId, [challenge]);
@@ -78,7 +87,8 @@ export function buildStages(): Stage[] {
   return STAGE_META.map((meta) => ({
     ...meta,
     state: 'Locked' as const,
-    challenges: byStage.get(meta.id) ?? []
+    challenges: byStage.get(meta.id) ?? [],
+    test: testByStage.get(meta.id)
   }));
 }
 
