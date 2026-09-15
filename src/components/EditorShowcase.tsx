@@ -69,17 +69,26 @@ const FILE_NAMES: Partial<Record<SupportedLanguage, string>> = {
 interface Draft {
   language: SupportedLanguage;
   code: string;
+  /** Which example the editor currently holds, or null once it has been edited. */
+  snippet: string | null;
+}
+
+/** The example whose text matches the code exactly, if any. */
+function matchingSnippet(language: SupportedLanguage, code: string): string | null {
+  const entry = Object.entries(SNIPPETS[language] ?? {}).find(([, text]) => text === code);
+  return entry ? entry[0] : null;
 }
 
 export const EditorShowcase: React.FC = () => {
   const { executeCode, openPractice, serverStatus } = useGame();
 
-  const [draft, setDraft] = useState<Draft>(() =>
-    readJson<Draft>(STORAGE_KEYS.editor, {
-      language: 'javascript',
-      code: SNIPPETS.javascript['Array pipeline']
-    })
-  );
+  const [draft, setDraft] = useState<Draft>(() => {
+    const saved = readJson<Partial<Draft>>(STORAGE_KEYS.editor, {});
+    const language = saved.language ?? 'javascript';
+    const code = saved.code ?? SNIPPETS.javascript['Array pipeline'];
+    // Drafts saved before `snippet` existed work it out from the code.
+    return { language, code, snippet: saved.snippet !== undefined ? saved.snippet : matchingSnippet(language, code) };
+  });
   const [isRunning, setRunning] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [progress, setProgress] = useState('');
@@ -88,11 +97,19 @@ export const EditorShowcase: React.FC = () => {
     writeJson(STORAGE_KEYS.editor, draft);
   }, [draft]);
 
-  const setCode = useCallback((code: string) => setDraft((d) => ({ ...d, code })), []);
+  const setCode = useCallback(
+    (code: string) => setDraft((d) => ({ ...d, code, snippet: matchingSnippet(d.language, code) })),
+    []
+  );
+
+  const loadSnippet = (name: string) => {
+    const text = SNIPPETS[draft.language]?.[name];
+    if (text !== undefined) setDraft((d) => ({ ...d, code: text, snippet: name }));
+  };
 
   const switchLanguage = (language: SupportedLanguage) => {
-    const first = Object.values(SNIPPETS[language] ?? {})[0] ?? '';
-    setDraft({ language, code: first });
+    const [firstName, firstText] = Object.entries(SNIPPETS[language] ?? {})[0] ?? ['', ''];
+    setDraft({ language, code: firstText, snippet: firstName || null });
     setResult(null);
   };
 
@@ -153,14 +170,13 @@ export const EditorShowcase: React.FC = () => {
               </div>
 
               <select
-                aria-label="Load a snippet"
-                value=""
-                onChange={(e) => {
-                  const snippet = SNIPPETS[draft.language]?.[e.target.value];
-                  if (snippet) setCode(snippet);
-                }}
+                aria-label="Load an example"
+                value={draft.snippet ?? ''}
+                onChange={(e) => e.target.value && loadSnippet(e.target.value)}
               >
-                <option value="">Examples…</option>
+                <option value="" disabled={draft.snippet !== null}>
+                  {draft.snippet === null ? 'Custom code' : 'Examples…'}
+                </option>
                 {Object.keys(SNIPPETS[draft.language] ?? {}).map((name) => (
                   <option key={name} value={name}>
                     {name}
