@@ -1,35 +1,47 @@
 {
   "name": "devlingo",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "oxlint",
-    "preview": "vite preview"
+    "dev": "concurrently -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:web": "vite",
+    "dev:api": "node --env-file-if-exists=.env --watch-path=./server/index.js --watch-path=./server/content.js --watch-path=./server/db.js --watch-path=./server/build.js --watch-path=./server/runner --watch-path=./src/data --watch-path=./src/lib server/index.js",
+    "build": "npm run content:index && tsc && vite build",
+    "preview": "vite preview",
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "typecheck": "tsc --noEmit",
+    "content:index": "node scripts/build-index.mjs",
+    "content:validate": "node scripts/validate-content.mjs",
+    "check": "npm run content:index && npm run typecheck && npm run content:validate && npm run content:lint",
+    "content:lint": "node scripts/lint-content.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.116.0",
-    "clsx": "^2.1.1",
-    "framer-motion": "^13.2.0",
-    "lucide-react": "^1.42.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.3",
-    "tailwind-merge": "^3.6.0"
+    "bcryptjs": "^2.4.3",
+    "canvas-confetti": "^1.9.4",
+    "cors": "^2.8.6",
+    "esbuild": "^0.28.2",
+    "express": "^5.2.1",
+    "framer-motion": "^12.43.0",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^1.46.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^24.13.3",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "@vitejs/plugin-react": "^6.1.0",
-    "autoprefixer": "^10.5.5",
-    "oxlint": "^1.79.0",
-    "postcss": "^8.5.28",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.2.4",
     "tailwindcss": "^4.3.3",
-    "typescript": "~6.0.2",
-    "vite": "^8.2.2"
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0"
+  },
+  "description": "Devlingo - the developer training environment. 200 lessons, 10 stage tests, real code execution. Runs end to end on localhost.",
+  "engines": {
+    "node": ">=22.9"
   }
 }

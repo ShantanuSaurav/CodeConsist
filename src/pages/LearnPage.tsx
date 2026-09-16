@@ -1,16 +1,29 @@
 import React from 'react';
-import { Navbar } from '../components/layout/Navbar';
-import { LearningExperience } from '../components/layout/LearningExperience';
-import { Footer } from '../components/layout/Footer';
+import { PageHeader } from '../components/ui/PageHeader';
+import { LearningPath } from '../components/LearningPath';
+import { useGame } from '../context/GameContext';
 
-export const LearnPage = () => {
+export const LearnPage: React.FC = () => {
+  const { stages } = useGame();
+  const cleared = stages.filter((s) => s.state === 'Completed').length;
+
   return (
-    <div className="bg-[var(--color-background)] min-h-screen text-gray-900 dark:text-white font-sans selection:bg-[var(--color-primary)]/30 flex flex-col">
-      <Navbar />
-      <div className="pt-20 flex-1">
-        <LearningExperience />
-      </div>
-      <Footer />
+    <div className="p-6 sm:p-8 max-w-5xl mx-auto">
+      <PageHeader
+        eyebrow="Learning path"
+        title="Your path, staged"
+        description="Ten stages. Finish a stage's lessons, pass its coding test, and the next one opens."
+        aside={
+          <div className="text-right">
+            <div className="text-3xl font-bold font-mono text-gray-900 dark:text-white">
+              {cleared}
+              <span className="text-gray-400 text-xl"> / {stages.length}</span>
+            </div>
+            <div className="text-xs text-gray-500">stages cleared</div>
+          </div>
+        }
+      />
+      <LearningPath />
     </div>
   );
 };

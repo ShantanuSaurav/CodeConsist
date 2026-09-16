@@ -1,0 +1,65 @@
+/* ==========================================================================
+   Devlingo — tokens read by the CodeQuest component styles.
+
+   These mirror the Tailwind theme in src/index.css so the practice modal,
+   code editor, pills and toasts match the rest of the app in both themes.
+   Dark mode is the `.dark` class on <html>, same as Tailwind's variant.
+   ========================================================================== */
+:root {
+  --bg:        #FFFFFF;
+  --bg-raise:  #F9FAFB;
+  --ink:       #0F172A;
+  --ink-dim:   #4B5563;
+  --ink-faint: #6B7280;
+  --accent:    #16A30B;
+  --accent-hover: #128009;
+  /* Text ON the accent. Devlingo's dark primary is a neon lime, so white on it
+     is unreadable; the pair flips with the theme. */
+  --accent-ink: #FFFFFF;
+  --accent-2:  #FFB300;
+  /* Amber as TEXT. #FFB300 on white is 1.7:1 - unreadable for low vision.
+     Fills and borders keep --accent-2; anything that has to be read uses this. */
+  --accent-2-ink: #8A5A00;
+  --secondary: #0284C7;
+  --danger:    #E5372E;
+  --ok:        #16A30B;
+  --line:      rgba(15, 23, 42, 0.12);
+  --line-soft: rgba(15, 23, 42, 0.06);
+
+  --font-display: 'Inter', system-ui, sans-serif;
+  --font-head: 'Inter', system-ui, sans-serif;
+  --font-label: 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --fast: 160ms;
+  --med: 400ms;
+}
+
+.dark {
+  --bg:        #0D1117;
+  --bg-raise:  #161B22;
+  --ink:       #E6EDF3;
+  --ink-dim:   #9CA3AF;
+  --ink-faint: #6B7280;
+  --accent:    #39FF14;
+  --accent-hover: #2CE60D;
+  --accent-ink: #000000;
+  --accent-2:  #FFB300;
+  --accent-2-ink: #FFC861;
+  --secondary: #00E5FF;
+  --danger:    #FF5A4E;
+  --ok:        #39FF14;
+  --line:      rgba(230, 237, 243, 0.12);
+  --line-soft: rgba(230, 237, 243, 0.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
