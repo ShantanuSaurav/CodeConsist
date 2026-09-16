@@ -149,6 +149,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   useEffect(() => {
+    // Tailwind's dark variant keys off the class; the flash-prevention script
+    // in index.html sets the same class before React loads.
+    document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.setAttribute('data-theme', theme);
     writeString(STORAGE_KEYS.theme, theme);
   }, [theme]);

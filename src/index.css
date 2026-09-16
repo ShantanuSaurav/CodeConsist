@@ -1,0 +1,54 @@
+/* Tailwind entry. Devlingo's palette lives here as Tailwind theme tokens; the
+   CodeQuest component styles (practice modal, editor, toasts) read the same
+   colours through the variables in styles/tokens.css, so both halves of the UI
+   swap themes together. */
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-secondary: var(--secondary);
+  --color-warning: #ffb300;
+  --color-error: #ff3b30;
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+}
+
+@layer base {
+  :root {
+    --primary: #16a30b;
+    --primary-dark: #128009;
+    --secondary: #0284c7;
+    --surface: #ffffff;
+    --surface-raised: #f9fafb;
+    color-scheme: light;
+  }
+  :root.dark {
+    --primary: #39ff14;
+    --primary-dark: #2ce60d;
+    --secondary: #00e5ff;
+    --surface: #0d1117;
+    --surface-raised: #161b22;
+    color-scheme: dark;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: var(--surface);
+    color: #0f172a;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  .dark body {
+    color: #e6edf3;
+  }
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}

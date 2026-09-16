@@ -3,20 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CodeQuest — Learn. Code. Build. Every day.</title>
-  <meta name="description" content="Duolingo for Developers — Fifteen minutes, one problem, real code. A daily practice for developers." />
+  <title>Devlingo — Learn to Code. Level Up for Real.</title>
+  <meta name="description" content="Devlingo — the developer training environment. 200 hand-checked lessons, LeetCode-style stage tests and real code execution, in ten stages." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
-  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@500;600;700&family=Space+Grotesk:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
-  <!-- Spline 3D Viewer Web Component -->
-  <script type="module" src="https://unpkg.com/@splinetool/viewer@1.9.82/build/spline-viewer.js"></script>
-
-  <!-- Prevent Theme Flash -->
+  <!-- Prevent theme flash: the app stores the theme under cq-theme and keys
+       dark mode off the .dark class (Tailwind) and data-theme (component CSS). -->
   <script>
     if (localStorage.getItem('cq-theme') === 'dark') {
+      document.documentElement.classList.add('dark');
       document.documentElement.setAttribute('data-theme', 'dark');
     }
   </script>

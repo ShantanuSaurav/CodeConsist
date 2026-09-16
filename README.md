@@ -1,10 +1,14 @@
-# CodeQuest
+# Devlingo
 
-A daily practice app for developers. 200 hand-checked lessons across 10 stages,
+The developer training environment. 200 hand-checked lessons across 10 stages,
 each stage capped by a LeetCode-style coding test, all graded by really running
-your code.
+your code - wrapped in a landing page and a dashboard with XP, streaks, a skill
+roadmap and a leaderboard.
 
 Everything runs on your machine. No cloud account, no Docker, no native build step.
+
+Live demo of the front end: <https://devlingo-sand.vercel.app/> (static hosting
+only, so it runs in guest mode - see **Deploying** below).
 
 ```bash
 npm install
@@ -29,6 +33,23 @@ To run it as one process instead:
 npm run build
 npm start          # app + API together on http://localhost:4000
 ```
+
+## The app
+
+| Route | What is there |
+| --- | --- |
+| `/` | Landing page - hero, how it works, a real challenge to try, your own streak and level |
+| `/dashboard` | Streak, XP, level, "continue learning", activity heatmap, daily goals, achievements |
+| `/dashboard/learn` | The ten stages with lesson progress and each stage's coding test |
+| `/dashboard/challenges` | Search and filter all 210 challenges |
+| `/dashboard/practice` | Playground - run JavaScript or Python for real |
+| `/dashboard/roadmap` | Skill tree, filled in from your progress |
+| `/dashboard/leaderboard` | Accounts ranked by server-verified XP |
+| `/dashboard/achievements` | Figures, coverage by language, badges |
+| `/dashboard/settings` | Account, Pro unlock, theme, reset |
+
+You can use every page as a guest - progress is kept in the browser and merged
+into an account when you sign in. Light and dark themes throughout.
 
 ## What is in the box
 
@@ -121,6 +142,17 @@ JavaScript runs in a Node VM. Python runs through a local CPython 3 if one is on
 PATH (`python3`, `python` or `py`); if there is none the run says so explicitly
 rather than quietly reporting those challenges as verified.
 
+## Deploying
+
+`npm run build && npm start` serves the app and the API from one Node process,
+which is the whole thing. A static host (Vercel, Netlify, GitHub Pages) can only
+serve `dist/`: the app then runs in **guest mode** - progress in
+`localStorage`, JavaScript graded in a Web Worker, Python via Pyodide - and
+says so, but there are no accounts, no leaderboard and no server-verified XP.
+For the full experience host the API on a Node service and point the front end
+at it with `VITE_API_PROXY` (dev) or same-origin `npm start` (prod).
+`vercel.json` adds the SPA rewrites client-side routing needs.
+
 ## Layout
 
 ```
@@ -129,10 +161,18 @@ server/            Express API — auth, progress, grading, execution
   content.js       compiles src/data with esbuild, caches to JSON
   runner/          the sandboxed child process that runs submissions
 src/
+  pages/           routed screens: Landing, DashboardLayout and the dashboard pages
+  components/
+    layout/        landing sections, Navbar, Sidebar, SkillRoadmap
+    ui/            AuthModal, PageHeader
+    *.tsx          PracticeModal (all challenge types), CodeEditor, CodeBlock,
+                   LearningPath, ChallengeLibrary, EditorShowcase, Leaderboard
+  context/         GameContext - progress, auth, theme, modals
   data/            stage metadata + 20 challenge batches (index.ts is generated)
-  lib/             grading, level curve, highlighter, storage, sandbox worker
+  lib/             grading, level curve, progress insights, highlighter, workers
   services/        execution and content loading
-  components/      UI, with one component per challenge type
+  index.css        Tailwind entry and theme tokens
+  styles/          component CSS for the practice modal, editor, toasts
 scripts/           content validator and index generator
 ```
 
@@ -143,6 +183,10 @@ server too, so "correct" and "level 4" mean the same thing on both sides.
 
 None required. Copy `.env.example` to `.env` for the optional knobs (API port,
 JWT secret, Judge0 credentials); both the API and Vite read it.
+
+Styling is Tailwind CSS v4 for pages and layout, with a small amount of plain
+CSS (`src/styles`) for the practice modal and editor, both reading the same
+theme tokens. Dark mode is the `.dark` class on `<html>`.
 
 The `supabase/` directory is left over from an earlier hosted design and is not
 wired up — the local API replaced it.

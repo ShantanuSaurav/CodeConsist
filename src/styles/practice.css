@@ -25,7 +25,7 @@
   color: var(--ink);
   width: 100%;
   max-width: 700px;
-  border-radius: var(--radius);
+  border-radius: 16px;
   border: 1px solid var(--line);
   box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.5);
   display: flex;
@@ -191,8 +191,8 @@
   color: var(--ink-dim);
 }
 .option-letter.is-box { border-radius: 4px; }
-.option-btn.selected .option-letter { border-color: var(--accent); background: var(--accent); color: #fff; }
-.option-btn.correct .option-letter { border-color: var(--ok); background: var(--ok); color: #fff; }
+.option-btn.selected .option-letter { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.option-btn.correct .option-letter { border-color: var(--ok); background: var(--ok); color: var(--accent-ink); }
 .option-btn.incorrect .option-letter { border-color: var(--danger); background: var(--danger); color: #fff; }
 
 .option-flag {
@@ -514,30 +514,7 @@
 
 /* ---------------------------------------------------------- auth / pro cards */
 
-.auth-card, .pro-card { max-width: 460px; }
-.auth-form { display: flex; flex-direction: column; gap: 0.8rem; }
-
-.field { display: flex; flex-direction: column; gap: 0.3rem; }
-.field span { font-family: var(--font-label); font-size: 0.8rem; color: var(--ink-dim); }
-.field input {
-  width: 100%;
-  padding: 0.7rem 0.85rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--bg-raise);
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: 0.9rem;
-}
-.field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
-.field input:disabled { opacity: 0.55; }
-
-.auth-submit, .auth-guest { width: 100%; justify-content: center; }
-.auth-divider { display: flex; align-items: center; gap: 0.85rem; color: var(--ink-faint); font-size: 0.78rem; }
-.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line-soft); }
-.auth-fineprint { font-size: 0.76rem; color: var(--ink-faint); text-align: center; }
-.auth-switch { text-align: center; font-size: 0.84rem; color: var(--ink-dim); }
-.auth-switch button { color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.pro-card { max-width: 460px; }
 
 .pro-price { text-align: center; display: flex; align-items: baseline; justify-content: center; gap: 0.4rem; }
 .pro-amount { font-family: var(--font-display); font-size: 2.6rem; color: var(--accent); }

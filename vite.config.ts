@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig(({ mode }) => {
   // Vite exposes .env values to the APP as import.meta.env, but it does not put
@@ -10,7 +11,7 @@ export default defineConfig(({ mode }) => {
   const apiTarget = env.VITE_API_PROXY || `http://localhost:${apiPort}`;
 
   return {
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
     server: {
       port: 3000,
       open: false,
@@ -30,7 +31,8 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks: {
-            react: ['react', 'react-dom'],
+            react: ['react', 'react-dom', 'react-router-dom'],
+            motion: ['framer-motion'],
             confetti: ['canvas-confetti']
           }
         }

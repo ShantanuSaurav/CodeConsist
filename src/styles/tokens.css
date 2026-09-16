@@ -1,49 +1,58 @@
 /* ==========================================================================
-   CodeQuest — Tokens & Themes
+   Devlingo — tokens read by the CodeQuest component styles.
+
+   These mirror the Tailwind theme in src/index.css so the practice modal,
+   code editor, pills and toasts match the rest of the app in both themes.
+   Dark mode is the `.dark` class on <html>, same as Tailwind's variant.
    ========================================================================== */
 :root {
   --bg:        #FFFFFF;
-  --bg-raise:  #F5F5F7;
-  --ink:       #07070A;
-  --ink-dim:   #55555F;
-  --ink-faint: #8B8B93;
-  --accent:    #4839FF;
-  --accent-2:  #FFB020;
-  /* Amber as TEXT. #FFB020 on white is 1.7:1 - unreadable for low vision.
+  --bg-raise:  #F9FAFB;
+  --ink:       #0F172A;
+  --ink-dim:   #4B5563;
+  --ink-faint: #6B7280;
+  --accent:    #16A30B;
+  --accent-hover: #128009;
+  /* Text ON the accent. Devlingo's dark primary is a neon lime, so white on it
+     is unreadable; the pair flips with the theme. */
+  --accent-ink: #FFFFFF;
+  --accent-2:  #FFB300;
+  /* Amber as TEXT. #FFB300 on white is 1.7:1 - unreadable for low vision.
      Fills and borders keep --accent-2; anything that has to be read uses this. */
   --accent-2-ink: #8A5A00;
-  --danger:    #FF5A4E;
-  --ok:        #00B873;
-  --line:      rgba(7, 7, 10, 0.14);
-  --line-soft: rgba(7, 7, 10, 0.07);
+  --secondary: #0284C7;
+  --danger:    #E5372E;
+  --ok:        #16A30B;
+  --line:      rgba(15, 23, 42, 0.12);
+  --line-soft: rgba(15, 23, 42, 0.06);
 
-  --font-display: 'Archivo Black', 'Archivo', sans-serif;
-  --font-head: 'Archivo', sans-serif;
-  --font-label: 'Space Grotesk', sans-serif;
-  --font-body: 'Inter', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
-
-  --max-w: 1240px;
-  --gut: clamp(1.25rem, 4vw, 3.5rem);
+  --font-display: 'Inter', system-ui, sans-serif;
+  --font-head: 'Inter', system-ui, sans-serif;
+  --font-label: 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --fast: 160ms;
   --med: 400ms;
 }
 
-[data-theme="dark"] {
-  --bg:        #07070A;
-  --bg-raise:  #0E0E13;
-  --ink:       #F3F1EA;
-  --ink-dim:   #8B8B93;
-  --ink-faint: #55555F;
-  --accent:    #4839FF;
-  --accent-2:  #FFB020;
+.dark {
+  --bg:        #0D1117;
+  --bg-raise:  #161B22;
+  --ink:       #E6EDF3;
+  --ink-dim:   #9CA3AF;
+  --ink-faint: #6B7280;
+  --accent:    #39FF14;
+  --accent-hover: #2CE60D;
+  --accent-ink: #000000;
+  --accent-2:  #FFB300;
   --accent-2-ink: #FFC861;
+  --secondary: #00E5FF;
   --danger:    #FF5A4E;
-  --ok:        #3ED8A8;
-  --line:      rgba(243, 241, 234, 0.14);
-  --line-soft: rgba(243, 241, 234, 0.07);
+  --ok:        #39FF14;
+  --line:      rgba(230, 237, 243, 0.12);
+  --line-soft: rgba(230, 237, 243, 0.06);
 }
 
 @media (prefers-reduced-motion: reduce) {
