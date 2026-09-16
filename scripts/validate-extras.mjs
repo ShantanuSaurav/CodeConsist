@@ -11,61 +11,47 @@
  * node ids are unique; every node has a description and at least one
  * resource; every resource URL parses; internal links point at real routes.
  */
-import { mkdir, readFile, rm } from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, '..');
 const CHECK_LINKS = process.argv.includes('--links');
 
-const esbuild = (await import('esbuild')).default;
+const { loadContent, loadSpecs, bundleAndImport, formatIssuesFor } = await import(
+  '../src/platform/content-registry/loader.build.mjs'
+);
 
-// `import x from './file.md?raw'` is a Vite idiom; teach esbuild the same.
-const rawPlugin = {
-  name: 'raw-md',
-  setup(build) {
-    build.onResolve({ filter: /\?raw$/ }, (args) => ({
-      path: path.resolve(args.resolveDir, args.path.replace(/\?raw$/, '')),
-      namespace: 'raw'
-    }));
-    build.onLoad({ filter: /.*/, namespace: 'raw' }, async (args) => ({
-      contents: await readFile(args.path, 'utf8'),
-      loader: 'text'
-    }));
+const [articlesLoad, roadmapsLoad, challengesLoad, specs] = await Promise.all([
+  loadContent('articles'),
+  loadContent('roadmaps'),
+  loadContent('challenges'),
+  loadSpecs()
+]);
+for (const l of [articlesLoad, roadmapsLoad, challengesLoad]) {
+  if (l.issues.length) {
+    console.log(formatIssuesFor(l.spec, l.issues));
+    process.exit(1);
   }
-};
+}
+const ARTICLES = articlesLoad.items;
+const ROADMAPS = roadmapsLoad.items;
+const ALL_CHALLENGES = challengesLoad.items;
+const STAGE_META = specs.STAGE_META;
+const { STATIC_ROUTES } = await bundleAndImport("export { STATIC_ROUTES } from './config/routes';", 'routes');
 
-// Inside node_modules so the bundle's bare "react" import resolves.
-const tmp = path.join(ROOT, 'node_modules', '.cache', `validate-extras-${process.pid}`);
-await mkdir(tmp, { recursive: true });
-const outFile = path.join(tmp, 'extras.mjs');
-await esbuild.build({
-  stdin: {
-    contents: [
-      "export { ARTICLES, sectionFor } from './articles/index';",
-      "export { ROADMAPS } from './roadmaps/index';",
-      "export { ALL_CHALLENGES } from './index';",
-      "export { STAGE_META } from './stages';"
-    ].join('\n'),
-    resolveDir: path.join(ROOT, 'src', 'data'),
-    loader: 'ts'
-  },
-  bundle: true,
-  format: 'esm',
-  platform: 'node',
-  target: 'node18',
-  outfile: outFile,
-  plugins: [rawPlugin],
-  // The markdown renderer imports React components; stub the JSX runtime.
-  external: ['react', 'react/jsx-runtime'],
-  logLevel: 'silent'
-});
-
-const mod = await import(pathToFileURL(outFile).href);
-await rm(tmp, { recursive: true, force: true });
-
-const { ARTICLES, sectionFor, ROADMAPS, ALL_CHALLENGES, STAGE_META } = mod;
+// Same matching rule the articles module uses at runtime (kept in step by the parity check).
+const ARTICLE_BY_STAGE = new Map(ARTICLES.map((a) => [a.stageId, a]));
+function sectionFor(challenge) {
+  const article = ARTICLE_BY_STAGE.get(challenge.stageId);
+  if (!article || article.sections.length === 0) return null;
+  const tags = new Set((challenge.tags ?? []).map((t) => t.toLowerCase()));
+  let best = article.sections[0];
+  let bestScore = 0;
+  for (const s of article.sections) {
+    const score = s.tags.reduce((n, t) => n + (tags.has(t.toLowerCase()) ? 1 : 0), 0);
+    if (score > bestScore) {
+      best = s;
+      bestScore = score;
+    }
+  }
+  return { article, section: best };
+}
 
 const errors = [];
 const warnings = [];
@@ -110,7 +96,7 @@ for (const c of ALL_CHALLENGES) {
 
 /* ------------------------------------------------------------- roadmaps */
 
-const KNOWN_ROUTES = ['/dashboard', '/dashboard/learn', '/dashboard/challenges', '/dashboard/practice', '/dashboard/roadmap', '/dashboard/leaderboard', '/dashboard/achievements', '/dashboard/settings'];
+const KNOWN_ROUTES = STATIC_ROUTES;
 const slugs = new Set();
 const urls = new Map(); // url -> where
 for (const r of ROADMAPS) {

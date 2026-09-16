@@ -1,14 +1,20 @@
-# CodeQuest challenge authoring guide
+# Devlingo challenge authoring guide
 
-Every challenge file lives at `src/data/challenges/<stage-slug>-<batch>.ts` and looks like:
+Every challenge file lives at `src/modules/challenges/content/<topic>/<batch>.ts`
+(one folder per topic, `a.ts`, `b.ts`, … inside it) and looks like:
 
 ```ts
-import { Challenge } from '../../types';
+import { Challenge } from '@/types';
 
 export const challenges: Challenge[] = [ /* ... */ ];
 ```
 
-`src/types.ts` is the single source of truth for the shape. Read it before writing.
+There is no index to regenerate: every `.ts` file under `content/` is discovered
+automatically (a new topic is a new folder). `src/types/index.ts` describes the
+shape; `src/modules/challenges/schema.ts` is the zod schema that enforces it at
+build time - a malformed challenge fails `npm run check` with the file path and
+the field. Stage tests live in `content/stage-tests.ts`; stage metadata in
+`content/stages.ts`.
 
 ## Hard rules
 
@@ -94,10 +100,16 @@ Use `choices` when free-typing would be cruel (many valid spellings).
 npm run check
 ```
 
-That regenerates the index, type-checks, runs `validate-content.mjs` (correctness:
-structure, plus really executing every JavaScript and Python solution) and then
-`lint-content.mjs` (quality: hints that leak the answer, duplicate options,
-near-duplicate challenges, thin explanations, answer-position bias).
+That type-checks, enforces the module boundaries, proves the dev and build
+content loaders agree (`content:parity`), runs `validate-content.mjs`
+(correctness: the zod schema, plus really executing every JavaScript and Python
+solution), `lint-content.mjs` (quality: hints that leak the answer, duplicate
+options, near-duplicate challenges, thin explanations, answer-position bias),
+`validate-extras.mjs` (articles and roadmaps) and the unit tests.
+
+Articles are Markdown under `src/modules/articles/content/` - see the header of
+`src/modules/articles/parse.ts` for the format. Roadmaps are one TypeScript file
+each under `src/modules/roadmaps/content/` exporting `roadmap`.
 
 The validator fails the build. The lint only warns — each warning needs a human
 to judge, and a false positive is a bug in the lint, not a reason to reword good

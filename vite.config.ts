@@ -1,4 +1,7 @@
+/// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from 'vite';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
@@ -12,6 +15,17 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    resolve: {
+      // One alias for the whole tree: "@/modules/x", "@/platform/y". The
+      // dependency rules (scripts/check-boundaries.mjs) decide which of those
+      // a file is allowed to use.
+      alias: { '@': path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'src') }
+    },
+    test: {
+      globals: true,
+      environment: 'node',
+      include: ['src/**/__tests__/**/*.test.ts', 'src/**/*.test.ts']
+    },
     server: {
       port: 3000,
       open: false,

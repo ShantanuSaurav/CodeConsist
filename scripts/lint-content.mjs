@@ -16,14 +16,7 @@
  * These are WARNINGS, not errors: each one needs a human to judge. Exits 0
  * unless --strict is passed.
  */
-import { readdir, mkdir, rm, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import esbuild from 'esbuild';
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CHALLENGE_DIR = path.join(ROOT, 'src', 'data', 'challenges');
-const TMP = path.join(ROOT, 'node_modules', '.cache', `codequest-lint-${process.pid}`);
+import { loadContent, bundleAndImport } from '../src/platform/content-registry/loader.build.mjs';
 
 const strict = process.argv.includes('--strict');
 const filter = process.argv.slice(2).filter((a) => !a.startsWith('-'));
@@ -172,41 +165,19 @@ function checkPrompt(c) {
 /* -------------------------------------------------------------------- main */
 
 async function load() {
-  await mkdir(TMP, { recursive: true });
-  let files = (await readdir(CHALLENGE_DIR)).filter((f) => f.endsWith('.ts')).sort();
-  if (filter.length) files = files.filter((f) => filter.some((s) => f.includes(s)));
-
-  const rel = (t) => {
-    const r = path.relative(TMP, t).split(path.sep).join('/');
-    return r.startsWith('.') ? r : './' + r;
-  };
-  const entry = path.join(TMP, 'entry.mjs');
-  await writeFile(
-    entry,
-    files
-      .map((f, i) => `export { challenges as c${i} } from ${JSON.stringify(rel(path.join(CHALLENGE_DIR, f)))};`)
-      .join('\n') +
-      `\nexport { optionOrder, choiceOrder } from ${JSON.stringify(rel(path.join(ROOT, 'src', 'lib', 'checkAnswer.ts')))};\n`,
-    'utf8'
+  const loaded = await loadContent('challenges');
+  let records = loaded.records;
+  if (filter.length) records = records.filter((r) => filter.some((s) => r.file.includes(s)));
+  const { optionOrder, choiceOrder } = await bundleAndImport(
+    "export { optionOrder, choiceOrder } from './platform/grading-engine/answers';",
+    'answers'
   );
-
-  const out = path.join(TMP, 'bundle.mjs');
-  await esbuild.build({
-    entryPoints: [entry],
-    bundle: true,
-    format: 'esm',
-    platform: 'node',
-    target: 'node18',
-    outfile: out,
-    logLevel: 'silent'
-  });
-
-  const mod = await import(pathToFileURL(out).href);
-  const all = files.flatMap((_, i) => mod['c' + i] ?? []);
-  const optionOrder = mod.optionOrder;
-  const choiceOrder = mod.choiceOrder;
-  await rm(TMP, { recursive: true, force: true });
-  return { all, fileCount: files.length, optionOrder, choiceOrder };
+  return {
+    all: records.map((r) => r.item),
+    fileCount: new Set(records.map((r) => r.file)).size,
+    optionOrder,
+    choiceOrder
+  };
 }
 
 const { all, fileCount, optionOrder, choiceOrder } = await load();

@@ -5,28 +5,19 @@
  *   node scripts/validate-content.mjs                 # all files
  *   node scripts/validate-content.mjs algorithms-a    # only matching files
  *
- * Checks structure per challenge type, uniqueness of ids, and - for JavaScript
- * `code_runner` / `debug` challenges - actually executes `solutionCode`
- * against every test case in a sandboxed VM. Exits non-zero on any error.
+ * Content is discovered and schema-validated by the content registry (the same
+ * zod schema the browser uses); this script adds the checks a schema cannot
+ * express - option quality, expected-value literals - and, for JavaScript and
+ * Python `code_runner` / `debug` challenges, actually executes `solutionCode`
+ * against every test case. Exits non-zero on any error.
  */
-import { readdir, mkdir, rm, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import vm from 'node:vm';
-import esbuild from 'esbuild';
+import { loadContent, bundleAndImport, formatIssuesFor } from '../src/platform/content-registry/loader.build.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CHALLENGE_DIR = path.join(ROOT, 'src', 'data', 'challenges');
-// Unique per process: several agents may validate different batches at once.
-const TMP = path.join(
-  ROOT,
-  'node_modules',
-  '.cache',
-  'codequest-validate',
-  `run-${process.pid}-${Math.random().toString(36).slice(2, 8)}`
-);
 
 const filter = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const errors = [];
@@ -37,47 +28,6 @@ function err(where, message) {
 }
 function warn(where, message) {
   warnings.push(`${where}: ${message}`);
-}
-
-/* ---------------------------------------------------------------- helpers */
-
-async function transpile(files) {
-  await mkdir(TMP, { recursive: true });
-  const entry = path.join(TMP, 'entry.mjs');
-  const gradingPath = path.join(ROOT, 'src', 'lib', 'grading.ts');
-
-  // esbuild resolves relative specifiers from the importer's directory and does
-  // not understand file:// URLs, so emit POSIX-style relative paths.
-  const rel = (target) => {
-    const r = path.relative(TMP, target).split(path.sep).join('/');
-    return r.startsWith('.') ? r : './' + r;
-  };
-
-  const imports = files
-    .map((f, i) => `import { challenges as c${i} } from ${JSON.stringify(rel(f))};`)
-    .join('\n');
-  const list = files
-    .map((f, i) => `{ file: ${JSON.stringify(path.basename(f))}, challenges: c${i} }`)
-    .join(',\n  ');
-
-  await writeFile(
-    entry,
-    `${imports}\nexport * as grading from ${JSON.stringify(rel(gradingPath))};\n` +
-      `export const batches = [\n  ${list}\n];\n`,
-    'utf8'
-  );
-
-  const out = path.join(TMP, 'bundle.mjs');
-  await esbuild.build({
-    entryPoints: [entry],
-    bundle: true,
-    format: 'esm',
-    platform: 'node',
-    target: 'node18',
-    outfile: out,
-    logLevel: 'silent'
-  });
-  return out;
 }
 
 const TYPES = new Set([
@@ -406,64 +356,46 @@ function validateChallenge(c, file, seenIds, grading) {
 /* -------------------------------------------------------------------- main */
 
 async function main() {
-  if (!existsSync(CHALLENGE_DIR)) {
-    console.error(`No challenge directory at ${CHALLENGE_DIR}`);
+  const loaded = await loadContent('challenges');
+  const grading = await bundleAndImport("export * from './platform/grading-engine/grading';", 'grading');
+
+  // Schema problems first: the checks below assume a well-formed challenge.
+  if (loaded.issues.length) {
+    console.log(formatIssuesFor(loaded.spec, loaded.issues));
     process.exit(1);
   }
-  let files = (await readdir(CHALLENGE_DIR))
-    .filter((f) => f.endsWith('.ts'))
-    .map((f) => path.join(CHALLENGE_DIR, f))
-    .sort();
 
-  if (filter.length) files = files.filter((f) => filter.some((s) => path.basename(f).includes(s)));
-
-  if (!files.length) {
+  let records = loaded.records;
+  if (filter.length) records = records.filter((r) => filter.some((s) => r.file.includes(s)));
+  if (!records.length) {
     console.error('No challenge files matched.');
     process.exit(1);
   }
 
-  let bundle;
-  try {
-    bundle = await transpile(files);
-  } catch (e) {
-    console.error('Failed to compile challenge files:\n' + (e.message || e));
-    process.exit(1);
-  }
-
-  const mod = await import(pathToFileURL(bundle).href + `?t=${Date.now()}`);
   const seenIds = new Map();
   let total = 0;
   const byType = {};
   const byDifficulty = {};
   const byStage = {};
+  const files = new Set();
 
-  for (const batch of mod.batches) {
-    if (!Array.isArray(batch.challenges)) {
-      err(batch.file, 'does not export a `challenges` array');
-      continue;
-    }
-    if (batch.challenges.length === 0) err(batch.file, 'exports an empty challenges array');
-    for (const c of batch.challenges) {
-      total++;
-      byType[c.type] = (byType[c.type] ?? 0) + 1;
-      byDifficulty[c.difficulty] = (byDifficulty[c.difficulty] ?? 0) + 1;
-      byStage[c.stageId] = (byStage[c.stageId] ?? 0) + 1;
-      validateChallenge(c, batch.file, seenIds, mod.grading);
-    }
+  for (const { item: c, file } of records) {
+    files.add(file);
+    total++;
+    byType[c.type] = (byType[c.type] ?? 0) + 1;
+    byDifficulty[c.difficulty] = (byDifficulty[c.difficulty] ?? 0) + 1;
+    byStage[c.stageId] = (byStage[c.stageId] ?? 0) + 1;
+    validateChallenge(c, file, seenIds, grading);
   }
 
-  await rm(TMP, { recursive: true, force: true });
-
-  console.log(`\nChecked ${total} challenges across ${files.length} file(s).`);
+  console.log(`\nChecked ${total} challenges across ${files.size} file(s) (schema-validated by the content registry).`);
   console.log('  by type:       ' + JSON.stringify(byType));
   console.log('  by difficulty: ' + JSON.stringify(byDifficulty));
   console.log('  by stage:      ' + JSON.stringify(byStage));
 
   // Say what was actually executed. "All challenges valid" over a set that
   // silently skipped every Python solution is a claim the run cannot support.
-  console.log(
-    `  executed:      ${pythonStats.jsExecuted} JavaScript solution(s), ${pythonStats.executed} Python`
-  );
+  console.log(`  executed:      ${pythonStats.jsExecuted} JavaScript solution(s), ${pythonStats.executed} Python`);
   if (pythonStats.skipped > 0) {
     console.log(
       `\n  NOTE: ${pythonStats.skipped} Python challenge(s) were NOT executed - no python3 on PATH.\n` +
@@ -471,7 +403,6 @@ async function main() {
         '        Install Python 3 to have them run, or rely on the browser (Pyodide) at runtime.'
     );
   }
-
 
   if (warnings.length) {
     console.log(`\n${warnings.length} warning(s):`);
