@@ -9,6 +9,8 @@ import { LearnPage } from './pages/LearnPage';
 import { ChallengesPage } from './pages/ChallengesPage';
 import { PlaygroundPage } from './pages/PlaygroundPage';
 import { RoadmapPage } from './pages/RoadmapPage';
+import { RoadmapDetailPage } from './pages/RoadmapDetailPage';
+import { ArticlePage } from './pages/ArticlePage';
 import { LeaderboardPage } from './pages/LeaderboardPage';
 import { AchievementsPage } from './pages/AchievementsPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -19,10 +21,10 @@ import { Toasts } from './components/Toasts';
 
 /** Reset scroll on navigation - the landing page is long. */
 const ScrollToTop: React.FC = () => {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   useEffect(() => {
-    window.scrollTo({ top: 0 });
-  }, [pathname]);
+    if (!hash) window.scrollTo({ top: 0 });
+  }, [pathname, hash]);
   return null;
 };
 
@@ -57,9 +59,11 @@ export const App: React.FC = () => (
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<DashboardHome />} />
             <Route path="learn" element={<LearnPage />} />
+            <Route path="learn/:stageId/read" element={<ArticlePage />} />
             <Route path="challenges" element={<ChallengesPage />} />
             <Route path="practice" element={<PlaygroundPage />} />
             <Route path="roadmap" element={<RoadmapPage />} />
+            <Route path="roadmap/:slug" element={<RoadmapDetailPage />} />
             <Route path="leaderboard" element={<LeaderboardPage />} />
             <Route path="achievements" element={<AchievementsPage />} />
             <Route path="settings" element={<SettingsPage />} />

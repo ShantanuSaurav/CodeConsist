@@ -1,8 +1,10 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRight, CheckCircle2, Lock, Play, RotateCcw, Swords } from 'lucide-react';
+import { ArrowRight, BookOpen, CheckCircle2, Lock, Play, RotateCcw, Swords } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import { stageStatus } from '../services/contentService';
+import { articleFor } from '../data/articles';
 
 /**
  * The ten stages, in order. Each card shows lesson progress and the state of
@@ -38,6 +40,7 @@ export const LearningPath: React.FC = () => {
                 : 'Start';
 
         const Icon = premiumLocked ? Lock : testPending ? Swords : completed ? RotateCcw : Play;
+        const article = articleFor(stage.id);
 
         return (
           <motion.li
@@ -114,6 +117,16 @@ export const LearningPath: React.FC = () => {
                     {done}/{total} lessons
                   </span>
                 </div>
+
+                {article && (
+                  <Link
+                    to={`/dashboard/learn/${stage.id}/read`}
+                    className="mt-3 mr-4 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-secondary)] hover:underline underline-offset-2"
+                  >
+                    <BookOpen size={13} />
+                    {done === 0 && !completed ? 'Read first' : 'Read the article'} · {article.readingMinutes} min
+                  </Link>
+                )}
 
                 {hasTest && (
                   <div

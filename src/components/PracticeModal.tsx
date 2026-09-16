@@ -9,6 +9,7 @@ import { PseudocodeOrderChallenge } from './challenges/PseudocodeOrderChallenge'
 import { CodeChallenge } from './challenges/CodeChallenge';
 import { useFocusTrap } from '../lib/useFocusTrap';
 import { stageStatus } from '../services/contentService';
+import { ReadingPanel } from './ReadingPanel';
 
 const TYPE_LABELS: Record<Challenge['type'], string> = {
   quiz: 'Multiple choice',
@@ -490,6 +491,7 @@ export const PracticeModal: React.FC = () => {
             </div>
           ) : (
             <>
+              <ReadingPanel challenge={challenge} onNavigate={closePractice} />
               <p className="challenge-prompt">{challenge.prompt}</p>
 
               {challenge.isStageTest && (challenge.examples?.length || challenge.constraints?.length) ? (

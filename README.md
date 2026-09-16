@@ -43,7 +43,9 @@ npm start          # app + API together on http://localhost:4000
 | `/dashboard/learn` | The ten stages with lesson progress and each stage's coding test |
 | `/dashboard/challenges` | Search and filter all 210 challenges |
 | `/dashboard/practice` | Playground - run JavaScript or Python for real |
-| `/dashboard/roadmap` | Skill tree, filled in from your progress |
+| `/dashboard/roadmap` | Developer roadmaps (roadmap.sh-style) plus your stage skill tree |
+| `/dashboard/roadmap/:slug` | One roadmap: topic graph, per-topic notes and links, done/learning/skip tracking |
+| `/dashboard/learn/:stage/read` | The stage's article - the reading that goes with its lessons |
 | `/dashboard/leaderboard` | Accounts ranked by server-verified XP |
 | `/dashboard/achievements` | Figures, coverage by language, badges |
 | `/dashboard/settings` | Account, Pro unlock, theme, reset |
@@ -76,6 +78,23 @@ in the stage are solved, and the **next stage stays locked until it is passed**.
 Tests are presented LeetCode-style: statement, worked examples, constraints, a
 mix of visible and hidden test cases, and no hints until you have made an
 attempt. Nothing can be skipped.
+
+**Reading before doing.** Every stage has an article (`src/data/articles/*.md`,
+about 10 minutes each) split into sections tagged with the concepts they explain.
+The stage card offers it as "Read first", every challenge card links to the exact
+section, and inside the practice modal a "Read about this topic" panel unfolds the
+matching section above the prompt - reading is never penalised. `npm run
+content:extras` checks that every one of the 210 challenges maps to a section by tag.
+
+**Roadmaps.** Ten roadmap.sh-style maps - Frontend, Backend, Full Stack, DevOps,
+JavaScript, Python, SQL, Computer Science, System Design, Git & GitHub - with 200+
+topics. Each topic has a short explanation, curated free resources (official docs,
+MDN, free courses and books), a link to the community version on roadmap.sh, and,
+where Devlingo covers it, a jump into the stage's lessons and article. Topics can
+be marked done / learning / skipped; that lives in the browser and earns no XP,
+because nothing verifies it. The roadmaps' structure and text are Devlingo's own:
+roadmap.sh's content is copyrighted and is linked to, never copied.
+`npm run content:links` HEAD-requests every external URL.
 
 **Three real execution engines, and no faking.**
 
@@ -117,6 +136,8 @@ generation (`eval`, `new Function`) is disabled inside it. Do not loosen this.
 | `npm run content:validate` | Correctness check: structure + really run every solution |
 | `npm run content:lint` | Quality check: leaked hints, duplicate options, answer bias |
 | `npm run content:index` | Regenerate `src/data/index.ts` after adding a batch |
+| `npm run content:extras` | Validate the articles and roadmaps (sections, tags, node ids, URLs) |
+| `npm run content:links` | The same, plus a live check of every external link |
 
 ## Adding challenges
 
@@ -169,6 +190,8 @@ src/
                    LearningPath, ChallengeLibrary, EditorShowcase, Leaderboard
   context/         GameContext - progress, auth, theme, modals
   data/            stage metadata + 20 challenge batches (index.ts is generated)
+    articles/      one Markdown article per stage, sections tagged by concept
+    roadmaps/      roadmap.sh-style skill maps with curated links
   lib/             grading, level curve, progress insights, highlighter, workers
   services/        execution and content loading
   index.css        Tailwind entry and theme tokens

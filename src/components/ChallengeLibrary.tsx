@@ -1,6 +1,8 @@
 import React, { useDeferredValue, useMemo, useState } from 'react';
-import { CheckCircle2, Lock, Search, Swords } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { BookOpen, CheckCircle2, Lock, Search, Swords } from 'lucide-react';
 import { useGame } from '../context/GameContext';
+import { sectionFor } from '../data/articles';
 import { Challenge, Difficulty } from '../types';
 import { stageStatus } from '../services/contentService';
 
@@ -191,6 +193,7 @@ export const ChallengeLibrary: React.FC = () => {
               const testLocked = Boolean(c.isStageTest) && stage ? !stageStatus(stage, stats).testUnlocked : false;
               const locked = (lockedStages.has(c.stageId) && !needsPro) || (testLocked && !solved);
               const best = stats.attempts[c.id];
+              const reading = sectionFor(c);
 
               return (
                 <li
@@ -231,6 +234,16 @@ export const ChallengeLibrary: React.FC = () => {
                     <span className="font-mono font-bold text-[var(--color-warning)] shrink-0">+{c.xpReward} XP</span>
                   </div>
                   {best && <div className="text-xs text-gray-500 mt-1">Best score {best.score}%</div>}
+                  {reading && (
+                    <Link
+                      to={`/dashboard/learn/${c.stageId}/read#${reading.section.id}`}
+                      className="mt-2 inline-flex items-center gap-1.5 text-xs text-[var(--color-secondary)] hover:underline underline-offset-2"
+                      title={`Read: ${reading.section.title}`}
+                    >
+                      <BookOpen size={12} className="shrink-0" />
+                      <span className="truncate">Read: {reading.section.title}</span>
+                    </Link>
+                  )}
 
                   <button
                     type="button"

@@ -7,7 +7,7 @@ const LINKS = [
   { to: '/dashboard/learn', label: 'Learn' },
   { to: '/dashboard/practice', label: 'Playground' },
   { to: '/dashboard/challenges', label: 'Challenges' },
-  { to: '/dashboard/roadmap', label: 'Roadmap' },
+  { to: '/dashboard/roadmap', label: 'Roadmaps' },
   { to: '/dashboard/leaderboard', label: 'Leaderboard' }
 ];
 

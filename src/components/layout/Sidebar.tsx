@@ -25,7 +25,7 @@ const NAV = [
   { icon: <BookOpen size={20} />, label: 'Learn', path: '/dashboard/learn' },
   { icon: <Swords size={20} />, label: 'Challenges', path: '/dashboard/challenges' },
   { icon: <TerminalSquare size={20} />, label: 'Playground', path: '/dashboard/practice' },
-  { icon: <Map size={20} />, label: 'Roadmap', path: '/dashboard/roadmap' },
+  { icon: <Map size={20} />, label: 'Roadmaps', path: '/dashboard/roadmap' },
   { icon: <Trophy size={20} />, label: 'Leaderboard', path: '/dashboard/leaderboard' },
   { icon: <Award size={20} />, label: 'Achievements', path: '/dashboard/achievements' }
 ];

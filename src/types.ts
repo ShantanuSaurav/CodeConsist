@@ -147,6 +147,77 @@ export interface Stage {
 }
 
 /* ==========================================================================
+   Reading material
+   ========================================================================== */
+
+/** One `## ` heading of a stage article, addressable from a challenge by tag. */
+export interface ArticleSection {
+  /** Slug of the heading, used as the URL fragment. */
+  id: string;
+  title: string;
+  /** Challenge tags this section explains; the practice modal matches on them. */
+  tags: string[];
+  /** Markdown body (the subset src/lib/markdown.tsx renders). */
+  body: string;
+}
+
+/** The article a learner reads before (or during) a stage's lessons. */
+export interface Article {
+  stageId: string;
+  title: string;
+  /** One-paragraph summary shown on the stage card. */
+  summary: string;
+  readingMinutes: number;
+  sections: ArticleSection[];
+}
+
+/* ==========================================================================
+   Roadmaps (roadmap.sh-style skill maps)
+   ========================================================================== */
+
+export type ResourceKind = 'docs' | 'article' | 'video' | 'course' | 'roadmap' | 'practice' | 'book';
+
+export interface RoadmapResource {
+  title: string;
+  url: string;
+  kind: ResourceKind;
+}
+
+export interface RoadmapNode {
+  id: string;
+  title: string;
+  /** Two or three sentences: what it is and why it matters. */
+  description: string;
+  resources: RoadmapResource[];
+  /** In-app stage that practises this topic, if any. */
+  stageId?: string;
+  /** Challenge tags that practise this topic; used to deep-link into the library. */
+  tags?: string[];
+  /** Nice-to-know rather than core. */
+  optional?: boolean;
+}
+
+export interface RoadmapSection {
+  id: string;
+  title: string;
+  description?: string;
+  nodes: RoadmapNode[];
+}
+
+export interface Roadmap {
+  slug: string;
+  title: string;
+  kind: 'role' | 'skill';
+  description: string;
+  icon: string;
+  /** The equivalent roadmap on roadmap.sh, for the wider community version. */
+  roadmapShUrl: string;
+  sections: RoadmapSection[];
+}
+
+export type RoadmapNodeStatus = 'pending' | 'learning' | 'done' | 'skipped';
+
+/* ==========================================================================
    Player model
    ========================================================================== */
 
