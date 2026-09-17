@@ -391,14 +391,6 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
         <span className="inline-flex items-center gap-1.5">
           <Swords size={12} className="text-[var(--color-primary)]" /> Practised in Devlingo
         </span>
-        <a
-          href={roadmap.roadmapShUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="ml-auto inline-flex items-center gap-1 hover:text-gray-900 dark:hover:text-white"
-        >
-          Community version on roadmap.sh <ExternalLink size={12} />
-        </a>
       </div>
 
       <ol className="relative">

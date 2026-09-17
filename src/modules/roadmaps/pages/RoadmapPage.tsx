@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, ExternalLink } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { PageHeader } from '@/ui';
 import { ROUTES } from '@/config/routes';
 import { SkillRoadmap } from '../components/SkillRoadmap';
@@ -54,20 +54,10 @@ export const RoadmapPage: React.FC = () => {
           title="Developer roadmaps"
           description={
             <>
-              Step-by-step maps of what to learn and in which order, roadmap.sh-style. Each topic has a short
+              Step-by-step maps of what to learn and in which order. Each topic has a short
               explanation, curated links to free resources, and - where Devlingo covers it - a jump straight into the
               lessons and the article. Mark topics done, learning or skipped; progress is saved in this browser.
             </>
-          }
-          aside={
-            <a
-              href="https://roadmap.sh"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-            >
-              Community roadmaps at roadmap.sh <ExternalLink size={14} />
-            </a>
           }
         />
 
