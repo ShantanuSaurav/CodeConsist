@@ -1,6 +1,6 @@
 # 0002 - One content registry
 
-**Status:** accepted (2026-09)
+**Status:** accepted (2026-09); amended by [0006](0006-code-splitting-and-async-content.md) - the schema is loaded lazily and production skips validation
 
 ## Context
 
@@ -14,7 +14,7 @@ the modal, and a duplicate id silently overwrote another challenge in
 
 `platform/content-registry` is a generic engine. A module declares a
 `ContentSpec` - directory, file extensions, exclusions, how a file yields items,
-a **zod schema**, an id function and a comparator - and gets discovery,
+a **zod schema** (as a lazy loader, `() => import('../schema')`), an id function and a comparator - and gets discovery,
 validation (schema + duplicate ids, with file paths in every message) and
 canonical ordering for free.
 
@@ -41,7 +41,10 @@ barrel, because barrels reach `import.meta.glob` and React.
   Markdown file with a stage marker. No registration, no index to regenerate.
 - Adding a *kind* of content (video lessons, interview decks): a schema, a spec,
   a `content/index.ts` with a glob, one line in `content-specs.ts`.
-- A bad file fails `npm run check` (and in dev, the page) with
+- A bad file fails `npm run check` (and in dev, the console and the API's
+  start-up) with
   `src/modules/challenges/content/algorithms/a.ts: #7 invalid: correctIndex: out of range`.
+  Production bundles are not re-validated in the browser - they only exist
+  because that check passed - so zod is not shipped to visitors (0006).
 - The server validates the same way, so it can never serve a bank the browser
   would reject.

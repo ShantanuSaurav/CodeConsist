@@ -91,7 +91,7 @@ export async function loadSpecs() {
   if (!specsCache) {
     specsCache = await bundleAndImport(
       `export * from ${JSON.stringify(posix(path.relative(SRC, SPECS_ENTRY)).replace(/^/, './'))};\n` +
-        `export { matchesSpec, validateRecords, formatIssues } from './platform/content-registry/index';`,
+        `export { matchesSpec, validate, formatIssues } from './platform/content-registry/index';`,
       'specs'
     );
   }
@@ -156,7 +156,8 @@ export async function loadContent(kind) {
     }
   }
 
-  const result = registry.validateRecords(spec, raw);
+  // The schema is loaded here, on demand - the browser bundle never does.
+  const result = await registry.validate(spec, raw);
   return { spec, files, ...result };
 }
 

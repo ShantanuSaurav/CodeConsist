@@ -11,3 +11,4 @@ export type { Toast, ToastTone } from './primitives/toast';
 export { useFocusTrap } from './hooks/useFocusTrap';
 export { useBodyScrollLock } from './hooks/useBodyScrollLock';
 export { tokenize, tokenizeLine } from './code/highlight';
+export { PageSkeleton, AppSplash, Bone } from './primitives/Skeleton';

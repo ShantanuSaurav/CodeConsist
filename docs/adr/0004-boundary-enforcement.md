@@ -19,7 +19,10 @@ imports - resolves `@/` and relative specifiers to areas, and enforces:
 2. `modules/<a>` never imports `modules/<b>`.
 3. Outside a module, only `@/modules/<name>` (the barrel) or
    `@/modules/<name>/content/spec` (the pure content spec) may be imported.
-4. `server/**` imports only `platform/**` from `src`.
+4. `@/modules/<name>/content` (the bank) may be imported from outside only
+   with a dynamic `import()` - the checker distinguishes the two - so it
+   cannot drift back into the shell chunk (added by 0006).
+5. `server/**` imports only `platform/**` from `src`.
 
 A dependency-free script was chosen over an ESLint plugin because the repo has
 no ESLint setup to maintain, the rule set is tiny, and the TypeScript parser

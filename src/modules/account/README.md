@@ -1,5 +1,7 @@
 # modules/account
 
+The sign-in and Pro modals are lazy inside `AccountModals`: the listener is mounted on every visit, the modal code (and framer-motion) downloads the first time one opens.
+
 **Owns:** sign-in / sign-up and the Pro modal (hosted by `AccountModals`), and the settings page (account, Pro, theme, server status, reset).
 
 **Public API (`index.ts`):** `AccountModals`, `SettingsPage`.

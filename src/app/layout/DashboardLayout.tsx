@@ -1,19 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
+import { PageSkeleton } from '@/ui';
 
 /**
  * The app shell: fixed sidebar on desktop, a drawer on small screens.
  *
  * Guests are welcome here - progress lives in the browser until they sign in,
  * and the banner says so rather than bouncing them to the landing page.
+ *
+ * Pages render inside one Suspense (their chunk may still be downloading)
+ * behind one content gate (the bank may still be downloading). Doing both
+ * here, once, means no page ever sees an empty stage list and mistakes it
+ * for a missing stage.
  */
 export const DashboardLayout: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const { user, stats, serverStatus } = useSession();
+  const { user, stats, serverStatus, contentReady } = useSession();
   const openAuthModal = intents.openAuth;
   const location = useLocation();
   const isGuest = !user || user.provider === 'guest';
@@ -88,7 +94,13 @@ export const DashboardLayout: React.FC = () => {
           </div>
         )}
         <main className="flex-1">
-          <Outlet />
+          {contentReady ? (
+            <Suspense fallback={<PageSkeleton />}>
+              <Outlet />
+            </Suspense>
+          ) : (
+            <PageSkeleton label="Loading your lessons" />
+          )}
         </main>
       </div>
     </div>

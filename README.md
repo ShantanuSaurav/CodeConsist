@@ -131,6 +131,7 @@ generation (`eval`, `new Function`) is disabled inside it. Do not loosen this.
 | `npm run dev:api` | API only (restarts when content changes) |
 | `npm run dev:web` | Web only |
 | `npm run build` | Type-check and build to `dist/` |
+| `npm run preview` | Serve `dist/` as production would (guest mode; no API) |
 | `npm start` | Serve the built app **and** the API from one process on `:4000` |
 | `npm run check` | Everything below, in sequence - required before a merge |
 | `npm run lint:boundaries` | Enforce the dependency direction between areas and modules |
@@ -192,7 +193,8 @@ app  →  modules  →  platform  →  ui / types / config
 
 ```
 src/
-  app/                composition root: providers, routes, the shell, content-specs.ts
+  app/                composition root: providers, lazy routes (routes/), the shell,
+                      the async content loader, content-specs.ts
   modules/            business domains - same shape in every folder, own README
     challenges/       the bank (content/<topic>/), 7 challenge types (a registry),
                       practice modal + session, learning path, library
@@ -220,7 +222,25 @@ docs/adr/             why the structure is the way it is
 
 Modules never import each other. They cooperate through `platform/events`
 (`challenge:completed`, `practice:open`, …) or through props the app passes in
-(`readingFor`, `relatedFor`). `src/platform/grading-engine/grading.ts` and
+(`readingFor`, `relatedFor`).
+
+### What the browser downloads
+
+Every screen is its own chunk and the challenge bank is another, fetched with
+`import()` after the shell paints (`docs/adr/0006`). Production build:
+
+| Chunk | Loaded | gzipped |
+| --- | --- | ---: |
+| `index` (providers, router, layout, practice modal) + `react` + `icons` | first paint | ~91 kB |
+| `challenges-content` | right after, in parallel | 94 kB |
+| `landing` + `motion` | on `/` | 47 kB |
+| `dashboard`, `route-learn`, `roadmaps`, `articles`, … | the screen you open | 1-43 kB each |
+| `types` (zod + the schemas) | never - development and CI only | - |
+
+Content-only releases leave every UI chunk cached in returning browsers, and
+the other way round. `npm run build` prints the table; the boundary check
+refuses a static import of a content bank, which is what would silently put it
+back on the critical path. `src/platform/grading-engine/grading.ts` and
 `src/platform/xp-leveling/leveling.ts` are compiled and imported by the server
 too, so "correct" and "level 4" mean the same thing on both sides.
 

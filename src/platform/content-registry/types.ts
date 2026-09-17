@@ -25,7 +25,14 @@ export interface ContentSpec<T> {
   exportName?: string;
   /** For 'text' content: turn the file into an item. Receives the path for ids/messages. */
   parse?: (text: string, file: string) => unknown;
-  schema: ZodType<T>;
+  /**
+   * The zod schema, loaded on demand: `() => import('../schema').then((m) => m.X)`.
+   *
+   * Lazy on purpose. Validation runs in development and in `npm run check`;
+   * a production bundle has already passed it, so it never calls this and the
+   * schema (and zod itself, ~50 kB) never reach the browser. See ADR 0002.
+   */
+  schema: () => Promise<ZodType<T>>;
   idOf: (item: T) => string;
   /** Deterministic order shared by every loader. Defaults to file path, then position. */
   compare?: (a: ContentRecord<T>, b: ContentRecord<T>) => number;
@@ -50,4 +57,9 @@ export interface LoadResult<T> {
   items: T[];
   records: ContentRecord<T>[];
   issues: ContentIssue[];
+  /**
+   * Set by the dev loader: resolves once the deferred schema check has run
+   * (with its issues), so tests can await it. Absent in production builds.
+   */
+  verified?: Promise<ContentIssue[]>;
 }

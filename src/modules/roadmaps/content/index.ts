@@ -12,7 +12,12 @@ import { roadmapsSpec } from './spec';
 
 const modules = import.meta.glob(['./*.ts', '!./index.ts', '!./spec.ts', '!./helpers.ts'], { eager: true });
 
-export const ROADMAPS: Roadmap[] = loadFromGlob(roadmapsSpec, modules).items;
+const loaded = loadFromGlob(roadmapsSpec, modules);
+
+export const ROADMAPS: Roadmap[] = loaded.items;
+
+/** Development only: the deferred schema check's issues. */
+export const ROADMAPS_VERIFIED = loaded.verified;
 
 export const ROADMAP_BY_SLUG = new Map(ROADMAPS.map((r) => [r.slug, r]));
 

@@ -8,7 +8,7 @@ import { useSession } from '@/platform/session';
 type NodeStatus = 'completed' | 'active' | 'locked';
 
 export const Hero: React.FC = () => {
-  const { stages, allChallenges } = useSession();
+  const { stages, allChallenges, contentReady } = useSession();
 
   // The progression column on the right is the learner's own first six
   // stages, not a mock-up: a returning visitor sees where they actually are.
@@ -89,6 +89,14 @@ export const Hero: React.FC = () => {
           className="relative h-[600px] flex items-center justify-center lg:justify-end"
         >
           <div className="relative w-full max-w-sm flex flex-col items-center">
+            {/* The bank is still downloading: hold the column's shape so nothing jumps. */}
+            {!contentReady &&
+              Array.from({ length: 6 }, (_, i) => (
+                <React.Fragment key={i}>
+                  <div className="w-52 h-[3.4rem] rounded-xl border border-black/5 dark:border-white/5 bg-black/5 dark:bg-white/5 animate-pulse" aria-hidden="true" />
+                  {i < 5 && <div className="h-8 w-px my-1 bg-black/10 dark:bg-white/10" aria-hidden="true" />}
+                </React.Fragment>
+              ))}
             {nodes.map((node, index) => (
               <React.Fragment key={node.id}>
                 <motion.div

@@ -14,7 +14,6 @@ export { RoadmapDetailPage } from './pages/RoadmapDetailPage';
 export type { RoadmapDetailPageProps } from './pages/RoadmapDetailPage';
 export { SkillRoadmap } from './components/SkillRoadmap';
 export { ROADMAPS, ROADMAP_BY_SLUG, roadmapNodes, roadmapNodeIds, roadmapsForStage } from './content';
-export { RoadmapSchema } from './schema';
 export { summarise, nodeStatus, setNodeStatus } from './services/progress';
 
 /** Links to the roadmap topics that practise a stage - for other modules' "see also" lists. */

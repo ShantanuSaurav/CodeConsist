@@ -1,24 +1,13 @@
 import type { ContentRecord, ContentSpec, LoadResult } from './types';
-import { matchesSpec, normalisePath } from './discover';
+import { matchesSpec, normalisePath, orderRecords } from './discover';
 import { formatIssues, validateRecords } from './validate';
 
 /**
- * Turn the result of an eager `import.meta.glob(...)` into validated content.
- *
- * Vite needs the glob pattern as a literal in the calling module, so each
- * module's content/index.ts owns its own `import.meta.glob`; this function is
- * everything after that. scripts/check-content-parity.mjs asserts that the
- * literal matches the spec, so the two cannot drift silently.
- *
- * Every item is validated. In development a bad file throws with its path; in
- * production (where the bundle already passed `npm run content:validate`) a
- * problem is logged and the valid items are served rather than a blank page.
+ * Turn an eager `import.meta.glob(...)` result into raw records: one per
+ * item, tagged with its file and position. Shape problems (a missing export,
+ * a non-array) throw right here - they are author mistakes, not data errors.
  */
-export function loadFromGlob<T>(
-  spec: ContentSpec<T>,
-  modules: Record<string, unknown>,
-  options: { strict?: boolean } = {}
-): LoadResult<T> {
+export function collectRecords<T>(spec: ContentSpec<T>, modules: Record<string, unknown>): ContentRecord<unknown>[] {
   const raw: ContentRecord<unknown>[] = [];
 
   for (const [globPath, mod] of Object.entries(modules)) {
@@ -42,12 +31,40 @@ export function loadFromGlob<T>(
       raw.push({ item: exported, file, index: 0 });
     }
   }
+  return raw;
+}
 
-  const result = validateRecords(spec, raw);
-  if (result.issues.length) {
-    const message = formatIssues(spec as ContentSpec<unknown>, result.issues);
-    if (options.strict ?? import.meta.env.DEV) throw new Error(message);
-    console.error(message);
+/**
+ * The browser-side loader: everything after the module's own
+ * `import.meta.glob` literal (Vite needs the pattern in the calling file;
+ * scripts/check-content-parity.mjs asserts it matches the spec).
+ *
+ * It orders the records and returns them synchronously WITHOUT running the
+ * schema. A production bundle only exists because `npm run content:validate`
+ * passed on exactly these files, so re-validating in every visitor's browser
+ * would buy nothing and cost them zod plus the schemas (~55 kB). In
+ * development the schema is fetched in the background and any problem is
+ * thrown with its file path - the same message the CI check prints.
+ */
+export function loadFromGlob<T>(spec: ContentSpec<T>, modules: Record<string, unknown>): LoadResult<T> {
+  const raw = collectRecords(spec, modules);
+  const records = orderRecords(spec, raw as ContentRecord<T>[]);
+  const result: LoadResult<T> = { items: records.map((r) => r.item), records, issues: [] };
+
+  if (import.meta.env.DEV) {
+    result.verified = spec.schema().then((schema) => {
+      const { issues } = validateRecords(spec, raw, schema);
+      if (issues.length) {
+        const message = formatIssues(spec as ContentSpec<unknown>, issues);
+        console.error(message);
+        // Surface it as an uncaught error too, so it is impossible to miss.
+        queueMicrotask(() => {
+          throw new Error(message);
+        });
+      }
+      return issues;
+    });
   }
+
   return result;
 }

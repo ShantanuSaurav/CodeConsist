@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ROADMAPS, ROADMAP_BY_SLUG, roadmapNodeIds, roadmapsForStage } from '../content';
+import { ROADMAPS, ROADMAPS_VERIFIED, ROADMAP_BY_SLUG, roadmapNodeIds, roadmapsForStage } from '../content';
 import { summarise } from '../services/progress';
 import { roadmapLinksForStage } from '../index';
 
 describe('roadmaps content (dev loader)', () => {
+  it('every roadmap passes the schema (the deferred dev check finds nothing)', async () => {
+    await expect(ROADMAPS_VERIFIED).resolves.toEqual([]);
+  });
+
   it('loads every roadmap in display order with unique slugs', () => {
     expect(ROADMAPS.length).toBeGreaterThanOrEqual(10);
     expect(ROADMAPS.map((r) => r.order)).toEqual([...ROADMAPS.map((r) => r.order)].sort((a, b) => a - b));

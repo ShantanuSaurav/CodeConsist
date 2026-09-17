@@ -10,7 +10,12 @@ import { articlesSpec } from './spec';
 
 const modules = import.meta.glob('./*.md', { eager: true, query: '?raw', import: 'default' });
 
-export const ARTICLES: Article[] = loadFromGlob(articlesSpec, modules).items;
+const loaded = loadFromGlob(articlesSpec, modules);
+
+export const ARTICLES: Article[] = loaded.items;
+
+/** Development only: the deferred schema check's issues. */
+export const ARTICLES_VERIFIED = loaded.verified;
 
 export const ARTICLE_BY_STAGE = new Map(ARTICLES.map((a) => [a.stageId, a]));
 

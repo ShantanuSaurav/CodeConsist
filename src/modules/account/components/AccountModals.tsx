@@ -1,8 +1,14 @@
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { useAppEvent } from '@/platform/events';
 import { useBodyScrollLock } from '@/ui';
-import { AuthModal } from './AuthModal';
-import { SubscriptionModal } from './SubscriptionModal';
+
+/*
+ * The modals (and framer-motion, which they animate with) download the first
+ * time one is opened. Most visits never open either, and this listener is
+ * mounted on every visit, so it stays tiny.
+ */
+const AuthModal = React.lazy(() => import('./AuthModal').then((m) => ({ default: m.AuthModal })));
+const SubscriptionModal = React.lazy(() => import('./SubscriptionModal').then((m) => ({ default: m.SubscriptionModal })));
 
 /**
  * Hosts the sign-in and Pro modals. Anything in the app opens them by emitting
@@ -17,9 +23,9 @@ export const AccountModals: React.FC = () => {
   useBodyScrollLock(authOpen || proOpen);
 
   return (
-    <>
-      <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} />
-      <SubscriptionModal isOpen={proOpen} onClose={() => setProOpen(false)} />
-    </>
+    <Suspense fallback={null}>
+      {authOpen && <AuthModal isOpen onClose={() => setAuthOpen(false)} />}
+      {proOpen && <SubscriptionModal isOpen onClose={() => setProOpen(false)} />}
+    </Suspense>
   );
 };

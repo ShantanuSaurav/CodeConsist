@@ -15,7 +15,10 @@
  *      through its barrel (`@/modules/<name>`) or its content spec
  *      (`@/modules/<name>/content/spec`, which the Node loader needs and
  *      which must stay pure).
- *   4. The server (server/**) may import from platform only.
+ *   4. A module's content bank (`@/modules/<name>/content`) is public too,
+ *      but only through a dynamic `import()` - that is what keeps it in its
+ *      own chunk, out of the shell (ADR 0006). A static import is refused.
+ *   5. The server (server/**) may import from platform only.
  *
  * Uses the TypeScript compiler's parser, so it sees exactly the imports the
  * build sees - static, dynamic, `export ... from`, and type-only imports.
@@ -41,6 +44,8 @@ const ALLOWED = {
 
 /** Paths outside a module that count as its public surface. */
 const PUBLIC_ENTRIES = [/^modules\/[^/]+$/, /^modules\/[^/]+\/index$/, /^modules\/[^/]+\/content\/spec$/];
+/** Public only via import() - see rule 4. */
+const LAZY_ONLY_ENTRIES = [/^modules\/[^/]+\/content$/, /^modules\/[^/]+\/content\/index$/];
 
 async function walk(dir, out = []) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -53,18 +58,18 @@ async function walk(dir, out = []) {
   return out;
 }
 
-/** Every module specifier a file imports, static or dynamic. */
+/** Every module specifier a file imports, as { spec, dynamic }. */
 function importsOf(file, source) {
   const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS;
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
   const specs = [];
   const visit = (node) => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      specs.push(node.moduleSpecifier.text);
+      specs.push({ spec: node.moduleSpecifier.text, dynamic: false });
     } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) {
-      specs.push(node.arguments[0].text);
+      specs.push({ spec: node.arguments[0].text, dynamic: true });
     } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
-      specs.push(node.argument.literal.text);
+      specs.push({ spec: node.argument.literal.text, dynamic: false });
     }
     ts.forEachChild(node, visit);
   };
@@ -99,7 +104,7 @@ for (const file of files) {
   const fromRel = inServer ? null : posix(path.relative(SRC, file)).replace(/\.(ts|tsx|js|mjs)$/, '');
   const fromArea = inServer ? 'server' : areaOf(fromRel);
 
-  for (const spec of importsOf(file, source)) {
+  for (const { spec, dynamic } of importsOf(file, source)) {
     const target = resolveSpec(file, spec);
     if (!target || target.outside && inServer && !/src\//.test(spec)) continue;
 
@@ -129,8 +134,14 @@ for (const file of files) {
         violations.push(`src/${fromRel}: module ${fromModule} may not import ${toModule} - use platform/events or let app compose them ("${spec}")`);
         continue;
       }
-      if (fromModule !== toModule && !PUBLIC_ENTRIES.some((re) => re.test(target.rel))) {
-        violations.push(`src/${fromRel}: import ${toModule} through its barrel, not "${spec}"`);
+      if (fromModule !== toModule) {
+        if (LAZY_ONLY_ENTRIES.some((re) => re.test(target.rel))) {
+          if (!dynamic) {
+            violations.push(`src/${fromRel}: the content bank "${spec}" must be loaded with import() so it stays in its own chunk`);
+          }
+        } else if (!PUBLIC_ENTRIES.some((re) => re.test(target.rel))) {
+          violations.push(`src/${fromRel}: import ${toModule} through its barrel, not "${spec}"`);
+        }
       }
     }
   }

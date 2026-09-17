@@ -107,6 +107,16 @@ solution), `lint-content.mjs` (quality: hints that leak the answer, duplicate
 options, near-duplicate challenges, thin explanations, answer-position bias),
 `validate-extras.mjs` (articles and roadmaps) and the unit tests.
 
+While `npm run dev` is running you get the same message two ways: the API
+refuses to restart on a bad file (its terminal shows the path and the field),
+and the browser prints it as a red uncaught error a moment after the page
+renders. Production builds skip that check - they only exist because
+`npm run check` passed - so the zod schemas never reach visitors.
+
+One Windows quirk: Vite sometimes does not notice a *brand-new* file until the
+glob's owner is touched. If a new batch does not show up in the library, save
+`content/index.ts` (no change needed) or restart `npm run dev`.
+
 Articles are Markdown under `src/modules/articles/content/` - see the header of
 `src/modules/articles/parse.ts` for the format. Roadmaps are one TypeScript file
 each under `src/modules/roadmaps/content/` exporting `roadmap`.

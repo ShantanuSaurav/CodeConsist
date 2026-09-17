@@ -31,7 +31,7 @@ const PracticeSessionContext = createContext<PracticeSessionType | undefined>(un
  * and this provider answers - so they need no import from here.
  */
 export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { stages, stats } = useSession();
+  const { stages, stats, contentReady } = useSession();
   const { notify } = useToast();
 
   const [activeStageId, setActiveStageId] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
         stages.find((s) => s.challenges.length > 0);
 
       if (!target) {
-        notify('No challenges are available yet.', 'error');
+        notify(contentReady ? 'No challenges are available yet.' : 'Still loading the lessons - one moment.', 'error');
         return;
       }
       if (target.isPremium && !stats.isPremium) {
@@ -83,7 +83,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       setActiveStageId(target.id);
       setActiveChallengeIndex(index);
     },
-    [stages, stats.isPremium, stats.completedChallenges, notify]
+    [stages, stats.isPremium, stats.completedChallenges, notify, contentReady]
   );
 
   /**

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseArticle } from '../parse';
 import { ArticleSchema } from '../schema';
-import { ARTICLES, sectionFor, sectionForTags } from '../content';
+import { ARTICLES, ARTICLES_VERIFIED, sectionFor, sectionForTags } from '../content';
 import { resolveReading } from '../index';
 
 const sample = `# Title here
@@ -38,6 +38,10 @@ describe('article parsing', () => {
 });
 
 describe('articles content (dev loader)', () => {
+  it('every article passes the schema (the deferred dev check finds nothing)', async () => {
+    await expect(ARTICLES_VERIFIED).resolves.toEqual([]);
+  });
+
   it('loads one valid article per stage', () => {
     expect(ARTICLES).toHaveLength(10);
     expect(new Set(ARTICLES.map((a) => a.stageId)).size).toBe(10);

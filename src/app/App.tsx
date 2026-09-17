@@ -5,27 +5,40 @@
  * few places where one module's UI needs another's data (reading links,
  * related roadmaps) - passed in as props here rather than imported across
  * module boundaries. See docs/adr/0001-modular-monolith.md.
+ *
+ * Almost everything below is loaded on demand (ADR 0006). The shell chunk
+ * holds the providers, the router, the dashboard frame and the practice
+ * modal - the things every visit needs. Each screen is its own chunk, and
+ * the challenge bank is another, fetched while the first screen paints.
  */
-import React, { useEffect } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ErrorBoundary, ToastProvider, Toasts } from '@/ui';
+import { AppSplash, ErrorBoundary, ToastProvider, Toasts } from '@/ui';
 import { ThemeProvider } from '@/platform/theme';
-import { SessionProvider, makeBundle } from '@/platform/session';
+import { SessionProvider } from '@/platform/session';
 import { ROUTES } from '@/config/routes';
-
-import { ALL_CHALLENGES, buildStages, ChallengesPage, LearnPage, PracticeHost } from '@/modules/challenges';
-import { ArticlePage, ReadingPanel, resolveReading } from '@/modules/articles';
-import { RoadmapDetailPage, RoadmapPage, roadmapLinksForStage } from '@/modules/roadmaps';
-import { DashboardHome } from '@/modules/dashboard';
-import { LeaderboardPage } from '@/modules/leaderboard';
-import { AchievementsPage, BadgeToaster } from '@/modules/achievements';
-import { PlaygroundPage } from '@/modules/playground';
-import { AccountModals, SettingsPage } from '@/modules/account';
-import { Landing } from '@/modules/landing';
+import { PracticeHost } from '@/modules/challenges';
+import { AccountModals } from '@/modules/account';
+import { BadgeToaster } from '@/modules/achievements';
 import { DashboardLayout } from './layout/DashboardLayout';
+import { useContentBundle } from './content';
+import { lazyPage } from './lazy';
 
-/** The bundled content bank, built once at start-up. */
-const CONTENT = makeBundle(buildStages(), ALL_CHALLENGES);
+/* Screens - one chunk each; screens that compose two modules live in ./routes. */
+const Landing = lazyPage(() => import('@/modules/landing'), 'Landing');
+const DashboardHome = lazyPage(() => import('@/modules/dashboard'), 'DashboardHome');
+const LearnRoute = lazyPage(() => import('./routes/LearnRoute'), 'LearnRoute');
+const ChallengesRoute = lazyPage(() => import('./routes/ChallengesRoute'), 'ChallengesRoute');
+const ArticleRoute = lazyPage(() => import('./routes/ArticleRoute'), 'ArticleRoute');
+const RoadmapPage = lazyPage(() => import('@/modules/roadmaps'), 'RoadmapPage');
+const RoadmapDetailRoute = lazyPage(() => import('./routes/RoadmapDetailRoute'), 'RoadmapDetailRoute');
+const PlaygroundPage = lazyPage(() => import('@/modules/playground'), 'PlaygroundPage');
+const LeaderboardPage = lazyPage(() => import('@/modules/leaderboard'), 'LeaderboardPage');
+const AchievementsPage = lazyPage(() => import('@/modules/achievements'), 'AchievementsPage');
+const SettingsPage = lazyPage(() => import('@/modules/account'), 'SettingsPage');
+
+/* The reading panel inside the practice modal - the articles arrive when a modal first opens. */
+const ReadingPanel = lazyPage(() => import('@/modules/articles'), 'ReadingPanel');
 
 /** Reset scroll on navigation - the landing page is long. Hash links keep their target. */
 const ScrollToTop: React.FC = () => {
@@ -36,9 +49,21 @@ const ScrollToTop: React.FC = () => {
   return null;
 };
 
+/**
+ * The dashboard layout renders each page inside its own Suspense, so the
+ * sidebar stays put while a page chunk downloads; only the landing page
+ * (which has no frame) falls back to the splash.
+ */
 const AppRoutes: React.FC = () => (
   <Routes>
-    <Route path={ROUTES.landing} element={<Landing />} />
+    <Route
+      path={ROUTES.landing}
+      element={
+        <Suspense fallback={<AppSplash />}>
+          <Landing />
+        </Suspense>
+      }
+    />
 
     {/* Short public URLs land on the real pages. */}
     <Route path="/learn" element={<Navigate to={ROUTES.learn} replace />} />
@@ -49,12 +74,12 @@ const AppRoutes: React.FC = () => (
 
     <Route path={ROUTES.dashboard} element={<DashboardLayout />}>
       <Route index element={<DashboardHome />} />
-      <Route path="learn" element={<LearnPage readingFor={resolveReading} />} />
-      <Route path="learn/:stageId/read" element={<ArticlePage relatedFor={roadmapLinksForStage} />} />
-      <Route path="challenges" element={<ChallengesPage readingFor={resolveReading} />} />
+      <Route path="learn" element={<LearnRoute />} />
+      <Route path="learn/:stageId/read" element={<ArticleRoute />} />
+      <Route path="challenges" element={<ChallengesRoute />} />
       <Route path="practice" element={<PlaygroundPage />} />
       <Route path="roadmap" element={<RoadmapPage />} />
-      <Route path="roadmap/:slug" element={<RoadmapDetailPage readingFor={resolveReading} />} />
+      <Route path="roadmap/:slug" element={<RoadmapDetailRoute />} />
       <Route path="leaderboard" element={<LeaderboardPage />} />
       <Route path="achievements" element={<AchievementsPage />} />
       <Route path="settings" element={<SettingsPage />} />
@@ -64,22 +89,36 @@ const AppRoutes: React.FC = () => (
   </Routes>
 );
 
+/** Everything under the providers; split out so the content hook can throw into the ErrorBoundary. */
+const Shell: React.FC = () => {
+  const content = useContentBundle();
+  return (
+    <SessionProvider content={content}>
+      <BrowserRouter>
+        <ScrollToTop />
+        {/* The practice modal and its session wrap the routes so every page can open it. */}
+        <PracticeHost
+          readingSlot={(challenge, close) => (
+            <Suspense fallback={null}>
+              <ReadingPanel challenge={challenge} onNavigate={close} />
+            </Suspense>
+          )}
+        >
+          <AppRoutes />
+        </PracticeHost>
+        <AccountModals />
+        <BadgeToaster />
+        <Toasts />
+      </BrowserRouter>
+    </SessionProvider>
+  );
+};
+
 export const App: React.FC = () => (
   <ErrorBoundary>
     <ThemeProvider>
       <ToastProvider>
-        <SessionProvider content={CONTENT}>
-          <BrowserRouter>
-            <ScrollToTop />
-            {/* The practice modal and its session wrap the routes so every page can open it. */}
-            <PracticeHost readingSlot={(challenge, close) => <ReadingPanel challenge={challenge} onNavigate={close} />}>
-              <AppRoutes />
-            </PracticeHost>
-            <AccountModals />
-            <BadgeToaster />
-            <Toasts />
-          </BrowserRouter>
-        </SessionProvider>
+        <Shell />
       </ToastProvider>
     </ThemeProvider>
   </ErrorBoundary>

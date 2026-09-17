@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Challenge, ChallengeType } from '@/types';
 import { CHALLENGE_TYPES, checkAnswer, definitionFor, emptyAnswer, isAnswerComplete, isCodeChallenge, typeLabel } from '../challenge-types';
-import { ALL_CHALLENGES, CHALLENGE_BY_ID, STAGE_META, buildStages } from '../content';
+import { ALL_CHALLENGES, CHALLENGES_VERIFIED, CHALLENGE_BY_ID, STAGE_META, buildStages } from '../content';
 import { ChallengeSchema } from '../schema';
 
 const base = { id: 'x', stageId: 'stage-1', title: 't', difficulty: 'easy', language: 'javascript', prompt: 'p', explanation: 'because', xpReward: 10 } as const;
@@ -61,6 +61,10 @@ describe('challenge type registry', () => {
 });
 
 describe('challenge content (dev loader)', () => {
+  it('every authored challenge passes the schema (the deferred dev check finds nothing)', async () => {
+    await expect(CHALLENGES_VERIFIED).resolves.toEqual([]);
+  });
+
   it('loads the whole bank, validated, in stage order', () => {
     expect(ALL_CHALLENGES.length).toBeGreaterThanOrEqual(210);
     expect(CHALLENGE_BY_ID.size).toBe(ALL_CHALLENGES.length);

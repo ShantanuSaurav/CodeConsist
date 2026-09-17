@@ -7,7 +7,6 @@ import React, {
   useRef,
   useState
 } from 'react';
-import confetti from 'canvas-confetti';
 import {
   Challenge,
   ExecutionResult,
@@ -41,6 +40,13 @@ export interface SolveOptions {
 
 export interface SessionContextType {
   /* content */
+  /**
+   * False until the content bank has arrived. The bank is a separate chunk
+   * that loads after the shell paints, so `stages` and `allChallenges` are
+   * empty for a moment; screens that need them wait on this (the dashboard
+   * layout does it once for every page), the rest degrade to zeros.
+   */
+  contentReady: boolean;
   stages: Stage[];
   allChallenges: Challenge[];
   challengeById: (id: string) => Challenge | undefined;
@@ -114,10 +120,17 @@ function prefersReducedMotion(): boolean {
 }
 
 interface SessionProviderProps {
-  /** The bundled content bank. The app supplies it; the platform owns no content. */
-  content: ContentBundle;
+  /**
+   * The bundled content bank, or null while the app is still fetching its
+   * chunk. The app supplies it; the platform owns no content.
+   */
+  content: ContentBundle | null;
   children: React.ReactNode;
 }
+
+const EMPTY: Challenge[] = [];
+const NO_STAGES: Stage[] = [];
+
 
 /**
  * The player's session: identity, verified progress, the content bank, code
@@ -159,10 +172,18 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   }, [user]);
 
   /* -------------------------------------------------------------- content */
-  const [bundle, setBundle] = useState<ContentBundle>(content);
+  const [bundle, setBundle] = useState<ContentBundle | null>(content);
 
-  const stages = useMemo(() => applyProgress(bundle.stages, stats), [bundle.stages, stats]);
-  const challengeById = useCallback((id: string) => bundle.byId.get(id), [bundle.byId]);
+  // Adopt the app's bundle when it lands - unless the API already handed us a
+  // fresher copy in the meantime, which the bundled files cannot beat.
+  useEffect(() => {
+    if (content) setBundle((current) => (current?.source === 'api' ? current : content));
+  }, [content]);
+
+  const contentReady = bundle !== null;
+  const stages = useMemo(() => (bundle ? applyProgress(bundle.stages, stats) : NO_STAGES), [bundle, stats]);
+  const allChallenges = bundle?.challenges ?? EMPTY;
+  const challengeById = useCallback((id: string) => bundle?.byId.get(id), [bundle]);
 
   /* ------------------------------------------------------- server handshake */
   useEffect(() => {
@@ -322,13 +343,16 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   const celebrate = useCallback(() => {
     if (prefersReducedMotion()) return;
-    confetti({
-      particleCount: 70,
-      spread: 68,
-      origin: { y: 0.65 },
-      disableForReducedMotion: true,
-      colors: ['#4839FF', '#FFB020', '#00B873', '#FF5A4E']
-    });
+    // Fetched on the first solve, not on page load - nobody celebrates before that.
+    import('canvas-confetti').then(({ default: confetti }) =>
+      confetti({
+        particleCount: 70,
+        spread: 68,
+        origin: { y: 0.65 },
+        disableForReducedMotion: true,
+        colors: ['#4839FF', '#FFB020', '#00B873', '#FF5A4E']
+      })
+    );
   }, []);
 
   /**
@@ -614,8 +638,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   const value = useMemo<SessionContextType>(
     () => ({
+      contentReady,
       stages,
-      allChallenges: bundle.challenges,
+      allChallenges,
       challengeById,
       stats,
       user,
@@ -633,8 +658,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       celebrate
     }),
     [
+      contentReady,
       stages,
-      bundle.challenges,
+      allChallenges,
       challengeById,
       stats,
       user,

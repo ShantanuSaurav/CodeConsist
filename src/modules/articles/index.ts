@@ -13,7 +13,6 @@ export { ArticlePage } from './pages/ArticlePage';
 export type { ArticlePageProps, RelatedLink } from './pages/ArticlePage';
 export { ReadingPanel } from './components/ReadingPanel';
 export { ARTICLES, articleFor, sectionFor, sectionForTags } from './content';
-export { ArticleSchema } from './schema';
 export { parseArticle } from './parse';
 
 /**

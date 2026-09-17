@@ -11,3 +11,4 @@ numbered file rather than editing history; supersede with a note.
 | [0003](0003-event-bus.md) | Modules talk through a typed event bus, never by import |
 | [0004](0004-boundary-enforcement.md) | Dependency rules are enforced by a script in `npm run check` |
 | [0005](0005-challenge-type-registry.md) | Challenge types are a registry, not a switch |
+| [0006](0006-code-splitting-and-async-content.md) | Every screen is a chunk; the content bank loads after the shell paints |

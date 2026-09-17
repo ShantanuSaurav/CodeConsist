@@ -8,7 +8,6 @@
  */
 import type { Challenge } from '@/types';
 import type { ContentRecord, ContentSpec } from '@/platform/content-registry';
-import { ChallengeSchema } from '../schema';
 import { STAGE_META } from './stages';
 
 const STAGE_ORDER = new Map(STAGE_META.map((s, i) => [s.id, i]));
@@ -34,7 +33,7 @@ export const challengesSpec: ContentSpec<Challenge> = {
   exclude: ['index.ts', 'spec.ts', 'stages.ts'],
   shape: 'array',
   exportName: 'challenges',
-  schema: ChallengeSchema,
+  schema: () => import('../schema').then((m) => m.ChallengeSchema),
   idOf: (c) => c.id,
   compare: compareChallenges
 };
