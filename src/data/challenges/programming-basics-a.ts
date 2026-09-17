@@ -1,0 +1,381 @@
+import { Challenge } from '../../types';
+
+/**
+ * Stage 01 - Programming Basics, batch A.
+ * Reference batch: demonstrates every challenge type.
+ */
+export const challenges: Challenge[] = [
+  {
+    id: 'stage-1-a00',
+    stageId: 'stage-1',
+    title: 'Storing a value in a variable',
+    type: 'quiz',
+    difficulty: 'easy',
+    language: 'javascript',
+    prompt: 'What value is stored in `age`?',
+    codeSnippet: 'let age = 20;',
+    options: ['"age"', '20', 'let', 'variable'],
+    correctIndex: 1,
+    hints: [
+      'The value is whatever comes after the = sign.',
+      'The word "age" is the variable\'s name, not what it holds.'
+    ],
+    explanation:
+      '`let age = 20;` creates a variable named age and stores the number 20 in it. The variable\'s NAME is "age"; the VALUE it holds is 20 - writing the name later in your code gives you that value back.',
+    xpReward: 40,
+    tags: ['variables', 'basics'],
+    concept: {
+      id: 'variables-let',
+      title: 'What is a variable?',
+      summary: 'A named place to store a value, so your program can use it again later.',
+      intro:
+        'A variable is a named place where a program can store a piece of information - a number, a word, anything - and get it back later just by using its name. Think of it like a labelled jar: you write a name on the jar, put something inside, and from then on you can look inside just by asking for that name.',
+      example: {
+        code: 'let age = 20;\nconsole.log(age);',
+        language: 'javascript',
+        callouts: [
+          { line: 1, text: '`let` creates a new variable named age, and stores the number 20 inside it.' },
+          { line: 2, text: '`console.log(age)` looks up the variable named age and prints what is inside: 20.' }
+        ]
+      },
+      why:
+        'JavaScript keeps a table in memory mapping each variable name to its current value. Running `let age = 20;` adds an entry: age points to 20. Every time your code says `age` after that, JavaScript looks up that entry and uses the value it finds - 20 - as if you had typed the number yourself.',
+      secondExample: {
+        code: 'let name = "Alex";\nconsole.log(name);',
+        language: 'javascript',
+        callouts: [
+          { line: 1, text: 'Text goes in quotes - this is called a string. The variable name is still just a label, separate from the value.' },
+          { line: 2, text: 'Prints Alex - the value stored inside the name variable.' }
+        ]
+      },
+      tryIt: {
+        instructions: 'Change the value stored in age to your own age, then run it to see it print out.',
+        starterCode: 'let age = 20;\nconsole.log(age);',
+        language: 'javascript'
+      },
+      explainDifferently:
+        'Picture a labelled jar on a shelf. The label is the variable\'s name, like "age". What is inside the jar is the value, like 20. `let age = 20;` is you writing the label "age" on a jar and putting 20 inside it. Whenever your code says `age`, it means "go look inside that jar and use what\'s there."'
+    }
+  },
+  {
+    id: 'stage-1-a00b',
+    stageId: 'stage-1',
+    title: "Checking a value's type",
+    type: 'quiz',
+    difficulty: 'easy',
+    language: 'javascript',
+    prompt: 'What does `typeof 20` evaluate to?',
+    codeSnippet:
+      'console.log(typeof 20);\n' +
+      'console.log(typeof "hello");\n' +
+      'console.log(typeof true);',
+    options: ['"number"', '20', '"integer"', 'undefined'],
+    correctIndex: 0,
+    hints: [
+      'typeof always answers with a piece of text (a string), shown in quotes.',
+      'JavaScript calls whole numbers and decimals both just "number" - there is no separate "integer" type.'
+    ],
+    explanation:
+      '`typeof` looks at a value and reports its type as a string. 20 is a number, so `typeof 20` is "number" - not the number itself, and not "integer" (JavaScript has only one numeric type). The same operator reports "string" for "hello" and "boolean" for true.',
+    xpReward: 40,
+    tags: ['data-types', 'typeof'],
+    concept: {
+      id: 'data-types-typeof',
+      title: 'What is a data type?',
+      summary: 'Every value in JavaScript is one of a few kinds - typeof tells you which.',
+      intro:
+        'Every piece of data has a "type" describing what kind of thing it is: a number like 20, text like "hello" (called a string), or a true/false value (called a boolean). JavaScript needs to know a value\'s type to know what it can do with it - you can add two numbers together, but adding two true/false values does not mean the same thing.',
+      example: {
+        code: 'let score = 20;\nconsole.log(typeof score);',
+        language: 'javascript',
+        callouts: [
+          { line: 1, text: 'score holds a number.' },
+          { line: 2, text: '`typeof` asks JavaScript what kind of value score holds, and prints the answer as text: "number".' }
+        ]
+      },
+      why:
+        'JavaScript tags every value with a type the moment it is created: typing 20 makes a number, typing "hello" in quotes makes a string, typing true or false makes a boolean. `typeof` just reads that tag back and reports it to you as a string - which is why the result itself is shown in quotes, like "number".',
+      secondExample: {
+        code: 'let name = "Alex";\nlet isStudent = true;\nconsole.log(typeof name, typeof isStudent);',
+        language: 'javascript',
+        callouts: [
+          { line: 1, text: 'Quotes make this a string.' },
+          { line: 2, text: 'true and false values are booleans.' },
+          { line: 3, text: 'Prints: string boolean' }
+        ]
+      },
+      tryIt: {
+        instructions: 'Try typeof on a few different values and see what each one reports.',
+        starterCode: 'console.log(typeof 42);\nconsole.log(typeof "text");\nconsole.log(typeof false);',
+        language: 'javascript'
+      },
+      explainDifferently:
+        'Imagine every value comes with an invisible sticky note attached by JavaScript: "number", "string", or "boolean" are the most common ones. `typeof` just peels off that sticky note and shows it to you - it does not change the value, it only tells you what kind it already is.'
+    }
+  },
+  {
+    id: 'stage-1-a01',
+    stageId: 'stage-1',
+    title: 'Hoisting and var',
+    type: 'output_prediction',
+    difficulty: 'easy',
+    language: 'javascript',
+    prompt: 'What does this program print?',
+    codeSnippet:
+      'console.log(typeof score);\n' +
+      'var score = 100;\n' +
+      'console.log(typeof score);',
+    options: [
+      'undefined then number',
+      'number then number',
+      'ReferenceError on the first line',
+      'null then number'
+    ],
+    correctIndex: 0,
+    hints: [
+      'A var declaration is moved to the top of its scope, but the assignment is not.',
+      'typeof never throws for a declared-but-unassigned variable.'
+    ],
+    explanation:
+      'The declaration `var score` is hoisted to the top of the scope and initialised to undefined, so the first typeof reports "undefined". After the assignment runs, score holds a number.',
+    xpReward: 40,
+    tags: ['hoisting', 'var', 'typeof']
+  },
+  {
+    id: 'stage-1-a02',
+    stageId: 'stage-1',
+    title: 'Closures over a loop variable',
+    type: 'output_prediction',
+    difficulty: 'medium',
+    language: 'javascript',
+    prompt: 'What does this program print?',
+    codeSnippet:
+      'const fns = [];\n' +
+      'for (var i = 0; i < 3; i++) {\n' +
+      '  fns.push(() => i);\n' +
+      '}\n' +
+      'console.log(fns.map(f => f()).join(","));',
+    options: ['3,3,3', '0,1,2', '2,2,2', '0,0,0'],
+    correctIndex: 0,
+    hints: ['var has one binding for the whole loop, not one per iteration.'],
+    explanation:
+      'With var there is a single binding of i shared by every closure. By the time the functions run the loop has finished and i is 3, so all three return 3. Swapping var for let creates a fresh binding per iteration and prints 0,1,2.',
+    xpReward: 70,
+    tags: ['closures', 'scope', 'let']
+  },
+  {
+    id: 'stage-1-a03',
+    stageId: 'stage-1',
+    title: 'Strict equality',
+    type: 'quiz',
+    difficulty: 'easy',
+    language: 'javascript',
+    prompt: 'Which comparison evaluates to false?',
+    codeSnippet:
+      '// == may convert its operands; === never does\n' +
+      'const a = [] == false;\n' +
+      'const b = [] === false;\n' +
+      'const c = "" == 0;\n' +
+      'const d = null == undefined;',
+    options: ['[] == false', '[] === false', '"" == 0', 'null == undefined'],
+    correctIndex: 1,
+    hints: ['=== compares types first and stops there if they differ.'],
+    explanation:
+      'Only `[] === false` puts an object next to a boolean under ===, which returns false the moment the types differ. `[] == false` and `"" == 0` both convert their operands to numbers and end up comparing 0 with 0, while `null == undefined` is true by a special rule that converts nothing at all.',
+    xpReward: 40,
+    tags: ['equality', 'coercion']
+  },
+  {
+    id: 'stage-1-a04',
+    stageId: 'stage-1',
+    title: 'Truthiness rules',
+    type: 'multi_select',
+    difficulty: 'medium',
+    language: 'javascript',
+    prompt: 'Which of these values are falsy in JavaScript? Select every one that applies.',
+    options: ['0', '"0"', '[]', 'NaN', '""', '{}'],
+    correctIndices: [0, 3, 4],
+    hints: ['There are exactly eight falsy values, and every object is truthy.'],
+    explanation:
+      'The falsy values are false, 0, -0, 0n, "", null, undefined and NaN. The string "0" is a non-empty string, and [] and {} are objects, so all three are truthy.',
+    xpReward: 70,
+    tags: ['truthiness', 'coercion']
+  },
+  {
+    id: 'stage-1-a05',
+    stageId: 'stage-1',
+    title: 'Complete the guard clause',
+    type: 'fill_blank',
+    difficulty: 'easy',
+    language: 'javascript',
+    prompt: 'Fill in the blanks so the function returns 0 for an empty or missing list.',
+    codeSnippet:
+      'function total(prices) {\n' +
+      '  if (!prices || prices.___ === 0) ___ 0;\n' +
+      '  return prices.reduce((sum, p) => sum + p, 0);\n' +
+      '}',
+    blanks: [
+      { answer: 'length', choices: ['length', 'size', 'count'] },
+      { answer: 'return', choices: ['return', 'throw', 'break'] }
+    ],
+    hints: ['Arrays report how many items they hold through a property, not a method.'],
+    explanation:
+      'Arrays expose `length`, not `size` (that is Map and Set). Returning early keeps the happy path unindented, which is the point of a guard clause.',
+    xpReward: 40,
+    tags: ['guard-clause', 'arrays']
+  },
+  {
+    id: 'stage-1-a06',
+    stageId: 'stage-1',
+    title: 'Order the largest-value search',
+    type: 'pseudocode_order',
+    difficulty: 'easy',
+    language: 'pseudocode',
+    prompt: 'Put these pseudocode lines in the order that correctly returns the largest number in a list.',
+    pseudocodeLines: [
+      'IF numbers IS EMPTY THEN RETURN NULL',
+      'SET largest TO first item IN numbers',
+      'FOR EACH n IN numbers',
+      '    IF n > largest THEN SET largest TO n',
+      'END FOR',
+      'RETURN largest'
+    ],
+    hints: [
+      'Nothing may read the first item until you know there is one.',
+      'The comparison inside the loop needs largest to already hold a real value.'
+    ],
+    explanation:
+      'The empty check has to come first because the very next line reads the first item, which does not exist in an empty list. Seeding largest with that first item gives the comparison something real to test against on the first pass, and the answer is only known once every element has been seen, so the return follows END FOR.',
+    xpReward: 40,
+    tags: ['pseudocode', 'loops', 'edge-cases']
+  },
+  {
+    id: 'stage-1-a07',
+    stageId: 'stage-1',
+    title: 'FizzBuzz',
+    type: 'code_runner',
+    difficulty: 'easy',
+    language: 'javascript',
+    prompt:
+      'Return the FizzBuzz value for n: "FizzBuzz" when divisible by 3 and 5, "Fizz" for 3, "Buzz" for 5, otherwise n as a string.',
+    starterCode:
+      'function fizzbuzz(n) {\n' + '  // your code here\n' + '  return "";\n' + '}',
+    entryFunction: 'fizzbuzz',
+    testCases: [
+      { input: '3', expected: '"Fizz"' },
+      { input: '5', expected: '"Buzz"' },
+      { input: '15', expected: '"FizzBuzz"' },
+      { input: '7', expected: '"7"' }
+    ],
+    solutionCode:
+      'function fizzbuzz(n) {\n' +
+      '  if (n % 15 === 0) return "FizzBuzz";\n' +
+      '  if (n % 3 === 0) return "Fizz";\n' +
+      '  if (n % 5 === 0) return "Buzz";\n' +
+      '  return String(n);\n' +
+      '}',
+    hints: [
+      'Check the most specific case first, otherwise 15 never reaches the FizzBuzz branch.',
+      'n % 15 === 0 is the same test as divisible by both 3 and 5.'
+    ],
+    explanation:
+      'Order matters: test the combined case first. Checking n % 3 first would return "Fizz" for 15 and never reach the FizzBuzz branch.',
+    xpReward: 40,
+    tags: ['conditionals', 'modulo']
+  },
+  {
+    id: 'stage-1-a08',
+    stageId: 'stage-1',
+    title: 'Fix the off-by-one',
+    type: 'debug',
+    difficulty: 'easy',
+    language: 'javascript',
+    prompt:
+      'This function should return the sum of every element, but it drops one. Find the bug and fix it.',
+    starterCode:
+      'function sumAll(numbers) {\n' +
+      '  let total = 0;\n' +
+      '  for (let i = 0; i < numbers.length - 1; i++) {\n' +
+      '    total += numbers[i];\n' +
+      '  }\n' +
+      '  return total;\n' +
+      '}',
+    entryFunction: 'sumAll',
+    testCases: [
+      { input: '[1, 2, 3]', expected: '6' },
+      { input: '[10]', expected: '10' },
+      { input: '[]', expected: '0' },
+      { input: '[-2, 2, 5]', expected: '5' }
+    ],
+    solutionCode:
+      'function sumAll(numbers) {\n' +
+      '  let total = 0;\n' +
+      '  for (let i = 0; i < numbers.length; i++) {\n' +
+      '    total += numbers[i];\n' +
+      '  }\n' +
+      '  return total;\n' +
+      '}',
+    hints: ['Walk through [1, 2, 3] by hand and note which index the loop never visits.'],
+    explanation:
+      'The condition `i < numbers.length - 1` stops one element early, so the last item is never added. Array indices run from 0 to length - 1, so the loop condition should be `i < numbers.length`.',
+    xpReward: 40,
+    tags: ['off-by-one', 'loops', 'debugging']
+  },
+  {
+    id: 'stage-1-a09',
+    stageId: 'stage-1',
+    title: 'Integer division and remainder',
+    type: 'output_prediction',
+    difficulty: 'easy',
+    language: 'javascript',
+    prompt: 'What does this program print?',
+    codeSnippet:
+      'const totalMinutes = 135;\n' +
+      'const hours = Math.floor(totalMinutes / 60);\n' +
+      'const minutes = totalMinutes % 60;\n' +
+      'console.log(hours + "h " + minutes + "m");',
+    options: ['2h 15m', '2h 25m', '2.25h 0m', '3h 15m'],
+    correctIndex: 0,
+    hints: ['Math.floor throws the fractional part away; % keeps what the division left behind.'],
+    explanation:
+      'JavaScript division always produces a float, so 135 / 60 is 2.25 and Math.floor is what turns it into 2 whole hours. The remainder operator returns what those whole hours left behind, 15, which is why dividing for the whole part and taking the remainder for the rest is the standard way to split a total into units.',
+    xpReward: 40,
+    tags: ['arithmetic', 'modulo']
+  },
+  {
+    id: 'stage-1-a10',
+    stageId: 'stage-1',
+    title: 'Swap without a temporary',
+    type: 'code_runner',
+    difficulty: 'medium',
+    language: 'javascript',
+    prompt: 'Return a new array with the values at index i and index j swapped. Do not mutate the input.',
+    starterCode:
+      'function swap(arr, i, j) {\n' + '  // your code here\n' + '  return arr;\n' + '}',
+    entryFunction: 'swap',
+    testCases: [
+      { input: '[1, 2, 3], 0, 2', expected: '[3, 2, 1]' },
+      { input: '["a", "b"], 0, 1', expected: '["b", "a"]' },
+      { input: '[5], 0, 0', expected: '[5]' },
+      { input: '[1, 2, 3, 4], 1, 2', expected: '[1, 3, 2, 4]' },
+      // The prompt forbids mutating the input, so one case has to enforce it.
+      // Writing to a frozen array is a silent no-op, so an in-place solution
+      // hands back the original order and fails here.
+      { input: 'Object.freeze([7, 8, 9]), 0, 2', expected: '[9, 8, 7]' }
+    ],
+    solutionCode:
+      'function swap(arr, i, j) {\n' +
+      '  const copy = arr.slice();\n' +
+      '  [copy[i], copy[j]] = [copy[j], copy[i]];\n' +
+      '  return copy;\n' +
+      '}',
+    hints: [
+      'slice() with no arguments gives you a shallow copy.',
+      'Array destructuring can assign two variables at once.'
+    ],
+    explanation:
+      'Copy first so the caller’s array is untouched, then use destructuring assignment to exchange the two slots in a single statement. Swapping an index with itself is a harmless no-op.',
+    xpReward: 70,
+    tags: ['arrays', 'destructuring', 'immutability']
+  }
+];
