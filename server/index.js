@@ -40,8 +40,8 @@ let gradingPath;
 async function bootstrap() {
   await store.load();
 
-  gradingPath = await compileTsModule(path.join(ROOT, 'src', 'lib', 'grading.ts'), 'grading.mjs');
-  const levelingPath = await compileTsModule(path.join(ROOT, 'src', 'lib', 'leveling.ts'), 'leveling.mjs');
+  gradingPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'grading-engine', 'grading.ts'), 'grading.mjs');
+  const levelingPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'xp-leveling', 'leveling.ts'), 'leveling.mjs');
   grading = await import(pathToFileURL(gradingPath).href);
   leveling = await import(pathToFileURL(levelingPath).href);
 

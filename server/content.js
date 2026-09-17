@@ -1,9 +1,10 @@
 /**
  * Server-side view of the challenge bank.
  *
- * The authored content lives in TypeScript under src/data so the client and the
- * server can never drift. We compile it once with esbuild and cache the result
- * as JSON, rebuilding whenever a source file is newer than the cache.
+ * The authored content lives in TypeScript under src/modules/<name>/content so the
+ * client and the server can never drift. The content registry's Node loader
+ * discovers and validates it with the same specs and schemas the browser uses;
+ * we cache the result as JSON and rebuild whenever a source file is newer.
  */
 import { readdir, stat, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -12,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
-const SRC_DATA = path.join(ROOT, 'src', 'data');
+const SRC_MODULES = path.join(ROOT, 'src', 'modules');
+const SRC_TYPES = path.join(ROOT, 'src', 'types');
 const CACHE_DIR = path.join(HERE, 'generated');
 const CACHE_FILE = path.join(CACHE_DIR, 'content.json');
 
@@ -24,46 +26,31 @@ async function newestSourceMtime() {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) await walk(full);
-      else if (entry.name.endsWith('.ts')) {
+      else if (/.(ts|md)$/.test(entry.name)) {
         const s = await stat(full);
         newest = Math.max(newest, s.mtimeMs);
       }
     }
   };
-  await walk(SRC_DATA);
-  const typesStat = await stat(path.join(ROOT, 'src', 'types.ts'));
-  return Math.max(newest, typesStat.mtimeMs);
+  // Content, schemas and the shared types all decide what the bank looks like.
+  await walk(SRC_MODULES);
+  await walk(SRC_TYPES);
+  return newest;
 }
 
 async function compile() {
-  const esbuild = (await import('esbuild')).default;
-
-  // Bundle in memory and import it as a data: URL. Writing a temp file and
-  // importing THAT made it a module `node --watch` tracked, so deleting it
-  // afterwards restarted the server.
-  const result = await esbuild.build({
-    stdin: {
-      contents: [
-        "export { ALL_CHALLENGES, buildStages } from './index';",
-        "export { STAGE_META } from './stages';"
-      ].join('\n'),
-      resolveDir: SRC_DATA,
-      loader: 'ts'
-    },
-    bundle: true,
-    format: 'esm',
-    platform: 'node',
-    target: 'node18',
-    write: false,
-    logLevel: 'silent'
-  });
-  const code = result.outputFiles[0].text;
-  const mod = await import('data:text/javascript;base64,' + Buffer.from(code, 'utf8').toString('base64'));
+  const { loadContent: loadKind, loadSpecs, formatIssuesFor } = await import('../src/platform/content-registry/loader.build.mjs');
+  const result = await loadKind('challenges');
+  if (result.issues.length) {
+    // Fail loud: serving a half-valid bank would hand out XP for broken challenges.
+    throw new Error(formatIssuesFor(result.spec, result.issues));
+  }
+  const { STAGE_META } = await loadSpecs();
 
   return {
     builtAt: new Date().toISOString(),
-    stages: mod.STAGE_META,
-    challenges: mod.ALL_CHALLENGES
+    stages: STAGE_META,
+    challenges: result.items
   };
 }
 

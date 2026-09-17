@@ -14,6 +14,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* One alias for the whole tree; scripts/check-boundaries.mjs decides who may use what. */
+    "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] },
+    "types": ["vite/client", "vitest/globals"],
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,

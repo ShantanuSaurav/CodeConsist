@@ -43,7 +43,9 @@ npm start          # app + API together on http://localhost:4000
 | `/dashboard/learn` | The ten stages with lesson progress and each stage's coding test |
 | `/dashboard/challenges` | Search and filter all 210 challenges |
 | `/dashboard/practice` | Playground - run JavaScript or Python for real |
-| `/dashboard/roadmap` | Skill tree, filled in from your progress |
+| `/dashboard/roadmap` | Developer roadmaps (roadmap.sh-style) plus your stage skill tree |
+| `/dashboard/roadmap/:slug` | One roadmap: topic graph, per-topic notes and links, done/learning/skip tracking |
+| `/dashboard/learn/:stage/read` | The stage's article - the reading that goes with its lessons |
 | `/dashboard/leaderboard` | Accounts ranked by server-verified XP |
 | `/dashboard/achievements` | Figures, coverage by language, badges |
 | `/dashboard/settings` | Account, Pro unlock, theme, reset |
@@ -76,6 +78,23 @@ in the stage are solved, and the **next stage stays locked until it is passed**.
 Tests are presented LeetCode-style: statement, worked examples, constraints, a
 mix of visible and hidden test cases, and no hints until you have made an
 attempt. Nothing can be skipped.
+
+**Reading before doing.** Every stage has an article (`src/modules/articles/content/*.md`,
+about 10 minutes each) split into sections tagged with the concepts they explain.
+The stage card offers it as "Read first", every challenge card links to the exact
+section, and inside the practice modal a "Read about this topic" panel unfolds the
+matching section above the prompt - reading is never penalised. `npm run
+content:extras` checks that every one of the 210 challenges maps to a section by tag.
+
+**Roadmaps.** Ten roadmap.sh-style maps - Frontend, Backend, Full Stack, DevOps,
+JavaScript, Python, SQL, Computer Science, System Design, Git & GitHub - with 200+
+topics. Each topic has a short explanation, curated free resources (official docs,
+MDN, free courses and books), a link to the community version on roadmap.sh, and,
+where Devlingo covers it, a jump into the stage's lessons and article. Topics can
+be marked done / learning / skipped; that lives in the browser and earns no XP,
+because nothing verifies it. The roadmaps' structure and text are Devlingo's own:
+roadmap.sh's content is copyrighted and is linked to, never copied.
+`npm run content:links` HEAD-requests every external URL.
 
 **Three real execution engines, and no faking.**
 
@@ -112,19 +131,25 @@ generation (`eval`, `new Function`) is disabled inside it. Do not loosen this.
 | `npm run dev:api` | API only (restarts when content changes) |
 | `npm run dev:web` | Web only |
 | `npm run build` | Type-check and build to `dist/` |
+| `npm run preview` | Serve `dist/` as production would (guest mode; no API) |
 | `npm start` | Serve the built app **and** the API from one process on `:4000` |
-| `npm run check` | Index, type-check, validate and lint all content |
+| `npm run check` | Everything below, in sequence - required before a merge |
+| `npm run lint:boundaries` | Enforce the dependency direction between areas and modules |
+| `npm run content:parity` | Prove the Vite and Node content loaders select the same files |
+| `npm run test` | Unit and integration tests (vitest) |
 | `npm run content:validate` | Correctness check: structure + really run every solution |
 | `npm run content:lint` | Quality check: leaked hints, duplicate options, answer bias |
-| `npm run content:index` | Regenerate `src/data/index.ts` after adding a batch |
+| `npm run content:extras` | Validate the articles and roadmaps (sections, tags, node ids, URLs) |
+| `npm run content:links` | The same, plus a live check of every external link |
 
 ## Adding challenges
 
-Challenges live in `src/data/challenges/<stage-slug>-<batch>.ts`, each exporting
-`challenges: Challenge[]`. Stage tests live in `stage-tests.ts` with
-`isStageTest: true`, `examples` and `constraints`; the index splits them out
-into `stage.test`. `docs/CONTENT_AUTHORING.md` has the rules and
-`src/data/challenges/programming-basics-a.ts` shows every type.
+Challenges live in `src/modules/challenges/content/<topic>/<batch>.ts`, each
+exporting `challenges: Challenge[]`. Stage tests live in
+`content/stage-tests.ts` with `isStageTest: true`, `examples` and
+`constraints`. Every file under `content/` is discovered automatically - a new
+topic is a new folder, with no index to regenerate. `docs/CONTENT_AUTHORING.md`
+has the rules and `content/programming-basics/a.ts` shows every type.
 
 After adding a file:
 
@@ -132,11 +157,15 @@ After adding a file:
 npm run check
 ```
 
-`scripts/validate-content.mjs` is not a schema check. It compiles the content,
-verifies structure per type, rejects duplicate ids, and for every executable
-challenge it **runs the reference solution against every test case** — and
-separately checks that a `debug` challenge's starter code actually fails. A
-challenge that cannot be solved as written will not pass.
+Content goes through the **content registry** (`src/platform/content-registry`):
+a zod schema per content kind (`modules/<name>/schema.ts`) is applied at build
+time by the same code the browser, the API server and the scripts all use, so
+a malformed challenge fails with its file path and field rather than crashing a
+learner's session. `scripts/validate-content.mjs` then adds what a schema
+cannot express, and for every executable challenge it **runs the reference
+solution against every test case** — and separately checks that a `debug`
+challenge's starter code actually fails. A challenge that cannot be solved as
+written will not pass.
 
 JavaScript runs in a Node VM. Python runs through a local CPython 3 if one is on
 PATH (`python3`, `python` or `py`); if there is none the run says so explicitly
@@ -155,29 +184,65 @@ at it with `VITE_API_PROXY` (dev) or same-origin `npm start` (prod).
 
 ## Layout
 
+A modular monolith with one dependency direction, enforced by
+`npm run lint:boundaries` (see `docs/adr/`):
+
 ```
-server/            Express API — auth, progress, grading, execution
-  db.js            atomic JSON store
-  content.js       compiles src/data with esbuild, caches to JSON
-  runner/          the sandboxed child process that runs submissions
-src/
-  pages/           routed screens: Landing, DashboardLayout and the dashboard pages
-  components/
-    layout/        landing sections, Navbar, Sidebar, SkillRoadmap
-    ui/            AuthModal, PageHeader
-    *.tsx          PracticeModal (all challenge types), CodeEditor, CodeBlock,
-                   LearningPath, ChallengeLibrary, EditorShowcase, Leaderboard
-  context/         GameContext - progress, auth, theme, modals
-  data/            stage metadata + 20 challenge batches (index.ts is generated)
-  lib/             grading, level curve, progress insights, highlighter, workers
-  services/        execution and content loading
-  index.css        Tailwind entry and theme tokens
-  styles/          component CSS for the practice modal, editor, toasts
-scripts/           content validator and index generator
+app  →  modules  →  platform  →  ui / types / config
 ```
 
-`src/lib/grading.ts` and `src/lib/leveling.ts` are compiled and imported by the
-server too, so "correct" and "level 4" mean the same thing on both sides.
+```
+src/
+  app/                composition root: providers, lazy routes (routes/), the shell,
+                      the async content loader, content-specs.ts
+  modules/            business domains - same shape in every folder, own README
+    challenges/       the bank (content/<topic>/), 7 challenge types (a registry),
+                      practice modal + session, learning path, library
+    articles/         per-stage reading (content/*.md), reading panel, article page
+    roadmaps/         roadmap.sh-style maps (content/*.ts), topic progress, hub/detail
+    dashboard/  leaderboard/  achievements/  playground/  account/  landing/
+  platform/           infrastructure any module may use
+    session/          identity, verified progress, content bank, execution, leaderboard
+    events/           the typed event bus modules talk through
+    content-registry/ discovery + zod validation shared by Vite and Node loaders
+    grading-engine/   grading primitives (shared with the server), answer helpers
+    xp-leveling/      level curve, streaks, scoring, derived insights
+    progress/         stage unlocking
+    execution/        JS sandbox worker, Pyodide worker, Judge0 client
+    api-client/  storage/  theme/  markdown/
+  ui/                 presentational primitives (CodeBlock, CodeEditor, toasts, hooks, theme CSS)
+  types/              contracts shared across areas
+  config/             routes, env
+server/               Express API — auth, progress, grading, execution
+  content.js          loads the bank through the content registry, caches to JSON
+  runner/             the sandboxed child process that runs submissions
+scripts/              validators, linters, parity and boundary checks
+docs/adr/             why the structure is the way it is
+```
+
+Modules never import each other. They cooperate through `platform/events`
+(`challenge:completed`, `practice:open`, …) or through props the app passes in
+(`readingFor`, `relatedFor`).
+
+### What the browser downloads
+
+Every screen is its own chunk and the challenge bank is another, fetched with
+`import()` after the shell paints (`docs/adr/0006`). Production build:
+
+| Chunk | Loaded | gzipped |
+| --- | --- | ---: |
+| `index` (providers, router, layout, practice modal) + `react` + `icons` | first paint | ~91 kB |
+| `challenges-content` | right after, in parallel | 94 kB |
+| `landing` + `motion` | on `/` | 47 kB |
+| `dashboard`, `route-learn`, `roadmaps`, `articles`, … | the screen you open | 1-43 kB each |
+| `types` (zod + the schemas) | never - development and CI only | - |
+
+Content-only releases leave every UI chunk cached in returning browsers, and
+the other way round. `npm run build` prints the table; the boundary check
+refuses a static import of a content bank, which is what would silently put it
+back on the critical path. `src/platform/grading-engine/grading.ts` and
+`src/platform/xp-leveling/leveling.ts` are compiled and imported by the server
+too, so "correct" and "level 4" mean the same thing on both sides.
 
 ## Configuration
 

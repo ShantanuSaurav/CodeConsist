@@ -6,15 +6,20 @@
   "scripts": {
     "dev": "concurrently -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "vite",
-    "dev:api": "node --env-file-if-exists=.env --watch-path=./server/index.js --watch-path=./server/content.js --watch-path=./server/db.js --watch-path=./server/build.js --watch-path=./server/runner --watch-path=./src/data --watch-path=./src/lib server/index.js",
-    "build": "npm run content:index && tsc && vite build",
+    "dev:api": "node --env-file-if-exists=.env --watch-path=./server/index.js --watch-path=./server/content.js --watch-path=./server/db.js --watch-path=./server/build.js --watch-path=./server/runner --watch-path=./src/modules/challenges/content --watch-path=./src/modules/challenges/schema.ts --watch-path=./src/platform --watch-path=./src/types --watch-path=./src/app/content-specs.ts server/index.js",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "start": "node --env-file-if-exists=.env server/index.js",
     "typecheck": "tsc --noEmit",
-    "content:index": "node scripts/build-index.mjs",
     "content:validate": "node scripts/validate-content.mjs",
-    "check": "npm run content:index && npm run typecheck && npm run content:validate && npm run content:lint",
-    "content:lint": "node scripts/lint-content.mjs"
+    "check": "npm run typecheck && npm run lint:boundaries && npm run content:parity && npm run content:validate && npm run content:lint && npm run content:extras && npm run test",
+    "content:lint": "node scripts/lint-content.mjs",
+    "content:extras": "node scripts/validate-extras.mjs",
+    "content:links": "node scripts/validate-extras.mjs --links",
+    "content:parity": "node scripts/check-content-parity.mjs",
+    "lint:boundaries": "node scripts/check-boundaries.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -27,7 +32,8 @@
     "lucide-react": "^1.46.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.18.4"
+    "react-router-dom": "^7.18.4",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -38,7 +44,8 @@
     "concurrently": "^9.2.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.3",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vitest": "^3.2.7"
   },
   "description": "Devlingo - the developer training environment. 200 lessons, 10 stage tests, real code execution. Runs end to end on localhost.",
   "engines": {
