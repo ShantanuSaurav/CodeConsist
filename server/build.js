@@ -25,8 +25,10 @@ export async function compileTsModule(entryTs, outName) {
   // every imported module, and rewriting an identical bundle on each start
   // produced an infinite restart loop.
   const esbuild = (await import('esbuild')).default;
+  const { registryPlugins } = await import('../src/platform/content-registry/loader.build.mjs');
   const result = await esbuild.build({
     entryPoints: [entryTs],
+    plugins: registryPlugins,
     bundle: true,
     format: 'esm',
     platform: 'node',

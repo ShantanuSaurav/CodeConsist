@@ -1,0 +1,26 @@
+# The merge gate. Everything `npm run check` runs locally runs here on a clean
+# machine, in the same order, plus the production build. Make it a required
+# status check on main - coupling regressions arrive as "small" PRs.
+name: CI
+
+on:
+  push:
+    branches: [main, adi]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # So content:validate really executes the Python solutions too.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build

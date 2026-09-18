@@ -1,9 +1,10 @@
 /**
  * Server-side view of the challenge bank.
  *
- * The authored content lives in TypeScript under src/data so the client and the
- * server can never drift. We compile it once with esbuild and cache the result
- * as JSON, rebuilding whenever a source file is newer than the cache.
+ * The authored content lives in TypeScript under src/modules/<name>/content so the
+ * client and the server can never drift. The content registry's Node loader
+ * discovers and validates it with the same specs and schemas the browser uses;
+ * we cache the result as JSON and rebuild whenever a source file is newer.
  */
 import { readdir, stat, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -12,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
-const SRC_DATA = path.join(ROOT, 'src', 'data');
+const SRC_MODULES = path.join(ROOT, 'src', 'modules');
+const SRC_TYPES = path.join(ROOT, 'src', 'types');
 const CACHE_DIR = path.join(HERE, 'generated');
 const CACHE_FILE = path.join(CACHE_DIR, 'content.json');
 
@@ -24,48 +26,32 @@ async function newestSourceMtime() {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) await walk(full);
-      else if (entry.name.endsWith('.ts')) {
+      else if (/.(ts|md)$/.test(entry.name)) {
         const s = await stat(full);
         newest = Math.max(newest, s.mtimeMs);
       }
     }
   };
-  await walk(SRC_DATA);
-  const typesStat = await stat(path.join(ROOT, 'src', 'types.ts'));
-  return Math.max(newest, typesStat.mtimeMs);
+  // Content, schemas and the shared types all decide what the bank looks like.
+  await walk(SRC_MODULES);
+  await walk(SRC_TYPES);
+  return newest;
 }
 
 async function compile() {
-  const esbuild = (await import('esbuild')).default;
-
-  // Bundle in memory and import it as a data: URL. Writing a temp file and
-  // importing THAT made it a module `node --watch` tracked, so deleting it
-  // afterwards restarted the server.
-  const result = await esbuild.build({
-    stdin: {
-      contents: [
-        "export { ALL_CHALLENGES, buildStages } from './index';",
-        "export { STAGE_META } from './stages';",
-        "export { LANGUAGE_TRACKS } from './tracks';"
-      ].join('\n'),
-      resolveDir: SRC_DATA,
-      loader: 'ts'
-    },
-    bundle: true,
-    format: 'esm',
-    platform: 'node',
-    target: 'node18',
-    write: false,
-    logLevel: 'silent'
-  });
-  const code = result.outputFiles[0].text;
-  const mod = await import('data:text/javascript;base64,' + Buffer.from(code, 'utf8').toString('base64'));
+  const { loadContent: loadKind, loadSpecs, formatIssuesFor } = await import('../src/platform/content-registry/loader.build.mjs');
+  const result = await loadKind('challenges');
+  if (result.issues.length) {
+    // Fail loud: serving a half-valid bank would hand out XP for broken challenges.
+    throw new Error(formatIssuesFor(result.spec, result.issues));
+  }
+  const { STAGE_META, LANGUAGE_TRACKS } = await loadSpecs();
 
   return {
     builtAt: new Date().toISOString(),
-    stages: mod.STAGE_META,
-    challenges: mod.ALL_CHALLENGES,
-    languageTracks: mod.LANGUAGE_TRACKS
+    stages: STAGE_META,
+    challenges: result.items,
+    languageTracks: LANGUAGE_TRACKS ?? []
   };
 }
 
@@ -80,9 +66,12 @@ export async function loadContent({ force = false } = {}) {
     try {
       const cacheStat = await stat(CACHE_FILE);
       if (cacheStat.mtimeMs >= newest) {
-        cached = JSON.parse(await readFile(CACHE_FILE, 'utf8'));
-        index(cached);
-        return cached;
+        const parsed = JSON.parse(await readFile(CACHE_FILE, 'utf8'));
+        if (Array.isArray(parsed.languageTracks)) {
+          cached = parsed;
+          index(cached);
+          return cached;
+        }
       }
     } catch {
       /* fall through and rebuild */
@@ -98,6 +87,8 @@ export async function loadContent({ force = false } = {}) {
 }
 
 function index(payload) {
+  // A cache written before tracks existed is rebuilt rather than served without them.
+  if (!Array.isArray(payload.languageTracks)) payload.languageTracks = [];
   payload.byId = new Map(payload.challenges.map((c) => [c.id, c]));
   payload.byStage = new Map();
   for (const c of payload.challenges) {
@@ -126,7 +117,7 @@ export function contentSnapshot() {
  * merged onto the authored content. This is the ONLY place either the
  * learner-facing `/api/content` or the admin content endpoints turn
  * "authored data + overrides" into "what actually gets shown" - so there is
- * exactly one merged view of the roadmap, never two.
+ * exactly one merged view of the bank, never two.
  *
  * Hidden stages/challenges are removed entirely for learners; the admin
  * endpoints (server/admin.js) merge overrides differently so a hidden item
@@ -152,11 +143,9 @@ export function applyLearnerOverrides(snapshot, overrides) {
 
 /**
  * Applies one stage's safe, presentational override fields, if any. Deliberately
- * excludes `language` - reassigning a stage to a different language track would
- * strand its challenges (they are matched to a track by stageId membership in
- * src/data/tracks.ts, not by a field on the stage itself) and desync the
- * per-language progress model in GameContext, so a language "change" is done by
- * moving challenges/stages in the authored content, not as a live admin toggle.
+ * excludes `language` and track membership - moving a stage between tracks
+ * would desync the per-track progress model, so that is done in the authored
+ * content (src/modules/challenges/content/tracks.ts), not as a live toggle.
  */
 export function applyStageOverride(stage, stageOverrides) {
   const o = stageOverrides?.[stage.id];
@@ -173,9 +162,9 @@ export function applyStageOverride(stage, stageOverrides) {
 /**
  * Applies one challenge's safe, presentational override fields, if any.
  * Deliberately excludes the question's logic (options, correct answers, test
- * cases, `language`) and stays out of `type` - those drive grading and the
- * validate-content.mjs safety net that actually executes JS/Python solutions,
- * so they stay in the authored TypeScript (see docs/CONTENT_AUTHORING.md).
+ * cases, `language`, `concept`) and stays out of `type` - those drive grading
+ * and the validate-content.mjs safety net that actually executes JS/Python
+ * solutions, so they stay in the authored TypeScript (docs/CONTENT_AUTHORING.md).
  */
 export function applyChallengeOverride(challenge, challengeOverrides) {
   const o = challengeOverrides?.[challenge.id];

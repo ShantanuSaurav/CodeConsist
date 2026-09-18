@@ -10,6 +10,8 @@
  *   - a separate administrator credential system (server/admin-auth.js),
  *   - an optional, best-effort mirror of accounts into Excel (server/excel.js).
  */
+// Must stay the first import - see server/env.js.
+import './env.js';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
@@ -59,8 +61,8 @@ let gradingPath;
 async function bootstrap() {
   await store.load();
 
-  gradingPath = await compileTsModule(path.join(ROOT, 'src', 'lib', 'grading.ts'), 'grading.mjs');
-  const levelingPath = await compileTsModule(path.join(ROOT, 'src', 'lib', 'leveling.ts'), 'leveling.mjs');
+  gradingPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'grading-engine', 'grading.ts'), 'grading.mjs');
+  const levelingPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'xp-leveling', 'leveling.ts'), 'leveling.mjs');
   grading = await import(pathToFileURL(gradingPath).href);
   leveling = await import(pathToFileURL(levelingPath).href);
 
@@ -249,7 +251,13 @@ app.get(
     const overrides = store.getContentOverrides();
     const merged = applyLearnerOverrides(snapshot, overrides);
     const hiddenLanguages = Object.keys(overrides.languages).filter((id) => overrides.languages[id]?.hidden);
-    res.json({ stages: merged.stages, challenges: merged.challenges, hiddenLanguages, builtAt: snapshot.builtAt });
+    res.json({
+      stages: merged.stages,
+      challenges: merged.challenges,
+      languageTracks: snapshot.languageTracks ?? [],
+      hiddenLanguages,
+      builtAt: snapshot.builtAt
+    });
   })
 );
 

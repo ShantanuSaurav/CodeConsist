@@ -254,9 +254,13 @@ export function createAdminRouter() {
   router.get('/content/stages', (_req, res) => {
     const snapshot = contentSnapshot();
     const overrides = store.getContentOverrides().stages;
+    const trackOf = new Map();
+    for (const track of snapshot?.languageTracks ?? []) for (const id of track.stageIds) trackOf.set(id, track);
     const stages = (snapshot?.stages ?? [])
       .map((stage, i) => ({
         ...applyStageOverride(stage, overrides),
+        trackId: trackOf.get(stage.id)?.id ?? null,
+        trackLabel: trackOf.get(stage.id)?.label ?? null,
         challengeCount: (snapshot?.challenges ?? []).filter((c) => c.stageId === stage.id && !c.isStageTest).length,
         hasTest: (snapshot?.challenges ?? []).some((c) => c.stageId === stage.id && c.isStageTest),
         hidden: Boolean(overrides[stage.id]?.hidden),

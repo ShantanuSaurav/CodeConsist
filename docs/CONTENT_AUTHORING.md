@@ -1,14 +1,20 @@
-# CodeQuest challenge authoring guide
+# Devlingo challenge authoring guide
 
-Every challenge file lives at `src/data/challenges/<stage-slug>-<batch>.ts` and looks like:
+Every challenge file lives at `src/modules/challenges/content/<topic>/<batch>.ts`
+(one folder per topic, `a.ts`, `b.ts`, … inside it) and looks like:
 
 ```ts
-import { Challenge } from '../../types';
+import { Challenge } from '@/types';
 
 export const challenges: Challenge[] = [ /* ... */ ];
 ```
 
-`src/types.ts` is the single source of truth for the shape. Read it before writing.
+There is no index to regenerate: every `.ts` file under `content/` is discovered
+automatically (a new topic is a new folder). `src/types/index.ts` describes the
+shape; `src/modules/challenges/schema.ts` is the zod schema that enforces it at
+build time - a malformed challenge fails `npm run check` with the file path and
+the field. Stage tests live in `content/stage-tests.ts`; stage metadata in
+`content/stages.ts`; which stages form which language track is `content/tracks.ts`.
 
 ## Hard rules
 
@@ -79,6 +85,48 @@ blanks: [{ answer: 'map', alternatives: ['flatMap'] }]
 
 Use `choices` when free-typing would be cruel (many valid spellings).
 
+## Beginner teaching (`concept`)
+
+A lesson may carry a `concept`: a short guided sequence shown **once**, before
+the question, to a learner in Learn mode (Practice mode never shows it). It is
+for the first time a stage introduces an idea - put it on the first lesson
+that asks about that idea, and let the lessons after it be the practice.
+
+```ts
+concept: {
+  id: 'variables-let',          // stable, independent of the challenge id
+  title: 'What is a variable?',
+  summary: 'A named place to store a value, so your program can use it again later.',
+  intro: 'One or two plain paragraphs. No jargon that has not been introduced.',
+  example: { code: 'let age = 20;
+console.log(age);', language: 'javascript',
+             callouts: [{ line: 1, text: '`let` creates a variable named age.' }] },
+  why: 'What the language is actually doing - the mechanism behind the example.',
+  secondExample: { /* optional, slightly harder */ },
+  tryIt: { instructions: 'Change the value and run it.', starterCode: '...', language: 'javascript' },
+  explainDifferently: 'A plainer restatement, revealed only on "I don't understand".'
+}
+```
+
+- `callouts[].line` is 1-based and must exist in the example (the schema checks).
+- `tryIt` runs through the real execution path and is never graded. Use a
+  language with an engine (JavaScript, Python); a C or C++ try-it will show the
+  server's honest "needs a Judge0 endpoint" message unless one is configured.
+- The challenge that carries the concept *is* its quick check. Its `explanation`
+  must explain the mechanism - in Learn mode a wrong answer shows it immediately.
+
+## Language tracks and stage tests without an engine
+
+`content/tracks.ts` lists the tracks (the core ten-stage path, C, C++). Every
+stage belongs to exactly one track and unlocking is evaluated per track, so a
+new C stage goes after `stage-c1` in the C track, never after Stage 10.
+
+A stage test is a `code_runner` with worked `examples` wherever the language
+has an execution engine here (JavaScript, Python). C and C++ have none without
+Judge0, so their stage tests are answer-graded (`fill_blank`, `quiz`, ...) and
+verified by the server like every other lesson - never a `code_runner` that
+would need a compiler nobody has configured.
+
 ## Style
 
 - Prompts are direct and specific: "What does this print?" beats "Consider the following".
@@ -94,10 +142,28 @@ Use `choices` when free-typing would be cruel (many valid spellings).
 npm run check
 ```
 
-That regenerates the index, type-checks, runs `validate-content.mjs` (correctness:
-structure, plus really executing every JavaScript and Python solution) and then
-`lint-content.mjs` (quality: hints that leak the answer, duplicate options,
-near-duplicate challenges, thin explanations, answer-position bias).
+That type-checks, enforces the module boundaries, proves the dev and build
+content loaders agree (`content:parity`), runs `validate-content.mjs`
+(correctness: the zod schema, plus really executing every JavaScript and Python
+solution), `lint-content.mjs` (quality: hints that leak the answer, duplicate
+options, near-duplicate challenges, thin explanations, answer-position bias),
+`validate-extras.mjs` (articles and roadmaps) and the unit tests. A stage
+without an article is reported as a warning (its card simply offers no "Read
+first"); the C and C++ tracks are in that state today.
+
+While `npm run dev` is running you get the same message two ways: the API
+refuses to restart on a bad file (its terminal shows the path and the field),
+and the browser prints it as a red uncaught error a moment after the page
+renders. Production builds skip that check - they only exist because
+`npm run check` passed - so the zod schemas never reach visitors.
+
+One Windows quirk: Vite sometimes does not notice a *brand-new* file until the
+glob's owner is touched. If a new batch does not show up in the library, save
+`content/index.ts` (no change needed) or restart `npm run dev`.
+
+Articles are Markdown under `src/modules/articles/content/` - see the header of
+`src/modules/articles/parse.ts` for the format. Roadmaps are one TypeScript file
+each under `src/modules/roadmaps/content/` exporting `roadmap`.
 
 The validator fails the build. The lint only warns — each warning needs a human
 to judge, and a false positive is a bug in the lint, not a reason to reword good
