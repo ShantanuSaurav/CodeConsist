@@ -85,6 +85,12 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const [finished, setFinished] = useState(false);
   const [sessionXp, setSessionXp] = useState(0);
   const [sessionSolved, setSessionSolved] = useState<string[]>([]);
+  const [lastAwarded, setLastAwarded] = useState<{
+    xp: number;
+    score: number;
+    challengeId: string;
+    firstTime: boolean;
+  } | null>(null);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -112,6 +118,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     setIsRunning(false);
     setProgressMessage('');
     setReviewingConcept(false);
+    setLastAwarded(null);
     setCode(next && isCodeType(next) ? next.starterCode ?? '' : '');
   }, []);
 
@@ -150,15 +157,24 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
 
   const award = useCallback(
     async (target: Challenge, usedAttempts: number, submission: { answer?: unknown; code?: string }) => {
+      const wasAlreadySolved = stats.completedChallenges.includes(target.id);
       const xp = await completeChallenge(target, {
         attempts: usedAttempts,
         hintsUsed: revealedHints,
         ...submission
       });
+      const penalty = Math.max(0, usedAttempts - 1) * 10 + revealedHints * 10;
+      const score = Math.max(50, 100 - penalty);
+      setLastAwarded({
+        xp: wasAlreadySolved ? 0 : xp,
+        score,
+        challengeId: target.id,
+        firstTime: !wasAlreadySolved
+      });
       setSessionXp((prev) => prev + xp);
       setSessionSolved((prev) => (prev.includes(target.id) ? prev : [...prev, target.id]));
     },
-    [completeChallenge, revealedHints]
+    [completeChallenge, revealedHints, stats.completedChallenges]
   );
 
   const handleCheck = useCallback(async () => {
@@ -386,7 +402,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   return (
     <div className="modal-overlay" onMouseDown={closePractice}>
       <div
-        className={`modal-card practice-card ${definitionFor(challenge).wide ? 'is-wide' : ''}`.trim()}
+        className={`modal-card practice-card ${definitionFor(challenge).wide ? 'is-wide' : ''} ${challenge.uiPreview || challenge.language === 'html' ? 'is-ui' : ''}`.trim()}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -679,14 +695,37 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                   <span className="feedback-icon" aria-hidden="true">
                     {isCorrect ? '✓' : '✗'}
                   </span>
-                  <div>
-                    <strong>
-                      {isCorrect
-                        ? attempts === 1 && revealedHints === 0
-                          ? 'Correct, first try.'
-                          : 'Correct.'
-                        : 'Not quite.'}
-                    </strong>{' '}
+                  <div className="feedback-content">
+                    <div className="feedback-heading-row">
+                      <strong>
+                        {isCorrect
+                          ? attempts === 1 && revealedHints === 0
+                            ? 'Correct, first try!'
+                            : 'Correct!'
+                          : 'Not quite.'}
+                      </strong>
+                      {isCorrect && (
+                        <div className="feedback-points-cluster">
+                          {lastAwarded?.challengeId === challenge.id && lastAwarded.xp > 0 ? (
+                            <>
+                              <span className="feedback-xp-pill">+{lastAwarded.xp} XP</span>
+                              <span className="feedback-score-pill">Score: {lastAwarded.score}%</span>
+                            </>
+                          ) : alreadySolved ? (
+                            <span className="feedback-score-pill is-subtle">
+                              Solved before · Practice complete
+                            </span>
+                          ) : (
+                            <span className="feedback-xp-pill">+{challenge.xpReward} XP</span>
+                          )}
+                          {challenge.uiPreview && (
+                            <span className="feedback-assessment-pill">
+                              Frontend Assessment
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     {/*
                       Learn mode: a wrong answer explains itself immediately and
                       in full - never just "wrong, try again" - and names the

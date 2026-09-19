@@ -393,5 +393,219 @@ export const challenges: Challenge[] = [
       'Promise.all short-circuits: the first rejection settles the whole thing and the other outcomes are lost. Promise.allSettled waits for every input and reports each one as fulfilled with a value or rejected with a reason, so the loop must push a record for a failing task instead of returning early.',
     xpReward: 70,
     tags: ['promises', 'allsettled', 'error-handling', 'debugging']
+  },
+  {
+    id: 'stage-5-a11',
+    stageId: 'stage-5',
+    title: 'Interactive Profile Card Component',
+    type: 'code_runner',
+    difficulty: 'medium',
+    language: 'html',
+    uiPreview: true,
+    prompt:
+      'Build an interactive Profile Card component as seen in front-end coding assessments: (1) #user-name with "Alex Morgan", (2) #status-badge initialized to "Active" and class "status-active", (3) #status-btn that on click toggles the badge text between "Active" and "Away" and class between "status-active" and "status-away", (4) #follower-count initialized with "142", and (5) #follow-btn that on click increments followers to "143" and changes its button label to "Following".',
+    starterCode:
+      '<div class="profile-card">\n' +
+      '  <h3 id="user-name">Alex Morgan</h3>\n' +
+      '  <p class="role">Frontend Engineer</p>\n' +
+      '  <div class="meta">\n' +
+      '    <span id="status-badge" class="status-active">Active</span>\n' +
+      '    <span id="follower-count">142 followers</span>\n' +
+      '  </div>\n' +
+      '  <div class="actions">\n' +
+      '    <button id="status-btn">Toggle Status</button>\n' +
+      '    <button id="follow-btn">+ Follow</button>\n' +
+      '  </div>\n' +
+      '</div>\n\n' +
+      '<style>\n' +
+      '  .profile-card { font-family: sans-serif; max-width: 320px; padding: 20px; background: #1e293b; color: #f8fafc; border-radius: 12px; }\n' +
+      '  .role { color: #94a3b8; margin: 4px 0 14px 0; font-size: 14px; }\n' +
+      '  .meta { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; font-size: 13px; }\n' +
+      '  .status-active { background: #14532d; color: #4ade80; padding: 3px 8px; border-radius: 999px; font-weight: 600; }\n' +
+      '  .status-away { background: #7f1d1d; color: #f87171; padding: 3px 8px; border-radius: 999px; font-weight: 600; }\n' +
+      '  .actions { display: flex; gap: 8px; }\n' +
+      '  button { padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; background: #3b82f6; color: #fff; }\n' +
+      '</style>\n\n' +
+      '<script>\n' +
+      '  const statusBtn = document.getElementById("status-btn");\n' +
+      '  const badge = document.getElementById("status-badge");\n' +
+      '  const followBtn = document.getElementById("follow-btn");\n' +
+      '  const count = document.getElementById("follower-count");\n\n' +
+      '  // TODO: Add click event listener to statusBtn to toggle Active/Away and classes status-active/status-away\n\n' +
+      '  // TODO: Add click event listener to followBtn to increment follower count to 143 and change button text to "Following"\n' +
+      '</script>',
+    solutionCode:
+      '<div class="profile-card">\n' +
+      '  <h3 id="user-name">Alex Morgan</h3>\n' +
+      '  <p class="role">Frontend Engineer</p>\n' +
+      '  <div class="meta">\n' +
+      '    <span id="status-badge" class="status-active">Active</span>\n' +
+      '    <span id="follower-count">142 followers</span>\n' +
+      '  </div>\n' +
+      '  <div class="actions">\n' +
+      '    <button id="status-btn">Toggle Status</button>\n' +
+      '    <button id="follow-btn">+ Follow</button>\n' +
+      '  </div>\n' +
+      '</div>\n\n' +
+      '<style>\n' +
+      '  .profile-card { font-family: sans-serif; max-width: 320px; padding: 20px; background: #1e293b; color: #f8fafc; border-radius: 12px; }\n' +
+      '  .role { color: #94a3b8; margin: 4px 0 14px 0; font-size: 14px; }\n' +
+      '  .meta { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; font-size: 13px; }\n' +
+      '  .status-active { background: #14532d; color: #4ade80; padding: 3px 8px; border-radius: 999px; font-weight: 600; }\n' +
+      '  .status-away { background: #7f1d1d; color: #f87171; padding: 3px 8px; border-radius: 999px; font-weight: 600; }\n' +
+      '  .actions { display: flex; gap: 8px; }\n' +
+      '  button { padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; background: #3b82f6; color: #fff; }\n' +
+      '</style>\n\n' +
+      '<script>\n' +
+      '  const statusBtn = document.getElementById("status-btn");\n' +
+      '  const badge = document.getElementById("status-badge");\n' +
+      '  const followBtn = document.getElementById("follow-btn");\n' +
+      '  const count = document.getElementById("follower-count");\n' +
+      '  let followers = 142;\n\n' +
+      '  statusBtn.addEventListener("click", () => {\n' +
+      '    const isAway = badge.classList.contains("status-away");\n' +
+      '    if (isAway) {\n' +
+      '      badge.textContent = "Active";\n' +
+      '      badge.classList.remove("status-away");\n' +
+      '      badge.classList.add("status-active");\n' +
+      '    } else {\n' +
+      '      badge.textContent = "Away";\n' +
+      '      badge.classList.remove("status-active");\n' +
+      '      badge.classList.add("status-away");\n' +
+      '    }\n' +
+      '  });\n\n' +
+      '  followBtn.addEventListener("click", () => {\n' +
+      '    followers += 1;\n' +
+      '    count.textContent = followers + " followers";\n' +
+      '    followBtn.textContent = "Following";\n' +
+      '  });\n' +
+      '</script>',
+    testCases: [
+      {
+        description: 'Verify #user-name "Alex Morgan", #status-badge "Active" (.status-active), and #follower-count "142"',
+        input:
+          '(() => {\n' +
+          '  const name = document.querySelector("#user-name");\n' +
+          '  const badge = document.querySelector("#status-badge");\n' +
+          '  const count = document.querySelector("#follower-count");\n' +
+          '  return Boolean(name && name.textContent.includes("Alex Morgan") && badge && badge.textContent.trim() === "Active" && badge.classList.contains("status-active") && count && count.textContent.includes("142"));\n' +
+          '})()',
+        expected: 'true'
+      },
+      {
+        description: 'Toggle status: Click #status-btn switches badge to "Away" and class "status-away"',
+        input:
+          '(() => {\n' +
+          '  const btn = document.querySelector("#status-btn");\n' +
+          '  const badge = document.querySelector("#status-badge");\n' +
+          '  btn?.click();\n' +
+          '  return Boolean(badge && badge.textContent.trim() === "Away" && badge.classList.contains("status-away"));\n' +
+          '})()',
+        expected: 'true'
+      },
+      {
+        description: 'Toggle status back: Click #status-btn again returns badge to "Active" and class "status-active"',
+        input:
+          '(() => {\n' +
+          '  const btn = document.querySelector("#status-btn");\n' +
+          '  const badge = document.querySelector("#status-badge");\n' +
+          '  btn?.click();\n' +
+          '  return Boolean(badge && badge.textContent.trim() === "Active" && badge.classList.contains("status-active"));\n' +
+          '})()',
+        expected: 'true'
+      },
+      {
+        description: 'Increment followers: Click #follow-btn increments count to "143" and button to "Following"',
+        input:
+          '(() => {\n' +
+          '  const btn = document.querySelector("#follow-btn");\n' +
+          '  const count = document.querySelector("#follower-count");\n' +
+          '  btn?.click();\n' +
+          '  return Boolean(count && count.textContent.includes("143") && btn && btn.textContent.includes("Following"));\n' +
+          '})()',
+        expected: 'true'
+      }
+    ],
+    concept: {
+      id: 'web-interactive-profile-card',
+      title: 'Building Interactive UI Components',
+      summary: 'Combine semantic HTML layout, CSS visual states, and DOM event handlers.',
+      intro:
+        'Front-end technical assessments test your ability to build real, responsive, interactive UI components. A solid UI component combines three fundamentals: structured semantic markup, clean CSS state classes (such as active vs away), and event-driven JavaScript DOM manipulation.',
+      example: {
+        code:
+          '<div class="card">\n' +
+          '  <h3 id="user-name">Alex Morgan</h3>\n' +
+          '  <span id="status-badge" class="active">Active</span>\n' +
+          '  <button id="status-btn">Toggle Status</button>\n' +
+          '</div>\n' +
+          '<script>\n' +
+          '  const btn = document.getElementById("status-btn");\n' +
+          '  const badge = document.getElementById("status-badge");\n' +
+          '  btn.addEventListener("click", () => {\n' +
+          '    const isAway = badge.classList.toggle("away");\n' +
+          '    badge.classList.toggle("active", !isAway);\n' +
+          '    badge.textContent = isAway ? "Away" : "Active";\n' +
+          '  });\n' +
+          '</script>',
+        language: 'html',
+        callouts: [
+          { line: 2, text: 'Unique ID for reliable element selection and automated testing' },
+          { line: 3, text: 'Visual state badge initialized with class "active"' },
+          { line: 8, text: 'Attach click listener to handle user interaction' },
+          { line: 9, text: 'classList.toggle updates style classes cleanly without inline style hacks' },
+          { line: 11, text: 'Synchronize textContent with state so the UI reflects current status' }
+        ]
+      },
+      why:
+        'In corporate assessments and production web apps, user interfaces respond to events by toggling CSS classes and updating text content. Modifying classList and textContent preserves DOM stability, prevents layout thrashing, and eliminates XSS vulnerabilities compared to wiping innerHTML.',
+      tryIt: {
+        ui: true,
+        language: 'html',
+        instructions:
+          'Preview the live profile card below! Click "Toggle Status" and "+ Follow" to test interactivity live. Try changing the role or button colors and click "Update & Run"!',
+        starterCode:
+          '<div style="font-family:sans-serif;max-width:320px;padding:20px;background:#1e293b;color:#f8fafc;border-radius:12px;">\n' +
+          '  <h3 id="user-name" style="margin:0 0 6px 0;">Alex Morgan</h3>\n' +
+          '  <p style="margin:0 0 14px 0;color:#94a3b8;font-size:14px;">Senior Frontend Engineer</p>\n' +
+          '  <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;">\n' +
+          '    <span id="status-badge" style="background:#14532d;color:#4ade80;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;">Active</span>\n' +
+          '    <span id="follower-count" style="font-size:13px;color:#cbd5e1;">142 followers</span>\n' +
+          '  </div>\n' +
+          '  <div style="display:flex;gap:8px;">\n' +
+          '    <button id="status-btn" style="padding:8px 12px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Toggle Status</button>\n' +
+          '    <button id="follow-btn" style="padding:8px 12px;background:#334155;color:#fff;border:none;border-radius:6px;cursor:pointer;">+ Follow</button>\n' +
+          '  </div>\n' +
+          '</div>\n\n' +
+          '<script>\n' +
+          '  const statusBtn = document.getElementById("status-btn");\n' +
+          '  const badge = document.getElementById("status-badge");\n' +
+          '  const followBtn = document.getElementById("follow-btn");\n' +
+          '  const count = document.getElementById("follower-count");\n' +
+          '  let countNum = 142;\n' +
+          '  statusBtn.addEventListener("click", () => {\n' +
+          '    const isAway = badge.textContent === "Away";\n' +
+          '    badge.textContent = isAway ? "Active" : "Away";\n' +
+          '    badge.style.background = isAway ? "#14532d" : "#7f1d1d";\n' +
+          '    badge.style.color = isAway ? "#4ade80" : "#f87171";\n' +
+          '  });\n' +
+          '  followBtn.addEventListener("click", () => {\n' +
+          '    countNum += 1;\n' +
+          '    count.textContent = countNum + " followers";\n' +
+          '    followBtn.textContent = "Following";\n' +
+          '    followBtn.style.background = "#10b981";\n' +
+          '  });\n' +
+          '</script>'
+      }
+    },
+    hints: [
+      'Select elements with document.getElementById() or document.querySelector().',
+      'Use classList.add("status-away") and classList.remove("status-active") when toggling to Away.',
+      'Increment the number of followers and set count.textContent = "143 followers" and followBtn.textContent = "Following".'
+    ],
+    explanation:
+      'Real-world UI widgets connect event listeners to specific interactive targets. When clicked, the callback updates DOM attributes, swaps CSS classes, and updates textContent. The automated tests verify the component by inspecting DOM nodes and simulating real user click events.',
+    xpReward: 120,
+    tags: ['dom', 'events', 'ui', 'mutation']
   }
 ];

@@ -258,6 +258,164 @@ function runPython(
   });
 }
 
+/* ----------------------------------------------------------- browser HTML/DOM */
+
+function runHtmlInBrowser(
+  code: string,
+  entryFunction: string | undefined,
+  testCases: TestCase[]
+): Promise<ExecutionResult> {
+  return new Promise((resolve) => {
+    if (typeof document === 'undefined') {
+      resolve({
+        status: 'error',
+        stderr: 'DOM execution requires a browser document environment.',
+        engine: 'none',
+        testResults: []
+      });
+      return;
+    }
+
+    const started = performance.now();
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.top = '-9999px';
+    iframe.style.left = '-9999px';
+    iframe.style.width = '800px';
+    iframe.style.height = '600px';
+    iframe.style.visibility = 'hidden';
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-modals allow-forms');
+
+    let settled = false;
+    const cleanup = () => {
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
+
+    const finish = (result: ExecutionResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      cleanup();
+      resolve({
+        ...result,
+        engine: 'browser-dom',
+        time: `${(performance.now() - started).toFixed(0)}ms (DOM sandbox)`
+      });
+    };
+
+    const timer = setTimeout(() => {
+      finish({
+        status: 'error',
+        stderr: 'Execution timed out after 5000ms.',
+        testResults: []
+      });
+    }, 5000);
+
+    const scriptPrefix = `
+      <script>
+        window.__logs = [];
+        const _log = console.log;
+        const _err = console.error;
+        console.log = (...args) => {
+          window.__logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+          _log(...args);
+        };
+        console.error = (...args) => {
+          window.__logs.push('error: ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+          _err(...args);
+        };
+      </script>
+    `;
+
+    const isFullDoc = /<!DOCTYPE/i.test(code) || /<html/i.test(code);
+    let fullHtml: string;
+    if (isFullDoc) {
+      if (code.includes('<head>')) {
+        fullHtml = code.replace('<head>', `<head><meta charset="utf-8">${scriptPrefix}`);
+      } else {
+        fullHtml = `${scriptPrefix}${code}`;
+      }
+    } else {
+      fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">${scriptPrefix}</head><body>${code}</body></html>`;
+    }
+
+    iframe.onload = () => {
+      try {
+        const win = iframe.contentWindow as any;
+        if (!win) {
+          finish({ status: 'error', stderr: 'Could not access DOM sandbox window.', testResults: [] });
+          return;
+        }
+        const doc = iframe.contentDocument || win.document;
+        if (!doc) {
+          finish({ status: 'error', stderr: 'Could not access DOM sandbox document.', testResults: [] });
+          return;
+        }
+
+        const logs = (win.__logs as string[] | undefined)?.join('\n') ?? '';
+
+        if (!testCases.length) {
+          finish({ status: 'passed', stdout: logs, testResults: [] });
+          return;
+        }
+
+        const testResults: TestResult[] = [];
+        let allPassed = true;
+
+        for (const tc of testCases) {
+          const caseStart = performance.now();
+          try {
+            let actual: unknown;
+            if (entryFunction && typeof win[entryFunction] === 'function') {
+              const args = win.eval(`[${tc.input}]`);
+              actual = win[entryFunction](...args);
+            } else {
+              actual = win.eval(tc.input);
+            }
+
+            const passed = matchesExpected(actual, tc.expected);
+            if (!passed) allPassed = false;
+            testResults.push({
+              input: tc.input,
+              expected: tc.expected,
+              actual: displayValue(actual),
+              passed,
+              logs,
+              timeMs: Math.round((performance.now() - caseStart) * 100) / 100
+            });
+          } catch (err: any) {
+            allPassed = false;
+            testResults.push({
+              input: tc.input,
+              expected: tc.expected,
+              actual: `${err?.name ?? 'Error'}: ${err?.message ?? String(err)}`,
+              passed: false,
+              logs
+            });
+          }
+        }
+
+        finish({
+          status: allPassed ? 'passed' : 'failed',
+          stdout: logs,
+          testResults
+        });
+      } catch (e: any) {
+        finish({
+          status: 'error',
+          stderr: e?.message ?? String(e),
+          testResults: []
+        });
+      }
+    };
+
+    document.body.appendChild(iframe);
+    iframe.srcdoc = fullHtml;
+  });
+}
+
 /* ---------------------------------------------------- Judge0 (server-side) */
 // Judge0 requests themselves are made by the server (server/index.js), which
 // is the only place the API key ever lives. The client just calls
@@ -281,6 +439,7 @@ export const compilerService = {
   engineFor(language: SupportedLanguage): string {
     if (language === 'javascript' || language === 'typescript') return 'Node sandbox / browser worker';
     if (language === 'python') return `CPython ${PYODIDE_VERSION} (WebAssembly)`;
+    if (language === 'html') return 'Browser DOM sandbox';
     if (!LANGUAGE_IDS[language]) return 'no runtime configured';
     if (remoteCompilerConfigured && remoteCompilerLanguages.includes(language)) return 'Judge0 remote compiler';
     return 'requires Judge0 configuration';
@@ -288,7 +447,7 @@ export const compilerService = {
 
   /** Languages that always work, with nothing to configure. */
   runsLocally(language: SupportedLanguage): boolean {
-    return language === 'javascript' || language === 'typescript' || language === 'python';
+    return language === 'javascript' || language === 'typescript' || language === 'python' || language === 'html';
   },
 
   canRun(language: SupportedLanguage): boolean {
@@ -314,6 +473,10 @@ export const compilerService = {
 
     if (!code.trim()) {
       return { status: 'error', stderr: 'There is no code to run yet.', engine: 'none', testResults: [] };
+    }
+
+    if (language === 'html') {
+      return runHtmlInBrowser(code, entryFunction, testCases);
     }
 
     if (language === 'python') {

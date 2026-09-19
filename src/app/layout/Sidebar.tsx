@@ -22,6 +22,7 @@ import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
 import { ROUTES } from '@/config/routes';
+import { Dropdown } from '@/ui';
 
 const NAV = [
   { icon: <Home size={20} />, label: 'Dashboard', path: ROUTES.dashboard, exact: true },
@@ -56,21 +57,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
         {/* Persistent track switcher - always visible, always changeable,
             not just on the Learn page's track-selection row. */}
         {tracks.length > 1 && (
-          <label className="block mb-4">
-            <span className="sr-only">Language track</span>
-            <select
+          <div className="mb-4">
+            <Dropdown
               value={selectedTrackId}
-              onChange={(e) => setSelectedTrack(e.target.value)}
-              className="w-full text-sm font-medium px-3 py-2 rounded-lg bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[var(--color-primary)]"
-              aria-label="Switch language track"
-            >
-              {tracks.map(({ track, cleared, total }) => (
-                <option key={track.id} value={track.id}>
-                  {track.icon} {track.label} ({cleared}/{total})
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={setSelectedTrack}
+              className="w-full"
+              size="md"
+              options={tracks.map(({ track, cleared, total }) => ({
+                value: track.id,
+                label: track.label,
+                icon: <span className="text-base">{track.icon}</span>,
+                hint: `(${cleared}/${total})`
+              }))}
+              ariaLabel="Switch language track"
+            />
+          </div>
         )}
 
         <nav className="space-y-1" aria-label="Dashboard">

@@ -10,7 +10,7 @@ interface AuthModalProps {
 }
 
 const FIELD =
-  'w-full px-4 py-2.5 bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 rounded-lg text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-[var(--color-primary)] transition-colors disabled:opacity-50';
+  'w-full px-4 py-2.5 bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 rounded-xl text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 transition-all disabled:opacity-50 shadow-xs';
 
 /**
  * Sign in / create an account against the local API. Guests can keep playing
@@ -175,7 +175,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <button
               type="submit"
               disabled={offline || loading}
-              className="w-full py-3 bg-[var(--color-primary)] text-white dark:text-black font-bold rounded-lg hover:brightness-110 transition-all disabled:opacity-50"
+              className="w-full py-3 bg-[var(--color-primary)] text-white dark:text-black font-bold rounded-xl hover:brightness-105 hover:-translate-y-0.5 active:scale-[0.98] shadow-[0_4px_14px_rgba(22,163,11,0.25)] dark:shadow-[0_4px_16px_rgba(57,255,20,0.3)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
             >
               {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
             </button>
@@ -195,7 +195,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   continueAsGuest();
                   onClose();
                 }}
-                className="w-full py-3 bg-black/5 dark:bg-white/5 text-gray-900 dark:text-white font-medium rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors border border-black/5 dark:border-white/5 text-sm"
+                className="w-full py-2.5 bg-black/5 dark:bg-white/5 text-gray-900 dark:text-white font-medium rounded-xl hover:bg-black/10 dark:hover:bg-white/10 hover:-translate-y-0.5 active:scale-[0.98] transition-all border border-black/5 dark:border-white/5 text-sm cursor-pointer shadow-xs"
               >
                 ⚡ Continue as a guest
               </button>

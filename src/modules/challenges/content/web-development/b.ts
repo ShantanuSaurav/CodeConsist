@@ -336,5 +336,187 @@ export const challenges: Challenge[] = [
       'Every entity these replacements produce starts with an ampersand, so escaping & last re-escapes the ones that &lt; and &gt; just introduced and "<b>" turns into "&amp;lt;b&amp;gt;". The ampersand has to go first, while no entity exists for it to corrupt.',
     xpReward: 70,
     tags: ['security', 'xss', 'strings', 'debugging']
+  },
+  {
+    id: 'stage-5-b11',
+    stageId: 'stage-5',
+    title: 'Frontend Assessment: Interactive Product Card & Cart Controller',
+    type: 'code_runner',
+    difficulty: 'hard',
+    language: 'html',
+    uiPreview: true,
+    prompt:
+      'Front-End Coding Assessment: Build an interactive e-commerce product card with real-time state and boundary validation: (1) #product-title with "Wireless Pro Headphones" and #unit-price with "$99", (2) A quantity controller with #qty-decrement, #qty-val (starting at "1"), and #qty-increment. Decrement must not go below 1; increment must not exceed 10. (3) #subtotal displaying the total price ($99 * quantity, e.g. "$99", "$198"), (4) #add-to-cart button that on click adds the selected quantity to cart badge #cart-count and displays #status-msg with text "Added to cart!".',
+    starterCode:
+      '<div class="shop-widget">\n' +
+      '  <header class="shop-header">\n' +
+      '    <span>DevStore</span>\n' +
+      '    <div class="cart-badge">Cart: <span id="cart-count">0</span></div>\n' +
+      '  </header>\n\n' +
+      '  <div class="product-card">\n' +
+      '    <h3 id="product-title">Wireless Pro Headphones</h3>\n' +
+      '    <div class="price-row">\n' +
+      '      <span>Unit Price:</span>\n' +
+      '      <span id="unit-price">$99</span>\n' +
+      '    </div>\n\n' +
+      '    <div class="qty-control">\n' +
+      '      <button id="qty-decrement" type="button">-</button>\n' +
+      '      <span id="qty-val">1</span>\n' +
+      '      <button id="qty-increment" type="button">+</button>\n' +
+      '    </div>\n\n' +
+      '    <div class="subtotal-row">\n' +
+      '      <span>Subtotal:</span>\n' +
+      '      <strong id="subtotal">$99</strong>\n' +
+      '    </div>\n\n' +
+      '    <button id="add-to-cart" class="btn-primary" type="button">Add to Cart</button>\n' +
+      '    <p id="status-msg" class="status-hidden"></p>\n' +
+      '  </div>\n' +
+      '</div>\n\n' +
+      '<style>\n' +
+      '  .shop-widget { font-family: sans-serif; max-width: 360px; background: #0f172a; color: #f8fafc; border-radius: 14px; padding: 20px; border: 1px solid #334155; }\n' +
+      '  .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 12px; margin-bottom: 16px; font-weight: 600; }\n' +
+      '  .cart-badge { background: #3b82f6; padding: 4px 10px; border-radius: 999px; font-size: 13px; }\n' +
+      '  .price-row, .subtotal-row { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 14px; color: #cbd5e1; }\n' +
+      '  .subtotal-row strong { font-size: 18px; color: #38bdf8; }\n' +
+      '  .qty-control { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 16px 0; }\n' +
+      '  .qty-control button { width: 36px; height: 36px; font-size: 18px; font-weight: bold; border-radius: 8px; border: 1px solid #475569; background: #1e293b; color: #fff; cursor: pointer; }\n' +
+      '  .qty-control span { font-size: 18px; font-weight: 600; min-width: 24px; text-align: center; }\n' +
+      '  .btn-primary { width: 100%; padding: 10px; background: #10b981; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }\n' +
+      '  #status-msg { margin-top: 10px; text-align: center; font-size: 13px; color: #34d399; min-height: 20px; }\n' +
+      '</style>\n\n' +
+      '<script>\n' +
+      '  // TODO: Select elements: qty-decrement, qty-increment, qty-val, subtotal, add-to-cart, cart-count, status-msg\n' +
+      '  // TODO: Maintain state: qty = 1, unitPrice = 99, cartTotal = 0\n' +
+      '  // TODO: Handle decrement (min 1) and increment (max 10), updating #qty-val and #subtotal\n' +
+      '  // TODO: Handle add-to-cart, adding quantity to #cart-count and displaying "Added to cart!" in #status-msg\n' +
+      '</script>',
+    solutionCode:
+      '<div class="shop-widget">\n' +
+      '  <header class="shop-header">\n' +
+      '    <span>DevStore</span>\n' +
+      '    <div class="cart-badge">Cart: <span id="cart-count">0</span></div>\n' +
+      '  </header>\n\n' +
+      '  <div class="product-card">\n' +
+      '    <h3 id="product-title">Wireless Pro Headphones</h3>\n' +
+      '    <div class="price-row">\n' +
+      '      <span>Unit Price:</span>\n' +
+      '      <span id="unit-price">$99</span>\n' +
+      '    </div>\n\n' +
+      '    <div class="qty-control">\n' +
+      '      <button id="qty-decrement" type="button">-</button>\n' +
+      '      <span id="qty-val">1</span>\n' +
+      '      <button id="qty-increment" type="button">+</button>\n' +
+      '    </div>\n\n' +
+      '    <div class="subtotal-row">\n' +
+      '      <span>Subtotal:</span>\n' +
+      '      <strong id="subtotal">$99</strong>\n' +
+      '    </div>\n\n' +
+      '    <button id="add-to-cart" class="btn-primary" type="button">Add to Cart</button>\n' +
+      '    <p id="status-msg" class="status-hidden"></p>\n' +
+      '  </div>\n' +
+      '</div>\n\n' +
+      '<style>\n' +
+      '  .shop-widget { font-family: sans-serif; max-width: 360px; background: #0f172a; color: #f8fafc; border-radius: 14px; padding: 20px; border: 1px solid #334155; }\n' +
+      '  .shop-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 12px; margin-bottom: 16px; font-weight: 600; }\n' +
+      '  .cart-badge { background: #3b82f6; padding: 4px 10px; border-radius: 999px; font-size: 13px; }\n' +
+      '  .price-row, .subtotal-row { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 14px; color: #cbd5e1; }\n' +
+      '  .subtotal-row strong { font-size: 18px; color: #38bdf8; }\n' +
+      '  .qty-control { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 16px 0; }\n' +
+      '  .qty-control button { width: 36px; height: 36px; font-size: 18px; font-weight: bold; border-radius: 8px; border: 1px solid #475569; background: #1e293b; color: #fff; cursor: pointer; }\n' +
+      '  .qty-control span { font-size: 18px; font-weight: 600; min-width: 24px; text-align: center; }\n' +
+      '  .btn-primary { width: 100%; padding: 10px; background: #10b981; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }\n' +
+      '  #status-msg { margin-top: 10px; text-align: center; font-size: 13px; color: #34d399; min-height: 20px; }\n' +
+      '</style>\n\n' +
+      '<script>\n' +
+      '  const unitPrice = 99;\n' +
+      '  let quantity = 1;\n' +
+      '  let cartCount = 0;\n\n' +
+      '  const decBtn = document.getElementById("qty-decrement");\n' +
+      '  const incBtn = document.getElementById("qty-increment");\n' +
+      '  const qtyVal = document.getElementById("qty-val");\n' +
+      '  const subtotal = document.getElementById("subtotal");\n' +
+      '  const addBtn = document.getElementById("add-to-cart");\n' +
+      '  const cartSpan = document.getElementById("cart-count");\n' +
+      '  const statusMsg = document.getElementById("status-msg");\n\n' +
+      '  function updateDisplay() {\n' +
+      '    qtyVal.textContent = String(quantity);\n' +
+      '    subtotal.textContent = "$" + (quantity * unitPrice);\n' +
+      '  }\n\n' +
+      '  decBtn.addEventListener("click", () => {\n' +
+      '    if (quantity > 1) {\n' +
+      '      quantity -= 1;\n' +
+      '      updateDisplay();\n' +
+      '    }\n' +
+      '  });\n\n' +
+      '  incBtn.addEventListener("click", () => {\n' +
+      '    if (quantity < 10) {\n' +
+      '      quantity += 1;\n' +
+      '      updateDisplay();\n' +
+      '    }\n' +
+      '  });\n\n' +
+      '  addBtn.addEventListener("click", () => {\n' +
+      '    cartCount += quantity;\n' +
+      '    cartSpan.textContent = String(cartCount);\n' +
+      '    statusMsg.textContent = "Added to cart!";\n' +
+      '  });\n' +
+      '</script>',
+    testCases: [
+      {
+        input:
+          '(() => {\n' +
+          '  const title = document.querySelector("#product-title");\n' +
+          '  const price = document.querySelector("#unit-price");\n' +
+          '  const qty = document.querySelector("#qty-val");\n' +
+          '  const subtotal = document.querySelector("#subtotal");\n' +
+          '  return Boolean(title && title.textContent.includes("Wireless Pro Headphones") && price && price.textContent.includes("99") && qty && qty.textContent.trim() === "1" && subtotal && subtotal.textContent.includes("99"));\n' +
+          '})()',
+        expected: 'true'
+      },
+      {
+        input:
+          '(() => {\n' +
+          '  const inc = document.querySelector("#qty-increment");\n' +
+          '  const qty = document.querySelector("#qty-val");\n' +
+          '  const sub = document.querySelector("#subtotal");\n' +
+          '  inc?.click();\n' +
+          '  inc?.click();\n' +
+          '  return Boolean(qty && qty.textContent.trim() === "3" && sub && sub.textContent.includes("297"));\n' +
+          '})()',
+        expected: 'true'
+      },
+      {
+        input:
+          '(() => {\n' +
+          '  const dec = document.querySelector("#qty-decrement");\n' +
+          '  const qty = document.querySelector("#qty-val");\n' +
+          '  const sub = document.querySelector("#subtotal");\n' +
+          '  for (let i = 0; i < 10; i++) dec?.click();\n' +
+          '  return Boolean(qty && qty.textContent.trim() === "1" && sub && sub.textContent.includes("99"));\n' +
+          '})()',
+        expected: 'true'
+      },
+      {
+        input:
+          '(() => {\n' +
+          '  const inc = document.querySelector("#qty-increment");\n' +
+          '  inc?.click();\n' +
+          '  const addBtn = document.querySelector("#add-to-cart");\n' +
+          '  addBtn?.click();\n' +
+          '  const cart = document.querySelector("#cart-count");\n' +
+          '  const msg = document.querySelector("#status-msg");\n' +
+          '  return Boolean(cart && cart.textContent.trim() === "2" && msg && msg.textContent.includes("Added to cart!"));\n' +
+          '})()',
+        expected: 'true'
+      }
+    ],
+    hints: [
+      'Store quantity in a variable initialized to 1. In click listeners, check boundary conditions (quantity > 1 before decrementing, quantity < 10 before incrementing).',
+      'Compute subtotal with "$" + (quantity * unitPrice) and write it into #subtotal.textContent.',
+      'On #add-to-cart click, add quantity to cartCount and update #cart-count.textContent and #status-msg.textContent.'
+    ],
+    explanation:
+      'This challenge mirrors real-world front-end technical coding assessments. It evaluates DOM manipulation, event listener handling, state synchronization, input boundary limits, and user feedback mechanisms.',
+    xpReward: 250,
+    tags: ['dom', 'events', 'ui', 'mutation']
   }
 ];

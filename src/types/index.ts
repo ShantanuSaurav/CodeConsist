@@ -36,6 +36,8 @@ export interface TestCase {
   expected: string;
   /** Hidden cases still run but their input is masked in the UI. */
   hidden?: boolean;
+  /** Human-readable explanation of what this specific test case validates. */
+  description?: string;
 }
 
 export interface TestResult {
@@ -104,6 +106,7 @@ export interface TryItExample {
   instructions: string;
   starterCode: string;
   language: SupportedLanguage;
+  ui?: boolean;
 }
 
 export interface ConceptExample {
@@ -166,6 +169,10 @@ export interface Challenge {
   testCases?: TestCase[];
   /** Reference solution, revealed only after the learner asks for it. */
   solutionCode?: string;
+  /** When true, renders a live interactive preview pane for this challenge. */
+  uiPreview?: boolean;
+  /** Optional HTML/CSS template to wrap the user's component in. */
+  uiTemplate?: string;
 
   /**
    * Marks the stage's mandatory coding test. One per stage; unlocked once every

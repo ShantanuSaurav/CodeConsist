@@ -6,7 +6,7 @@ import { useAdminAuth } from '../services/AdminAuthContext';
 import { Button, Card, Field } from '../components/ui';
 
 const passwordInputClass =
-  'w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:border-[var(--color-primary)] disabled:opacity-60';
+  'w-full px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 disabled:opacity-60 transition-all shadow-xs';
 
 /**
  * /admin/settings/security - the ONLY supported way to change the Admin

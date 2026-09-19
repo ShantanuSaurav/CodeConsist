@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import type { Challenge, LearningMode, Stage } from '@/types';
 import { useSession } from '@/platform/session';
 import { stageStatus } from '@/platform/progress';
-import { eventBus, useAppEvent } from '@/platform/events';
+import { eventBus, intents, useAppEvent } from '@/platform/events';
 import { useToast } from '@/ui';
 
 export type PracticeMode = 'lessons' | 'test';
@@ -164,7 +164,20 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
 
 export function usePracticeSession(): PracticeSessionType {
   const ctx = useContext(PracticeSessionContext);
-  if (!ctx) throw new Error('usePracticeSession must be used within a PracticeSessionProvider');
+  if (!ctx) {
+    return {
+      activeStage: null,
+      activeMode: 'lessons',
+      activeChallenges: [],
+      activeChallengeIndex: 0,
+      learningMode: null,
+      setLearningMode: () => {},
+      openPractice: (stageId, challengeId, mode) => intents.openPractice(stageId, challengeId, mode),
+      openStageTest: (stageId) => intents.openStageTest(stageId),
+      closePractice: () => {},
+      goToChallenge: () => {}
+    };
+  }
   return ctx;
 }
 

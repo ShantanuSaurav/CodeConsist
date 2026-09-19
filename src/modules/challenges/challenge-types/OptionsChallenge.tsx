@@ -24,6 +24,12 @@ export const OptionsChallenge: React.FC<Props> = ({ challenge, answer, onAnswer,
   // Display order only - `index` below stays the ORIGINAL index everywhere else.
   const order = useMemo(() => optionOrder(challenge), [challenge]);
 
+  const isGrid = useMemo(() => {
+    const opts = challenge.options ?? [];
+    if (opts.length < 3 || opts.length > 4) return false;
+    return opts.every((opt) => typeof opt === 'string' && opt.length <= 40 && !opt.includes('\n'));
+  }, [challenge.options]);
+
   const toggle = (index: number) => {
     if (locked) return;
     if (!multi) {
@@ -38,7 +44,7 @@ export const OptionsChallenge: React.FC<Props> = ({ challenge, answer, onAnswer,
 
   return (
     <div
-      className="challenge-options"
+      className={`challenge-options ${isGrid ? 'is-grid' : ''}`.trim()}
       role={multi ? 'group' : 'radiogroup'}
       aria-label={multi ? 'Select every correct answer' : 'Select one answer'}
     >

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pencil } from 'lucide-react';
+import { Dropdown } from '@/ui';
 import { AdminChallengeRow, AdminStageRow, adminApi } from '../services/adminApi';
 import {
   Badge,
@@ -66,18 +67,17 @@ export const AdminChallenges: React.FC = () => {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Challenges</h1>
         {stages && stages.length > 0 && (
-          <select
+          <Dropdown
             value={stageId}
-            onChange={(e) => setStageId(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[var(--color-primary)]"
-          >
-            {stages.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.icon ? `${s.icon} ` : ''}
-                {s.name}
-              </option>
-            ))}
-          </select>
+            onChange={setStageId}
+            size="md"
+            options={stages.map((s) => ({
+              value: s.id,
+              label: s.name,
+              icon: s.icon ? <span className="text-base">{s.icon}</span> : undefined
+            }))}
+            ariaLabel="Select stage"
+          />
         )}
       </div>
 
