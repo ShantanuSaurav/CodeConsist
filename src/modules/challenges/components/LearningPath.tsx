@@ -6,7 +6,6 @@ import type { ReadingResolver } from '@/types';
 import { useSession } from '@/platform/session';
 import { stageStatus } from '@/platform/progress';
 import { intents } from '@/platform/events';
-import { usePracticeSession } from '../session/PracticeSessionProvider';
 
 export interface LearningPathProps {
   /** Where a stage's reading lives, if the app has any. */
@@ -21,7 +20,6 @@ export interface LearningPathProps {
  */
 export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
   const { learnerStages: stages, stats, learningMode } = useSession();
-  const { openPractice, openStageTest } = usePracticeSession();
 
   return (
     <ol className="space-y-4">
@@ -35,8 +33,8 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
 
         const primary = () => {
           if (premiumLocked) intents.openPro();
-          else if (testPending) openStageTest(stage.id);
-          else if (!locked) openPractice(stage.id);
+          else if (testPending) intents.openStageTest(stage.id);
+          else if (!locked) intents.openPractice(stage.id);
         };
 
         const label = premiumLocked
@@ -167,12 +165,12 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                   <button
                     type="button"
                     onClick={primary}
-                    className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm transition ${
+                    className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all duration-150 active:scale-[0.98] cursor-pointer ${
                       premiumLocked
-                        ? 'bg-[var(--color-warning)] text-black hover:brightness-110'
+                        ? 'bg-[var(--color-warning)] text-black hover:brightness-105 hover:-translate-y-0.5 shadow-[0_4px_14px_rgba(245,158,11,0.3)]'
                         : completed
-                          ? 'border border-black/10 dark:border-white/15 text-gray-800 dark:text-gray-100 hover:bg-black/5 dark:hover:bg-white/5'
-                          : 'bg-[var(--color-primary)] text-white dark:text-black hover:brightness-110'
+                          ? 'border border-black/10 dark:border-white/15 text-gray-800 dark:text-gray-100 hover:bg-black/5 dark:hover:bg-white/5 hover:-translate-y-0.5 shadow-xs'
+                          : 'bg-[var(--color-primary)] text-white dark:text-black hover:brightness-105 hover:-translate-y-0.5 shadow-[0_4px_14px_rgba(22,163,11,0.25)] dark:shadow-[0_4px_16px_rgba(57,255,20,0.3)]'
                     }`}
                   >
                     <Icon size={16} />
@@ -182,8 +180,8 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                   {testPending && (
                     <button
                       type="button"
-                      onClick={() => openPractice(stage.id)}
-                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium border border-black/10 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+                      onClick={() => intents.openPractice(stage.id)}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border border-black/10 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all cursor-pointer shadow-xs"
                     >
                       Review lessons
                     </button>
@@ -192,7 +190,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                     <div className="flex md:justify-center gap-1 text-xs" aria-label="Open in a specific mode">
                       <button
                         type="button"
-                        onClick={() => openPractice(stage.id, undefined, 'learn')}
+                        onClick={() => intents.openPractice(stage.id, undefined, 'learn')}
                         className={`inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5 ${
                           learningMode === 'learn' ? 'text-[var(--color-primary)] font-semibold' : 'text-gray-500'
                         }`}
@@ -202,11 +200,11 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => openPractice(stage.id, undefined, 'practice')}
+                        onClick={() => intents.openPractice(stage.id, undefined, 'practice')}
                         className={`inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5 ${
                           learningMode === 'practice' ? 'text-[var(--color-primary)] font-semibold' : 'text-gray-500'
                         }`}
-                        title="Straight into the challenges"
+                        title="Jump straight to the questions"
                       >
                         <Zap size={12} /> Practice
                       </button>

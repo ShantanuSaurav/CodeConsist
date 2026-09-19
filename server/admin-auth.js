@@ -42,10 +42,31 @@ const DUMMY_HASH = bcrypt.hashSync('no-admin-account-configured-yet', BCRYPT_COS
  * this function's return value (it returns nothing at all).
  */
 export async function bootstrapAdminAccount() {
-  if (store.getAdmin()) return; // already set up - env vars are never read again
-
   const userId = process.env.ADMIN_USER_ID;
   const password = process.env.ADMIN_PASSWORD;
+
+  const existing = store.getAdmin();
+  if (existing) {
+    if (userId && password) {
+      const idCheck = validateAdminUserId(userId);
+      const passwordCheck = validateAdminPassword(password, idCheck.ok ? idCheck.value : userId);
+      if (idCheck.ok && passwordCheck.ok) {
+        const matchesCurrent = existing.userId === idCheck.value && (await bcrypt.compare(passwordCheck.value, existing.passwordHash));
+        if (!matchesCurrent) {
+          const passwordHash = await bcrypt.hash(passwordCheck.value, BCRYPT_COST);
+          store.updateAdmin({
+            userId: idCheck.value,
+            passwordHash,
+            credentialsVersion: (existing.credentialsVersion ?? 0) + 1,
+            failedAttempts: 0,
+            lockedUntil: null
+          });
+          console.log(`[admin] administrator account synchronized to: ${idCheck.value}`);
+        }
+      }
+    }
+    return;
+  }
 
   if (!userId && !password) {
     console.warn(

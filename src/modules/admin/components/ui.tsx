@@ -18,7 +18,7 @@ export const Field: React.FC<{ label: string; hint?: string; children: React.Rea
 );
 
 const inputClass =
-  'w-full px-3 py-2 rounded-lg bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:border-[var(--color-primary)] disabled:opacity-60';
+  'w-full px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-gray-900 dark:text-gray-100 text-sm transition-all duration-150 focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 disabled:opacity-60 shadow-xs';
 
 export const TextField: React.FC<{
   label: string;
@@ -154,13 +154,17 @@ export const Toggle: React.FC<{ label: string; checked: boolean; onChange: (chec
 export const Button: React.FC<
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'ghost' }
 > = ({ variant = 'secondary', className = '', ...props }) => {
-  const base = 'px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
+  const base =
+    'px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-150 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-xs';
   const styles: Record<string, string> = {
-    primary: 'bg-[var(--color-primary)] text-white hover:opacity-90',
+    primary:
+      'bg-[var(--color-primary)] text-white dark:text-black font-bold hover:brightness-105 hover:-translate-y-0.5 shadow-[0_2px_10px_rgba(22,163,11,0.25)] dark:shadow-[0_2px_14px_rgba(57,255,20,0.35)]',
     secondary:
-      'bg-gray-100 dark:bg-[#161b22] text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-white/10 border border-black/10 dark:border-white/10',
-    danger: 'bg-red-500 text-white hover:bg-red-600',
-    ghost: 'text-gray-600 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/5'
+      'bg-white dark:bg-[#161b22] text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#1c2129] border border-black/10 dark:border-white/10 hover:border-black/20 dark:hover:border-white/20 hover:-translate-y-0.5',
+    danger:
+      'bg-red-500 text-white hover:bg-red-600 hover:-translate-y-0.5 shadow-[0_2px_10px_rgba(239,68,68,0.3)]',
+    ghost:
+      'text-gray-600 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-white'
   };
   return <button className={`${base} ${styles[variant]} ${className}`} {...props} />;
 };

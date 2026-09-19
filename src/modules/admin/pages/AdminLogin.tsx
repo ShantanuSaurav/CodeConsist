@@ -73,7 +73,7 @@ export const AdminLogin: React.FC = () => {
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
                 placeholder="e.g. devlingo-admin"
-                className="w-full px-3 py-2 rounded-lg bg-[#05070a] border border-white/10 text-gray-100 text-sm focus:outline-none focus:border-amber-500/60"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-[#05070a] border border-white/10 text-gray-100 text-sm focus:outline-none focus:border-amber-500/80 focus:ring-2 focus:ring-amber-500/20 transition-all shadow-xs"
               />
             </label>
 
@@ -86,12 +86,12 @@ export const AdminLogin: React.FC = () => {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 pr-24 rounded-lg bg-[#05070a] border border-white/10 text-gray-100 text-sm focus:outline-none focus:border-amber-500/60"
+                  className="w-full px-3.5 py-2.5 pr-28 rounded-xl bg-[#05070a] border border-white/10 text-gray-100 text-sm focus:outline-none focus:border-amber-500/80 focus:ring-2 focus:ring-amber-500/20 transition-all shadow-xs"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-400 hover:text-gray-200"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs text-gray-400 hover:text-gray-200 transition-colors cursor-pointer"
                   aria-pressed={showPassword}
                 >
                   {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -106,7 +106,7 @@ export const AdminLogin: React.FC = () => {
               </p>
             )}
 
-            <Button type="submit" variant="primary" className="w-full !bg-amber-500 hover:!bg-amber-400 !text-black" disabled={submitting}>
+            <Button type="submit" variant="primary" className="w-full !bg-amber-500 hover:!bg-amber-400 !text-black shadow-[0_4px_14px_rgba(245,158,11,0.3)] hover:-translate-y-0.5 active:scale-[0.98] transition-all cursor-pointer py-2.5 rounded-xl" disabled={submitting}>
               {submitting ? 'Signing in…' : 'Log In'}
             </Button>
           </form>

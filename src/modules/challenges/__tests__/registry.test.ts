@@ -84,7 +84,7 @@ describe('challenge content (dev loader)', () => {
       'stage-2': 20,
       'stage-3': 20,
       'stage-4': 20,
-      'stage-5': 20,
+      'stage-5': 22,
       'stage-6': 20,
       'stage-7': 20,
       'stage-8': 20,
@@ -94,7 +94,7 @@ describe('challenge content (dev loader)', () => {
       'stage-cpp1': 15
     });
     for (const stage of buildStages()) expect(stage.test?.isStageTest).toBe(true);
-    expect(ALL_CHALLENGES.length).toBe(244);
+    expect(ALL_CHALLENGES.length).toBe(246);
   });
 
   it('every stage belongs to exactly one track, and every track names real stages', () => {

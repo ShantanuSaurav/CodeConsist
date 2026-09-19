@@ -260,11 +260,12 @@ function validateChallenge(c, file, seenIds, grading) {
   }
 
   if (c.type === 'code_runner' || c.type === 'debug') {
-    if (!EXECUTABLE.has(c.language)) {
+    const isUi = Boolean(c.uiPreview || c.language === 'html');
+    if (!EXECUTABLE.has(c.language) && !isUi) {
       err(where, `${c.type} must be javascript or python (got "${c.language}")`);
     }
     if (!c.starterCode) err(where, 'needs starterCode');
-    if (!c.entryFunction) err(where, 'needs entryFunction');
+    if (!c.entryFunction && !isUi) err(where, 'needs entryFunction');
     if (!c.solutionCode) err(where, 'needs solutionCode');
     if (!Array.isArray(c.testCases) || c.testCases.length < 2) {
       err(where, 'needs at least 2 testCases');

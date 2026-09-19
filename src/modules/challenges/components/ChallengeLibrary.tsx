@@ -5,7 +5,7 @@ import { useSession } from '@/platform/session';
 import { Challenge, Difficulty, ReadingResolver } from '@/types';
 import { stageStatus } from '@/platform/progress';
 import { intents } from '@/platform/events';
-import { usePracticeSession } from '../session/PracticeSessionProvider';
+import { Dropdown } from '@/ui';
 
 export interface ChallengeLibraryProps {
   /** Reading for a challenge's stage and tags, if the app has any. */
@@ -28,9 +28,6 @@ const DIFFICULTY_CLASS: Record<Difficulty, string> = {
   hard: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30'
 };
 
-const SELECT =
-  'px-3 py-2 rounded-lg text-sm bg-white dark:bg-[#0d1117] border border-black/10 dark:border-white/10 text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[var(--color-primary)]';
-
 type StatusFilter = 'all' | 'todo' | 'solved';
 type TypeFilter = Challenge['type'] | 'stage_test' | 'all';
 
@@ -43,7 +40,6 @@ type TypeFilter = Challenge['type'] | 'stage_test' | 'all';
  */
 export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }) => {
   const { allChallenges, stages, tracks, selectedTrackId, stats } = useSession();
-  const { openPractice, openStageTest } = usePracticeSession();
 
   // Follows the track chosen in the sidebar / Learn page, so switching tracks
   // narrows the library too; "All tracks" is one click away.
@@ -118,7 +114,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="search"
-            className="w-full pl-9 pr-3 py-2.5 rounded-lg text-sm bg-white dark:bg-[#0d1117] border border-black/10 dark:border-white/10 text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-[var(--color-primary)]"
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl text-sm bg-white dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 transition-all shadow-xs"
             placeholder="Search titles, prompts, languages and tags…"
             value={query}
             onChange={(e) => {
@@ -131,59 +127,66 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
 
         <div className="flex flex-wrap gap-2">
           {tracks.length > 1 && (
-            <select
-              className={SELECT}
+            <Dropdown
               value={trackId}
-              onChange={(e) => {
-                setTrackId(e.target.value);
+              onChange={(val) => {
+                setTrackId(val);
                 setStageId('all');
               }}
-              aria-label="Filter by track"
-            >
-              <option value="all">All tracks</option>
-              {tracks.map(({ track }) => (
-                <option key={track.id} value={track.id}>
-                  {track.icon} {track.label}
-                </option>
-              ))}
-            </select>
+              size="md"
+              options={[
+                { value: 'all', label: 'All tracks' },
+                ...tracks.map(({ track }) => ({
+                  value: track.id,
+                  label: track.label,
+                  icon: <span className="text-base">{track.icon}</span>
+                }))
+              ]}
+              ariaLabel="Filter by track"
+            />
           )}
 
-          <select className={SELECT} value={stageId} onChange={(e) => setStageId(e.target.value)} aria-label="Filter by stage">
-            <option value="all">All stages</option>
-            {stageOptions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.index} · {s.name}
-              </option>
-            ))}
-          </select>
+          <Dropdown
+            value={stageId}
+            onChange={setStageId}
+            size="md"
+            options={[
+              { value: 'all', label: 'All stages' },
+              ...stageOptions.map((s) => ({
+                value: s.id,
+                label: `${s.index} · ${s.name}`
+              }))
+            ]}
+            ariaLabel="Filter by stage"
+          />
 
-          <select
-            className={SELECT}
+          <Dropdown
             value={type}
-            onChange={(e) => setType(e.target.value as TypeFilter)}
-            aria-label="Filter by challenge type"
-          >
-            <option value="all">All types</option>
-            <option value="stage_test">Stage tests</option>
-            {Object.entries(TYPE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+            onChange={(val) => setType(val as TypeFilter)}
+            size="md"
+            options={[
+              { value: 'all', label: 'All types' },
+              { value: 'stage_test', label: 'Stage tests' },
+              ...Object.entries(TYPE_LABELS).map(([val, label]) => ({
+                value: val,
+                label
+              }))
+            ]}
+            ariaLabel="Filter by challenge type"
+          />
 
-          <select
-            className={SELECT}
+          <Dropdown
             value={difficulty}
-            onChange={(e) => setDifficulty(e.target.value as Difficulty | 'all')}
-            aria-label="Filter by difficulty"
-          >
-            <option value="all">Any difficulty</option>
-            <option value="easy">Easy</option>
-            <option value="medium">Medium</option>
-            <option value="hard">Hard</option>
-          </select>
+            onChange={(val) => setDifficulty(val as Difficulty | 'all')}
+            size="md"
+            options={[
+              { value: 'all', label: 'Any difficulty' },
+              { value: 'easy', label: 'Easy' },
+              { value: 'medium', label: 'Medium' },
+              { value: 'hard', label: 'Hard' }
+            ]}
+            ariaLabel="Filter by difficulty"
+          />
 
           <div
             className="inline-flex rounded-lg border border-black/10 dark:border-white/10 overflow-hidden text-sm"
@@ -233,7 +236,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
               const stage = stages.find((s) => s.id === c.stageId);
               // A stage test is gated on its lessons, not on the previous stage.
               const testLocked = Boolean(c.isStageTest) && stage ? !stageStatus(stage, stats).testUnlocked : false;
-              const locked = (lockedStages.has(c.stageId) && !needsPro) || (testLocked && !solved);
+              const locked = (lockedStages.has(c.stageId) && !needsPro && !c.uiPreview) || (testLocked && !solved);
               const best = stats.attempts[c.id];
               const reading = readingFor?.(c.stageId, c.tags) ?? null;
 
@@ -263,7 +266,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                     )}
                     {solved && (
                       <span className="ml-auto text-[var(--color-primary)] inline-flex items-center gap-1 text-xs font-semibold">
-                        <CheckCircle2 size={14} /> solved
+                        <CheckCircle2 size={14} /> solved (+{c.xpReward} XP)
                       </span>
                     )}
                   </div>
@@ -273,9 +276,20 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
 
                   <div className="flex items-center justify-between mt-4 text-xs">
                     <span className="text-gray-500 truncate">{stageName.get(c.stageId)}</span>
-                    <span className="font-mono font-bold text-[var(--color-warning)] shrink-0">+{c.xpReward} XP</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {c.uiPreview && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/15 text-indigo-500 border border-indigo-500/30">
+                          Assessment
+                        </span>
+                      )}
+                      <span className="font-mono font-bold text-[var(--color-warning)] shrink-0">+{c.xpReward} XP</span>
+                    </div>
                   </div>
-                  {best && <div className="text-xs text-gray-500 mt-1">Best score {best.score}%</div>}
+                  {best && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Best score {best.score}% · +{Math.round((c.xpReward * best.score) / 100)} XP earned
+                    </div>
+                  )}
                   {reading && (
                     <Link
                       to={reading.href}
@@ -299,7 +313,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                             : 'bg-[var(--color-primary)] text-white dark:text-black hover:brightness-110'
                     }`}
                     onClick={() =>
-                      needsPro ? intents.openPro() : c.isStageTest ? openStageTest(c.stageId) : openPractice(c.stageId, c.id)
+                      needsPro ? intents.openPro() : c.isStageTest ? intents.openStageTest(c.stageId) : intents.openPractice(c.stageId, c.id)
                     }
                     disabled={locked}
                     title={

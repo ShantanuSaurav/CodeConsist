@@ -3,7 +3,7 @@ import { Play, RotateCcw, Trash2 } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ExecutionResult, SupportedLanguage } from '@/types';
-import { CodeEditor } from '@/ui/primitives/CodeEditor';
+import { CodeEditor, Dropdown } from '@/ui';
 import { compilerService } from '@/platform/execution/compilerService';
 import { STORAGE_KEYS, readJson, writeJson } from '@/platform/storage/storage';
 
@@ -187,6 +187,10 @@ export const Playground: React.FC = () => {
   );
 
   const loadSnippet = (name: string) => {
+    if (!name) {
+      setDraft((d) => ({ ...d, snippet: null }));
+      return;
+    }
     const text = SNIPPETS[draft.language]?.[name];
     if (text !== undefined) setDraft((d) => ({ ...d, code: text, snippet: name }));
   };
@@ -261,41 +265,39 @@ export const Playground: React.FC = () => {
             <label className="sr-only" htmlFor="playground-language">
               Language
             </label>
-            <select
+            <Dropdown
               id="playground-language"
               value={draft.language}
-              onChange={(e) => switchLanguage(e.target.value as SupportedLanguage)}
-              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-white dark:bg-[#0d1117] border border-black/10 dark:border-white/10 text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[var(--color-primary)]"
-            >
-              {LANGUAGES.map((lang) => (
-                <option key={lang} value={lang}>
-                  {LANGUAGE_LABELS[lang]}
-                  {!ALWAYS_AVAILABLE.includes(lang) && !judge0Configured ? ' (needs setup)' : ''}
-                </option>
-              ))}
-            </select>
+              onChange={(lang) => switchLanguage(lang as SupportedLanguage)}
+              size="sm"
+              options={LANGUAGES.map((lang) => ({
+                value: lang,
+                label: LANGUAGE_LABELS[lang],
+                hint: !ALWAYS_AVAILABLE.includes(lang) && !judge0Configured ? 'needs setup' : undefined
+              }))}
+              ariaLabel="Programming Language"
+            />
 
-            <select
-              aria-label="Load an example"
+            <Dropdown
               value={draft.snippet ?? ''}
-              onChange={(e) => e.target.value && loadSnippet(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg text-xs bg-white dark:bg-[#0d1117] border border-black/10 dark:border-white/10 text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[var(--color-primary)]"
-            >
-              <option value="" disabled={draft.snippet !== null}>
-                {draft.snippet === null ? 'Custom code' : 'Examples…'}
-              </option>
-              {Object.keys(SNIPPETS[draft.language] ?? {}).map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
+              onChange={loadSnippet}
+              placeholder="Custom code"
+              size="sm"
+              options={[
+                { value: '', label: 'Custom code' },
+                ...Object.keys(SNIPPETS[draft.language] ?? {}).map((name) => ({
+                  value: name,
+                  label: name
+                }))
+              ]}
+              ariaLabel="Code Examples"
+            />
 
             <button
               type="button"
               onClick={resetCode}
               title="Reset to the starter code for this language"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-black/10 dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium min-h-[32px] border border-black/10 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all cursor-pointer shadow-xs"
             >
               <RotateCcw size={12} />
               <span className="hidden sm:inline">Reset</span>
@@ -305,7 +307,7 @@ export const Playground: React.FC = () => {
               type="button"
               onClick={clearCode}
               title="Clear the editor"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-black/10 dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium min-h-[32px] border border-black/10 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all cursor-pointer shadow-xs"
             >
               <Trash2 size={12} />
               <span className="hidden sm:inline">Clear</span>
@@ -338,7 +340,7 @@ export const Playground: React.FC = () => {
             type="button"
             disabled={isRunning}
             onClick={run}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--color-primary)] text-white dark:text-black font-bold rounded-lg text-sm hover:brightness-110 transition disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-2 bg-[var(--color-primary)] text-white dark:text-black font-bold rounded-xl text-sm hover:brightness-105 hover:-translate-y-0.5 active:scale-[0.98] shadow-[0_2px_12px_rgba(22,163,11,0.25)] dark:shadow-[0_2px_14px_rgba(57,255,20,0.3)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
           >
             <Play size={14} />
             <span>{isRunning ? 'Running…' : 'Run'}</span>
@@ -383,7 +385,7 @@ export const Playground: React.FC = () => {
           <button
             type="button"
             onClick={() => intents.openPractice()}
-            className="px-3 py-1.5 rounded-lg border border-black/10 dark:border-white/10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/5 whitespace-nowrap"
+            className="px-3.5 py-1.5 rounded-xl border border-black/10 dark:border-white/10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all whitespace-nowrap cursor-pointer shadow-xs"
           >
             Open a challenge →
           </button>

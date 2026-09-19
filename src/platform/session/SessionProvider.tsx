@@ -550,8 +550,8 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         if (cleared) eventBus.emit('stage:completed', { stageId: stage.id });
       }
 
-      if (levelledUp) notify(`Level ${optimistic.level} reached.`, 'success');
-      else if (awarded > 0) notify(`+${awarded} XP`, 'success');
+      if (levelledUp) notify(`Level ${optimistic.level} reached! +${awarded} XP`, 'success');
+      else if (awarded > 0) notify(challenge.uiPreview ? `+${awarded} XP · Assessment Completed!` : `+${awarded} XP`, 'success');
 
       // The server is authoritative when signed in; reconcile after the fact so
       // the UI never waits on the network to feel responsive.

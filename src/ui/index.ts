@@ -13,3 +13,5 @@ export { useFocusTrap } from './hooks/useFocusTrap';
 export { useBodyScrollLock } from './hooks/useBodyScrollLock';
 export { tokenize, tokenizeLine } from './code/highlight';
 export { PageSkeleton, AppSplash, Bone } from './primitives/Skeleton';
+export { Dropdown } from './primitives/Dropdown';
+export type { DropdownOption, DropdownProps } from './primitives/Dropdown';

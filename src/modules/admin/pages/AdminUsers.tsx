@@ -73,7 +73,7 @@ export const AdminUsers: React.FC = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search username or email"
-              className="pl-9 pr-3 py-2 rounded-lg bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[var(--color-primary)] w-64"
+              className="pl-9 pr-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 transition-all w-64 shadow-xs"
             />
           </div>
           <Button type="submit" variant="secondary">

@@ -39,7 +39,8 @@ export const TestCaseSchema = z
   .object({
     input: z.string(),
     expected: z.string(),
-    hidden: z.boolean().optional()
+    hidden: z.boolean().optional(),
+    description: z.string().optional()
   })
   .strict();
 
@@ -76,7 +77,7 @@ const ConceptExampleSchema = z
   .strict();
 
 const TryItSchema = z
-  .object({ instructions: z.string().min(1), starterCode: z.string().min(1), language: z.enum(LANGUAGES) })
+  .object({ instructions: z.string().min(1), starterCode: z.string().min(1), language: z.enum(LANGUAGES), ui: z.boolean().optional() })
   .strict();
 
 /** The beginner-teaching sequence a challenge may carry (see `Concept` in src/types). */
@@ -126,6 +127,8 @@ const Base = z
     entryFunction: z.string().optional(),
     testCases: z.array(TestCaseSchema).optional(),
     solutionCode: z.string().optional(),
+    uiPreview: z.boolean().optional(),
+    uiTemplate: z.string().optional(),
     isStageTest: z.boolean().optional(),
     examples: z.array(WorkedExampleSchema).optional(),
     constraints: z.array(z.string()).optional(),
@@ -169,7 +172,9 @@ export const ChallengeSchema: z.ZodType<Challenge> = Base.superRefine((c, ctx) =
     case 'code_runner':
     case 'debug':
       need(Boolean(c.starterCode), 'needs starterCode', ['starterCode']);
-      need(Boolean(c.entryFunction), 'needs entryFunction', ['entryFunction']);
+      if (c.language !== 'html') {
+        need(Boolean(c.entryFunction), 'needs entryFunction', ['entryFunction']);
+      }
       need((c.testCases?.length ?? 0) >= 1, 'needs test cases', ['testCases']);
       need(Boolean(c.solutionCode), 'needs solutionCode (the validator executes it)', ['solutionCode']);
       break;

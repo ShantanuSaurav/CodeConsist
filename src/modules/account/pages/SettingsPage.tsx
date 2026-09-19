@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PageHeader } from '@/ui/primitives/PageHeader';
 import { useSession } from '@/platform/session';
-import { LearningModeSwitch } from '@/ui';
+import { Dropdown, LearningModeSwitch } from '@/ui';
 import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
@@ -9,7 +9,7 @@ import { levelProgress } from '@/platform/xp-leveling/leveling';
 const CARD = 'bg-gray-50 dark:bg-[#161b22] border border-black/5 dark:border-white/5 rounded-2xl p-6';
 const ROW = 'flex items-center justify-between gap-4 py-3 border-b last:border-b-0 border-black/5 dark:border-white/5';
 const BTN_LINE =
-  'px-4 py-2 rounded-lg border border-black/10 dark:border-white/15 text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50';
+  'px-4 py-2 rounded-xl border border-black/10 dark:border-white/15 text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all cursor-pointer shadow-xs disabled:opacity-50';
 
 export const SettingsPage: React.FC = () => {
   const { user, stats, serverStatus, logout, resetProgress, learningMode, setLearningMode, tracks, selectedTrackId, setSelectedTrack } = useSession();
@@ -127,18 +127,17 @@ export const SettingsPage: React.FC = () => {
               <div className="text-sm font-medium text-gray-900 dark:text-white">Current track</div>
               <div className="text-xs text-gray-500 mt-0.5">Which path the Learn page, the skill tree and "Continue learning" follow.</div>
             </div>
-            <select
+            <Dropdown
               value={selectedTrackId}
-              onChange={(e) => setSelectedTrack(e.target.value)}
-              className="text-sm font-medium px-3 py-2 rounded-lg bg-white dark:bg-[#0d1117] border border-black/10 dark:border-white/10 text-gray-800 dark:text-gray-200 focus:outline-none focus:border-[var(--color-primary)]"
-              aria-label="Current track"
-            >
-              {tracks.map(({ track }) => (
-                <option key={track.id} value={track.id}>
-                  {track.icon} {track.label}
-                </option>
-              ))}
-            </select>
+              onChange={setSelectedTrack}
+              size="md"
+              options={tracks.map(({ track }) => ({
+                value: track.id,
+                label: track.label,
+                icon: <span className="text-base">{track.icon}</span>
+              }))}
+              ariaLabel="Current track"
+            />
           </div>
         )}
       </section>
@@ -163,7 +162,7 @@ export const SettingsPage: React.FC = () => {
                   setConfirmingReset(false);
                   resetProgress();
                 }}
-                className="px-4 py-2 rounded-lg bg-red-500 text-white text-sm font-bold hover:brightness-110"
+                className="px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-bold hover:bg-red-600 hover:-translate-y-0.5 active:scale-[0.98] shadow-[0_2px_10px_rgba(239,68,68,0.3)] transition-all cursor-pointer"
               >
                 Erase everything
               </button>
@@ -172,7 +171,7 @@ export const SettingsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setConfirmingReset(true)}
-              className="px-4 py-2 rounded-lg border border-red-500/40 text-red-500 text-sm font-medium hover:bg-red-500/10"
+              className="px-4 py-2 rounded-xl border border-red-500/40 text-red-500 text-sm font-medium hover:bg-red-500/10 active:scale-[0.98] transition-all cursor-pointer shadow-xs"
             >
               Reset…
             </button>

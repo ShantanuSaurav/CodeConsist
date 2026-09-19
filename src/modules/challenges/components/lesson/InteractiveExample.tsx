@@ -3,6 +3,7 @@ import { Play, RotateCcw } from 'lucide-react';
 import { CodeEditor } from '@/ui';
 import { useSession } from '@/platform/session';
 import type { ExecutionResult, TryItExample } from '@/types';
+import { UiPreview } from '../UiPreview';
 
 interface InteractiveExampleProps {
   tryIt: TryItExample;
@@ -22,6 +23,8 @@ export const InteractiveExample: React.FC<InteractiveExampleProps> = ({ tryIt })
   const [code, setCode] = useState(tryIt.starterCode);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
+
+  const isUi = Boolean(tryIt.ui || tryIt.language === 'html');
 
   const run = useCallback(async () => {
     setRunning(true);
@@ -51,13 +54,13 @@ export const InteractiveExample: React.FC<InteractiveExampleProps> = ({ tryIt })
       </div>
 
       <div className="try-it-editor">
-        <CodeEditor value={code} onChange={setCode} language={tryIt.language} minRows={5} onSubmit={run} />
+        <CodeEditor value={code} onChange={setCode} language={tryIt.language} minRows={isUi ? 8 : 5} onSubmit={run} />
       </div>
 
       <div className="try-it-actions">
         <button type="button" className="btn btn-solid btn-sm" onClick={run} disabled={running}>
           <Play size={13} />
-          <span>{running ? 'Running…' : 'Run it'}</span>
+          <span>{running ? 'Running…' : isUi ? 'Update & Run' : 'Run it'}</span>
         </button>
         <button type="button" className="btn btn-ghost btn-sm" onClick={reset}>
           <RotateCcw size={13} />
@@ -65,9 +68,15 @@ export const InteractiveExample: React.FC<InteractiveExampleProps> = ({ tryIt })
         </button>
       </div>
 
-      {result && (
+      {isUi && (
+        <div className="try-it-ui-preview">
+          <UiPreview html={code} minHeight={260} badgeText="Interactive Preview" />
+        </div>
+      )}
+
+      {result && (result.stderr || result.stdout) && (
         <pre className={`try-it-output ${errored ? 'is-error' : ''}`}>
-          {result.stderr || result.stdout || 'Program finished with no output.'}
+          {result.stderr || result.stdout}
         </pre>
       )}
     </div>

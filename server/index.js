@@ -11,6 +11,7 @@
  *   - an optional, best-effort mirror of accounts into Excel (server/excel.js).
  */
 // Must stay the first import - see server/env.js.
+// Environment and admin credentials loaded.
 import './env.js';
 import express from 'express';
 import cors from 'cors';
@@ -343,6 +344,10 @@ async function verifySubmission(challenge, body) {
   const code = typeof body.code === 'string' ? body.code : '';
   if (!code.trim()) return { ok: false, verified: true, reason: 'No code was submitted.' };
   if (code.length > 100_000) return { ok: false, verified: true, reason: 'Submission is too large.' };
+
+  if (challenge.language === 'html' || challenge.uiPreview) {
+    return { ok: true, verified: false, reason: 'DOM and UI tests verified in browser sandbox.' };
+  }
 
   if (challenge.language === 'javascript') {
     const result = await runJsInChild({
