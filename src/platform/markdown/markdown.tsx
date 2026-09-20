@@ -138,7 +138,7 @@ export function renderInline(text: string): React.ReactNode[] {
     const token = m[0];
     if (m[1]) {
       out.push(
-        <code key={key++} className="px-1 py-0.5 rounded bg-black/5 dark:bg-white/10 font-mono text-[0.9em]">
+        <code key={key++} className="px-1 py-0.5 rounded-xs bg-surface-2 border border-border-subtle font-mono text-[0.875em] text-fg">
           {token.slice(1, -1)}
         </code>
       );
@@ -156,7 +156,7 @@ export function renderInline(text: string): React.ReactNode[] {
           href={href}
           target={external ? '_blank' : undefined}
           rel={external ? 'noreferrer' : undefined}
-          className="text-[var(--color-secondary)] underline underline-offset-2 hover:opacity-80"
+          className="text-fg underline underline-offset-2 decoration-border-strong hover:decoration-fg"
         >
           {label}
         </a>
@@ -180,19 +180,19 @@ interface MarkdownProps {
 export const Markdown: React.FC<MarkdownProps> = ({ source, headingOffset = 0, className }) => {
   const blocks = React.useMemo(() => parseMarkdown(source), [source]);
   return (
-    <div className={`space-y-4 text-[15px] leading-relaxed text-gray-700 dark:text-gray-300 ${className ?? ''}`}>
+    <div className={`space-y-4 text-[0.9375rem] leading-[1.7] text-fg-secondary ${className ?? ''}`}>
       {blocks.map((b, i) => {
         switch (b.kind) {
           case 'heading': {
             const level = Math.min(4, b.level + headingOffset);
             const cls =
               level === 1
-                ? 'text-3xl font-bold text-gray-900 dark:text-white mt-2'
+                ? 'text-2xl font-semibold tracking-tight text-fg mt-2'
                 : level === 2
-                  ? 'text-2xl font-bold text-gray-900 dark:text-white mt-8 scroll-mt-24'
+                  ? 'text-xl font-semibold tracking-tight text-fg mt-8 scroll-mt-24'
                   : level === 3
-                    ? 'text-lg font-bold text-gray-900 dark:text-white mt-6'
-                    : 'text-base font-bold text-gray-900 dark:text-white mt-4';
+                    ? 'text-base font-semibold text-fg mt-6'
+                    : 'text-sm font-semibold text-fg mt-4';
             return React.createElement(`h${level}`, { key: i, id: b.id, className: cls }, renderInline(b.text));
           }
           case 'paragraph':
@@ -219,7 +219,7 @@ export const Markdown: React.FC<MarkdownProps> = ({ source, headingOffset = 0, c
             return (
               <blockquote
                 key={i}
-                className="border-l-4 border-[var(--color-primary)]/60 bg-[var(--color-primary)]/5 rounded-r-lg px-4 py-3 text-gray-800 dark:text-gray-200"
+                className="border-l-2 border-border-strong bg-surface-2 rounded-r-sm px-4 py-3 text-fg"
               >
                 {renderInline(b.text)}
               </blockquote>

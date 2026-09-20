@@ -23,6 +23,10 @@ export interface DropdownProps {
   disabled?: boolean;
 }
 
+/**
+ * A select with a proper menu. Same height and radius as every other
+ * control; the menu is the one place a shadow is allowed, because it floats.
+ */
 export const Dropdown: React.FC<DropdownProps> = ({
   id,
   value,
@@ -41,18 +45,14 @@ export const Dropdown: React.FC<DropdownProps> = ({
 
   const selectedOption = options.find((opt) => opt.value === value);
 
-  // Close on outside click
+  // Close on outside click / Escape
   useEffect(() => {
     if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setIsOpen(false);
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsOpen(false);
-      }
+      if (e.key === 'Escape') setIsOpen(false);
     };
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
@@ -63,9 +63,9 @@ export const Dropdown: React.FC<DropdownProps> = ({
   }, [isOpen]);
 
   const sizeClasses = {
-    sm: 'px-3 py-1.5 text-xs font-semibold rounded-xl min-h-[32px]',
-    md: 'px-3.5 py-2 text-sm font-medium rounded-xl min-h-[38px]',
-    lg: 'px-4 py-2.5 text-sm font-semibold rounded-xl min-h-[44px]'
+    sm: 'h-[28px] px-2.5 text-[0.8125rem]',
+    md: 'h-[34px] px-3 text-sm',
+    lg: 'h-[40px] px-3.5 text-sm'
   };
 
   const handleSelect = (val: string, optDisabled?: boolean) => {
@@ -84,27 +84,22 @@ export const Dropdown: React.FC<DropdownProps> = ({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-label={ariaLabel}
-        className={`w-full inline-flex items-center justify-between gap-2.5 bg-white dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#1c2129] hover:border-black/20 dark:hover:border-white/20 focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/25 focus:border-[var(--color-primary)] shadow-xs transition-all active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+        className={`w-full inline-flex items-center justify-between gap-2 rounded-sm border border-border bg-surface text-fg font-medium hover:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           sizeClasses[size]
         } ${triggerClassName}`.trim()}
       >
         <span className="flex items-center gap-2 truncate">
-          {selectedOption?.icon && <span className="shrink-0">{selectedOption.icon}</span>}
+          {selectedOption?.icon && <span className="shrink-0 text-fg-muted">{selectedOption.icon}</span>}
           <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
         </span>
-        <ChevronDown
-          size={size === 'sm' ? 14 : 16}
-          className={`shrink-0 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
-            isOpen ? 'rotate-180 text-[var(--color-primary)]' : ''
-          }`}
-        />
+        <ChevronDown size={size === 'sm' ? 13 : 15} className="shrink-0 text-fg-muted" />
       </button>
 
       {isOpen && (
         <div
           role="listbox"
           aria-label={ariaLabel}
-          className={`absolute left-0 top-[calc(100%+6px)] z-[100] min-w-[200px] w-full max-h-64 overflow-y-auto scroll-thin rounded-2xl border border-black/10 dark:border-white/15 bg-white/95 dark:bg-[#161b22]/95 backdrop-blur-xl p-1.5 shadow-2xl shadow-black/15 dark:shadow-black/60 animate-in fade-in zoom-in-95 duration-100 ${menuClassName}`.trim()}
+          className={`absolute left-0 top-[calc(100%+4px)] z-[100] min-w-[200px] w-full max-h-64 overflow-y-auto scroll-thin rounded-md border border-border bg-surface p-1 shadow-menu ${menuClassName}`.trim()}
         >
           {options.map((opt) => {
             const isSelected = opt.value === value;
@@ -114,30 +109,22 @@ export const Dropdown: React.FC<DropdownProps> = ({
                 role="option"
                 aria-selected={isSelected}
                 onClick={() => handleSelect(opt.value, opt.disabled)}
-                className={`flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-sm transition-colors select-none ${
+                className={`flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-xs text-sm select-none ${
                   opt.disabled
-                    ? 'opacity-40 cursor-not-allowed text-gray-400'
+                    ? 'opacity-40 cursor-not-allowed text-fg-muted'
                     : isSelected
-                      ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)] font-semibold dark:bg-[var(--color-primary)]/15 cursor-pointer'
-                      : 'text-gray-800 dark:text-gray-200 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer'
+                      ? 'bg-surface-2 text-fg font-medium cursor-pointer'
+                      : 'text-fg-secondary hover:bg-surface-2 hover:text-fg cursor-pointer'
                 }`}
               >
-                <div className="flex items-center gap-2.5 truncate min-w-0">
-                  {opt.icon && <span className="shrink-0">{opt.icon}</span>}
+                <div className="flex items-center gap-2 truncate min-w-0">
+                  {opt.icon && <span className="shrink-0 text-fg-muted">{opt.icon}</span>}
                   <span className="truncate">{opt.label}</span>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  {opt.hint && (
-                    <span
-                      className={`text-xs font-normal ${
-                        isSelected ? 'text-[var(--color-primary)]/80' : 'text-gray-400 dark:text-gray-500'
-                      }`}
-                    >
-                      {opt.hint}
-                    </span>
-                  )}
-                  {isSelected && <Check size={15} className="text-[var(--color-primary)] shrink-0" />}
+                  {opt.hint && <span className="text-xs font-mono text-fg-muted">{opt.hint}</span>}
+                  {isSelected && <Check size={14} className="text-accent shrink-0" />}
                 </div>
               </div>
             );

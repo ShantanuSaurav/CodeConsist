@@ -10,23 +10,40 @@ import {
   LogOut,
   Menu,
   ScrollText,
-  Settings,
+  ShieldCheck,
   Users,
   X
 } from 'lucide-react';
 import { useAdminAuth } from '../services/AdminAuthContext';
 import { Spinner } from '../components/ui';
 
-const NAV = [
-  { icon: <LayoutDashboard size={20} />, label: 'Dashboard', path: '/admin', exact: true },
-  { icon: <Users size={20} />, label: 'Users', path: '/admin/users' },
-  { icon: <Languages size={20} />, label: 'Languages', path: '/admin/languages' },
-  { icon: <BookOpen size={20} />, label: 'Stages', path: '/admin/stages' },
-  { icon: <ListChecks size={20} />, label: 'Challenges', path: '/admin/challenges' },
-  { icon: <BarChart3 size={20} />, label: 'Analytics', path: '/admin/analytics' },
-  { icon: <FileSpreadsheet size={20} />, label: 'Excel Sync', path: '/admin/excel' },
-  { icon: <ScrollText size={20} />, label: 'Audit Log', path: '/admin/audit-log' },
-  { icon: <Settings size={20} />, label: 'Settings', path: '/admin/settings/security' }
+const ICON = 16;
+
+const GROUPS: Array<{ label: string; items: Array<{ icon: React.ReactNode; label: string; path: string; exact?: boolean }> }> = [
+  {
+    label: 'Overview',
+    items: [
+      { icon: <LayoutDashboard size={ICON} />, label: 'Dashboard', path: '/admin', exact: true },
+      { icon: <BarChart3 size={ICON} />, label: 'Analytics', path: '/admin/analytics' },
+      { icon: <ScrollText size={ICON} />, label: 'Audit log', path: '/admin/audit-log' }
+    ]
+  },
+  {
+    label: 'Content',
+    items: [
+      { icon: <Languages size={ICON} />, label: 'Languages', path: '/admin/languages' },
+      { icon: <BookOpen size={ICON} />, label: 'Stages', path: '/admin/stages' },
+      { icon: <ListChecks size={ICON} />, label: 'Challenges', path: '/admin/challenges' }
+    ]
+  },
+  {
+    label: 'Operations',
+    items: [
+      { icon: <Users size={ICON} />, label: 'Users', path: '/admin/users' },
+      { icon: <FileSpreadsheet size={ICON} />, label: 'Excel sync', path: '/admin/excel' },
+      { icon: <ShieldCheck size={ICON} />, label: 'Security', path: '/admin/settings/security' }
+    ]
+  }
 ];
 
 /**
@@ -49,7 +66,7 @@ export const AdminLayout: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0d1117]">
+      <div className="min-h-screen flex items-center justify-center bg-bg">
         <Spinner label="Checking admin session…" />
       </div>
     );
@@ -57,43 +74,45 @@ export const AdminLayout: React.FC = () => {
   if (!admin) return <Navigate to="/admin/login" replace />;
 
   const Nav = ({ onNavigate }: { onNavigate?: () => void }) => (
-    <div className="w-64 h-full border-r border-black/5 dark:border-white/5 bg-white dark:bg-[#0d1117] flex flex-col">
-      <div className="p-6 flex-1 overflow-y-auto">
-        <div className="text-xl font-bold flex items-center gap-2 mb-1">
-          <span className="text-[var(--color-primary)] font-mono">&lt;/&gt;</span>
-          <span className="text-gray-900 dark:text-white">Devlingo</span>
+    <div className="w-60 h-full border-r border-border bg-surface flex flex-col">
+      <div className="px-3 pt-4 pb-3 flex-1 overflow-y-auto scroll-thin">
+        <div className="flex items-center gap-2 px-3 h-8 mb-4">
+          <span className="font-mono text-xs text-accent" aria-hidden="true">
+            &lt;/&gt;
+          </span>
+          <span className="text-fg font-semibold tracking-tight">Devlingo</span>
+          <span className="badge badge-mono ml-auto">admin</span>
         </div>
-        <div className="text-xs font-semibold tracking-wide uppercase text-gray-400 dark:text-gray-500 mb-6">Admin</div>
-        <nav className="space-y-1.5" aria-label="Admin">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.exact}
-              onClick={onNavigate}
-              className={({ isActive }) =>
-                `flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)] font-medium border border-[var(--color-primary)]/20'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 border border-transparent'
-                }`
-              }
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </NavLink>
+        <nav aria-label="Admin">
+          {GROUPS.map((group) => (
+            <div key={group.label}>
+              <div className="nav-group-label">{group.label}</div>
+              <ul className="space-y-0.5">
+                {group.items.map((item) => (
+                  <li key={item.path}>
+                    <NavLink
+                      to={item.path}
+                      end={item.exact}
+                      onClick={onNavigate}
+                      className={({ isActive }) => `nav-item ${isActive ? 'is-active' : ''}`.trim()}
+                    >
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
         </nav>
       </div>
-      <div className="p-6 border-t border-black/5 dark:border-white/5">
-        <div className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-0.5">Signed in as</div>
-        <div className="text-sm font-medium text-gray-900 dark:text-white truncate mb-3">{admin.userId}</div>
-        <button
-          type="button"
-          onClick={logout}
-          className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-red-500 hover:text-red-600 dark:text-red-400 text-sm font-medium"
-        >
-          <LogOut size={18} />
+      <div className="px-3 py-3 border-t border-border">
+        <div className="px-3 mb-2">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-fg-muted">Signed in as</div>
+          <div className="text-sm font-medium text-fg truncate">{admin.userId}</div>
+        </div>
+        <button type="button" onClick={logout} className="nav-item w-full text-left">
+          <LogOut size={ICON} />
           <span>Log out</span>
         </button>
       </div>
@@ -101,45 +120,42 @@ export const AdminLayout: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0f14] text-gray-900 dark:text-white font-sans">
-      <aside className="hidden lg:block fixed left-0 top-0 h-screen w-64 z-40">
+    <div className="min-h-screen bg-bg text-fg">
+      <aside className="hidden lg:block fixed left-0 top-0 h-screen w-60 z-40">
         <Nav />
       </aside>
 
-      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between px-4 py-3 border-b border-black/5 dark:border-white/5 bg-white/90 dark:bg-[#0d1117]/90 backdrop-blur">
-        <span className="text-lg font-bold flex items-center gap-2">
-          <span className="text-[var(--color-primary)] font-mono">&lt;/&gt;</span>
-          Devlingo Admin
+      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between h-12 px-4 border-b border-border bg-surface">
+        <span className="text-sm font-semibold flex items-center gap-2 tracking-tight">
+          <span className="text-accent font-mono text-xs" aria-hidden="true">
+            &lt;/&gt;
+          </span>
+          Devlingo <span className="badge badge-mono">admin</span>
         </span>
-        <button
-          type="button"
-          onClick={() => setDrawerOpen(true)}
-          className="p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
-          aria-label="Open navigation"
-        >
-          <Menu size={22} />
+        <button type="button" onClick={() => setDrawerOpen(true)} className="btn btn-ghost btn-sm btn-icon" aria-label="Open navigation">
+          <Menu size={18} />
         </button>
       </header>
 
       {drawerOpen && (
         <div className="lg:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Admin navigation">
           <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
-          <div className="absolute left-0 top-0 h-full shadow-2xl">
+          <div className="absolute left-0 top-0 h-full shadow-dialog">
             <Nav onNavigate={() => setDrawerOpen(false)} />
           </div>
           <button
             type="button"
             onClick={() => setDrawerOpen(false)}
-            className="absolute top-3 left-[17rem] p-2 rounded-full bg-white dark:bg-[#161b22] text-gray-700 dark:text-gray-200 shadow"
+            className="btn btn-secondary btn-sm btn-icon absolute top-3 left-[16rem]"
             aria-label="Close navigation"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
       )}
 
-      <div className="lg:ml-64 min-h-screen">
-        <main className="p-4 sm:p-8 max-w-6xl mx-auto">
+      <div className="lg:ml-60 min-h-screen">
+        <main className="page max-w-6xl">
           <Outlet />
         </main>
       </div>

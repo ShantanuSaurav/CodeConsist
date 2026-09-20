@@ -1,11 +1,11 @@
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, CheckCircle2, Lock, Search, Swords } from 'lucide-react';
+import { BookOpen, Check, Lock, Search } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { Challenge, Difficulty, ReadingResolver } from '@/types';
 import { stageStatus } from '@/platform/progress';
 import { intents } from '@/platform/events';
-import { Dropdown } from '@/ui';
+import { Badge, Button, Dropdown, EmptyState, Segmented } from '@/ui';
 
 export interface ChallengeLibraryProps {
   /** Reading for a challenge's stage and tags, if the app has any. */
@@ -22,10 +22,10 @@ const TYPE_LABELS: Record<Challenge['type'], string> = {
   debug: 'Debug'
 };
 
-const DIFFICULTY_CLASS: Record<Difficulty, string> = {
-  easy: 'bg-[var(--color-primary)]/10 text-[var(--color-primary)] border-[var(--color-primary)]/30',
-  medium: 'bg-[var(--color-warning)]/10 text-[#8a5a00] dark:text-[var(--color-warning)] border-[var(--color-warning)]/30',
-  hard: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30'
+const DIFFICULTY_TONE: Record<Difficulty, 'success' | 'warning' | 'error'> = {
+  easy: 'success',
+  medium: 'warning',
+  hard: 'error'
 };
 
 type StatusFilter = 'all' | 'todo' | 'solved';
@@ -47,18 +47,18 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
   useEffect(() => {
     setTrackId(selectedTrackId);
     setStageId('all');
-    setLimit(24);
+    setLimit(30);
   }, [selectedTrackId]);
   const [query, setQuery] = useState('');
   const [difficulty, setDifficulty] = useState<Difficulty | 'all'>('all');
   const [type, setType] = useState<TypeFilter>('all');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [stageId, setStageId] = useState<string | 'all'>('all');
-  const [limit, setLimit] = useState(24);
+  const [limit, setLimit] = useState(30);
 
   const deferredQuery = useDeferredValue(query);
 
-  const stageName = useMemo(() => new Map(stages.map((s) => [s.id, `${s.index} ${s.name}`])), [stages]);
+  const stageName = useMemo(() => new Map(stages.map((s) => [s.id, `${String(s.index).padStart(2, '0')} · ${s.name}`])), [stages]);
   const trackStageIds = useMemo(() => {
     if (trackId === 'all') return null;
     return new Set(tracks.find((t) => t.track.id === trackId)?.track.stageIds ?? []);
@@ -108,24 +108,25 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
   };
 
   return (
-    <div className="space-y-6">
+    <div>
+      {/* ------------------------------------------------------------ filters */}
       <div className="flex flex-col gap-3">
         <label className="relative block">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
           <input
             type="search"
-            className="w-full pl-9 pr-3 py-2.5 rounded-xl text-sm bg-white dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 transition-all shadow-xs"
-            placeholder="Search titles, prompts, languages and tags…"
+            className="w-full !pl-9"
+            placeholder="Search titles, prompts, languages and tags"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              setLimit(24);
+              setLimit(30);
             }}
             aria-label="Search challenges"
           />
         </label>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {tracks.length > 1 && (
             <Dropdown
               value={trackId}
@@ -133,15 +134,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                 setTrackId(val);
                 setStageId('all');
               }}
-              size="md"
-              options={[
-                { value: 'all', label: 'All tracks' },
-                ...tracks.map(({ track }) => ({
-                  value: track.id,
-                  label: track.label,
-                  icon: <span className="text-base">{track.icon}</span>
-                }))
-              ]}
+              options={[{ value: 'all', label: 'All tracks' }, ...tracks.map(({ track }) => ({ value: track.id, label: track.label }))]}
               ariaLabel="Filter by track"
             />
           )}
@@ -149,28 +142,17 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
           <Dropdown
             value={stageId}
             onChange={setStageId}
-            size="md"
-            options={[
-              { value: 'all', label: 'All stages' },
-              ...stageOptions.map((s) => ({
-                value: s.id,
-                label: `${s.index} · ${s.name}`
-              }))
-            ]}
+            options={[{ value: 'all', label: 'All stages' }, ...stageOptions.map((s) => ({ value: s.id, label: `${String(s.index).padStart(2, '0')} · ${s.name}` }))]}
             ariaLabel="Filter by stage"
           />
 
           <Dropdown
             value={type}
             onChange={(val) => setType(val as TypeFilter)}
-            size="md"
             options={[
               { value: 'all', label: 'All types' },
               { value: 'stage_test', label: 'Stage tests' },
-              ...Object.entries(TYPE_LABELS).map(([val, label]) => ({
-                value: val,
-                label
-              }))
+              ...Object.entries(TYPE_LABELS).map(([val, label]) => ({ value: val, label }))
             ]}
             ariaLabel="Filter by challenge type"
           />
@@ -178,7 +160,6 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
           <Dropdown
             value={difficulty}
             onChange={(val) => setDifficulty(val as Difficulty | 'all')}
-            size="md"
             options={[
               { value: 'all', label: 'Any difficulty' },
               { value: 'easy', label: 'Easy' },
@@ -188,48 +169,29 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
             ariaLabel="Filter by difficulty"
           />
 
-          <div
-            className="inline-flex rounded-lg border border-black/10 dark:border-white/10 overflow-hidden text-sm"
-            role="group"
-            aria-label="Filter by status"
-          >
-            {(['all', 'todo', 'solved'] as StatusFilter[]).map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setStatus(value)}
-                aria-pressed={status === value}
-                className={`px-3 py-2 transition-colors ${
-                  status === value
-                    ? 'bg-[var(--color-primary)] text-white dark:text-black font-semibold'
-                    : 'bg-white dark:bg-[#0d1117] text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5'
-                }`}
-              >
-                {value === 'all' ? 'All' : value === 'todo' ? 'Not done' : 'Solved'}
-              </button>
-            ))}
-          </div>
+          <Segmented<StatusFilter>
+            value={status}
+            onChange={setStatus}
+            ariaLabel="Filter by status"
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'todo', label: 'Not done' },
+              { value: 'solved', label: 'Solved' }
+            ]}
+          />
+
+          <span className="ml-auto text-xs font-mono text-fg-muted">
+            {filtered.length} {filtered.length === 1 ? 'match' : 'matches'}
+          </span>
         </div>
       </div>
 
-      <p className="text-sm text-gray-500 font-mono">
-        {filtered.length} {filtered.length === 1 ? 'match' : 'matches'}
-      </p>
-
+      {/* ------------------------------------------------------------- results */}
       {filtered.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-black/10 dark:border-white/10 p-10 text-center">
-          <p className="text-gray-600 dark:text-gray-400 mb-4">Nothing matches those filters.</p>
-          <button
-            type="button"
-            onClick={reset}
-            className="px-4 py-2 rounded-lg border border-black/10 dark:border-white/10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/5"
-          >
-            Clear filters
-          </button>
-        </div>
+        <EmptyState className="mt-6" title="Nothing matches those filters." action={<Button onClick={reset}>Clear filters</Button>} />
       ) : (
         <>
-          <ul className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <ul className="mt-6 border-t border-border">
             {visible.map((c) => {
               const solved = stats.completedChallenges.includes(c.id);
               const needsPro = premiumStages.has(c.stageId);
@@ -240,117 +202,102 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
               const best = stats.attempts[c.id];
               const reading = readingFor?.(c.stageId, c.tags) ?? null;
 
+              const open = () =>
+                needsPro ? intents.openPro() : c.isStageTest ? intents.openStageTest(c.stageId) : intents.openPractice(c.stageId, c.id);
+
               return (
-                <li
-                  key={c.id}
-                  className={`flex flex-col rounded-2xl border p-5 transition-colors ${
-                    solved
-                      ? 'bg-[var(--color-primary)]/5 border-[var(--color-primary)]/25'
-                      : 'bg-gray-50 dark:bg-[#161b22] border-black/5 dark:border-white/5 hover:border-black/15 dark:hover:border-white/15'
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center gap-1.5 mb-3">
-                    <span
-                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${DIFFICULTY_CLASS[c.difficulty]}`}
-                    >
-                      {c.difficulty}
-                    </span>
-                    {c.isStageTest ? (
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-[var(--color-secondary)]/40 text-[var(--color-secondary)] inline-flex items-center gap-1">
-                        <Swords size={10} /> Stage test
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-black/10 dark:border-white/10 text-gray-600 dark:text-gray-400">
-                        {TYPE_LABELS[c.type]}
-                      </span>
-                    )}
-                    {solved && (
-                      <span className="ml-auto text-[var(--color-primary)] inline-flex items-center gap-1 text-xs font-semibold">
-                        <CheckCircle2 size={14} /> solved (+{c.xpReward} XP)
-                      </span>
-                    )}
-                  </div>
-
-                  <h3 className="font-bold text-gray-900 dark:text-white leading-snug">{c.title}</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1.5 line-clamp-3 flex-1">{c.prompt}</p>
-
-                  <div className="flex items-center justify-between mt-4 text-xs">
-                    <span className="text-gray-500 truncate">{stageName.get(c.stageId)}</span>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {c.uiPreview && (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/15 text-indigo-500 border border-indigo-500/30">
-                          Assessment
+                <li key={c.id} className="border-b border-border-subtle">
+                  <div className="grid grid-cols-[1.25rem_1fr_auto] items-start gap-3 py-3.5">
+                    {/* status mark */}
+                    <span className="pt-0.5 flex justify-center">
+                      {solved ? (
+                        <span className="w-4 h-4 rounded-xs bg-success-soft text-success flex items-center justify-center" aria-label="Solved">
+                          <Check size={10} strokeWidth={3} />
                         </span>
+                      ) : locked ? (
+                        <span className="w-4 h-4 flex items-center justify-center text-fg-muted" aria-label="Locked">
+                          <Lock size={11} />
+                        </span>
+                      ) : (
+                        <span className="w-4 h-4 rounded-xs border border-border-strong" aria-label="Not solved" />
                       )}
-                      <span className="font-mono font-bold text-[var(--color-warning)] shrink-0">+{c.xpReward} XP</span>
+                    </span>
+
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <button
+                          type="button"
+                          onClick={open}
+                          disabled={locked}
+                          className={`text-left text-sm font-medium truncate hover:underline underline-offset-2 disabled:no-underline disabled:cursor-not-allowed ${
+                            locked ? 'text-fg-muted' : 'text-fg'
+                          }`}
+                        >
+                          {c.title}
+                        </button>
+                        <span className="font-mono text-[11px] text-fg-muted truncate">{stageName.get(c.stageId)}</span>
+                      </div>
+                      <p className="text-sm text-fg-secondary mt-0.5 line-clamp-1">{c.prompt}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <Badge mono>{c.language}</Badge>
+                        {c.isStageTest ? <Badge tone="info">Stage test</Badge> : <Badge>{TYPE_LABELS[c.type]}</Badge>}
+                        <Badge tone={DIFFICULTY_TONE[c.difficulty]}>{c.difficulty}</Badge>
+                        {c.uiPreview && <Badge>Assessment</Badge>}
+                        {best && (
+                          <span className="text-[11px] font-mono text-fg-muted ml-1">
+                            best {best.score}%
+                          </span>
+                        )}
+                        {reading && (
+                          <Link
+                            to={reading.href}
+                            className="ml-1 inline-flex items-center gap-1 text-[11px] text-fg-muted hover:text-fg"
+                            title={reading.label}
+                          >
+                            <BookOpen size={11} className="shrink-0" />
+                            <span className="truncate max-w-[16rem]">{reading.label}</span>
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-2 shrink-0">
+                      <span className="font-mono text-xs text-fg-muted">+{c.xpReward} XP</span>
+                      <Button
+                        size="sm"
+                        variant={needsPro ? 'secondary' : solved ? 'secondary' : 'primary'}
+                        onClick={open}
+                        disabled={locked}
+                        title={
+                          locked
+                            ? testLocked
+                              ? 'Solve every lesson in this stage to unlock its test'
+                              : 'Finish the earlier stages to unlock this'
+                            : undefined
+                        }
+                      >
+                        {locked
+                          ? testLocked
+                            ? 'Lessons first'
+                            : 'Locked'
+                          : needsPro
+                            ? 'Unlock with Pro'
+                            : solved
+                              ? 'Practise again'
+                              : c.isStageTest
+                                ? 'Take the test'
+                                : 'Solve'}
+                      </Button>
                     </div>
                   </div>
-                  {best && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      Best score {best.score}% · +{Math.round((c.xpReward * best.score) / 100)} XP earned
-                    </div>
-                  )}
-                  {reading && (
-                    <Link
-                      to={reading.href}
-                      className="mt-2 inline-flex items-center gap-1.5 text-xs text-[var(--color-secondary)] hover:underline underline-offset-2"
-                      title={reading.label}
-                    >
-                      <BookOpen size={12} className="shrink-0" />
-                      <span className="truncate">{reading.label}</span>
-                    </Link>
-                  )}
-
-                  <button
-                    type="button"
-                    className={`mt-4 w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition ${
-                      locked
-                        ? 'bg-black/5 dark:bg-white/5 text-gray-400 cursor-not-allowed'
-                        : needsPro
-                          ? 'bg-[var(--color-warning)] text-black hover:brightness-110'
-                          : solved
-                            ? 'border border-black/10 dark:border-white/15 text-gray-800 dark:text-gray-100 hover:bg-black/5 dark:hover:bg-white/5'
-                            : 'bg-[var(--color-primary)] text-white dark:text-black hover:brightness-110'
-                    }`}
-                    onClick={() =>
-                      needsPro ? intents.openPro() : c.isStageTest ? intents.openStageTest(c.stageId) : intents.openPractice(c.stageId, c.id)
-                    }
-                    disabled={locked}
-                    title={
-                      locked
-                        ? testLocked
-                          ? 'Solve every lesson in this stage to unlock its test'
-                          : 'Finish the earlier stages to unlock this'
-                        : undefined
-                    }
-                  >
-                    {locked && <Lock size={14} />}
-                    {locked
-                      ? testLocked
-                        ? 'Finish the lessons first'
-                        : 'Locked'
-                      : needsPro
-                        ? 'Unlock with Pro'
-                        : solved
-                          ? 'Practise again'
-                          : c.isStageTest
-                            ? 'Take the test'
-                            : 'Solve'}
-                  </button>
                 </li>
               );
             })}
           </ul>
 
           {visible.length < filtered.length && (
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={() => setLimit((n) => n + 24)}
-                className="px-5 py-2.5 rounded-lg border border-black/10 dark:border-white/10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                Show more ({filtered.length - visible.length} remaining)
-              </button>
+            <div className="mt-6 flex justify-center">
+              <Button onClick={() => setLimit((n) => n + 30)}>Show more ({filtered.length - visible.length} remaining)</Button>
             </div>
           )}
         </>

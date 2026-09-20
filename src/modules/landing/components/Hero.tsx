@@ -1,148 +1,105 @@
-import React from 'react';
-import { motion } from 'framer-motion';
-import { ArrowRight, Terminal } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { PixelSnow } from './PixelSnow';
+import React, { useMemo } from 'react';
+import { ArrowRight, Check } from 'lucide-react';
 import { useSession } from '@/platform/session';
+import { intents } from '@/platform/events';
+import { optionOrder } from '@/platform/grading-engine/answers';
+import { ButtonLink, CodeBlock } from '@/ui';
 
-type NodeStatus = 'completed' | 'active' | 'locked';
-
+/**
+ * The hero is the product. On the right, a real challenge from the bank
+ * rendered with the same pieces the practice modal uses - prompt, code,
+ * options, footer - so what a visitor sees is what they will get.
+ */
 export const Hero: React.FC = () => {
-  const { stages, allChallenges, contentReady } = useSession();
+  const { allChallenges, contentReady } = useSession();
 
-  // The progression column on the right is the learner's own first six
-  // stages, not a mock-up: a returning visitor sees where they actually are.
-  const nodes = stages.slice(0, 6).map((s) => ({
-    id: s.id,
-    label: s.name,
-    status: (s.state === 'Completed'
-      ? 'completed'
-      : s.state === 'Locked'
-        ? 'locked'
-        : 'active') as NodeStatus
-  }));
-  if (!nodes.some((n) => n.status === 'active')) {
-    const first = nodes.find((n) => n.status === 'locked');
-    if (first) first.status = 'active';
-  }
+  const sample = useMemo(() => {
+    const short = (c: (typeof allChallenges)[number]) => (c.codeSnippet?.split('\n').length ?? 99) <= 6 && (c.options?.length ?? 0) === 4;
+    return (
+      allChallenges.find((c) => c.stageId === 'stage-1' && c.type === 'output_prediction' && short(c)) ??
+      allChallenges.find((c) => c.type === 'output_prediction' && short(c)) ??
+      allChallenges.find((c) => c.type === 'quiz' && (c.options?.length ?? 0) === 4) ??
+      null
+    );
+  }, [allChallenges]);
 
+  const order = useMemo(() => (sample ? optionOrder(sample) : []), [sample]);
   const lessons = allChallenges.filter((c) => !c.isStageTest).length;
   const tests = allChallenges.filter((c) => c.isStageTest).length;
 
   return (
-    <section className="relative min-h-screen flex items-center pt-20 overflow-hidden">
-      <PixelSnow density={60} speed={0.8} />
-
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[var(--color-primary)]/10 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[var(--color-secondary)]/10 rounded-full blur-[120px] pointer-events-none" />
-
-      <div className="max-w-7xl mx-auto px-6 w-full grid grid-cols-1 lg:grid-cols-2 gap-12 items-center relative z-10">
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
-          className="flex flex-col items-start space-y-8"
-        >
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 text-sm font-mono text-gray-700 dark:text-gray-300">
-            <Terminal size={14} className="text-[var(--color-primary)]" />
-            <span>
-              {lessons} lessons · {tests} stage tests · real code execution
-            </span>
+    <section className="pt-28 pb-16 sm:pt-36 sm:pb-24">
+      <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center">
+        <div className="max-w-xl">
+          <div className="eyebrow">
+            {contentReady ? `${lessons} lessons · ${tests} stage tests · real code execution` : 'Developer training environment'}
           </div>
-
-          <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight text-gray-900 dark:text-white leading-[1.1]">
-            Learn to Code.
+          <h1 className="text-[2.5rem] sm:text-[3.25rem] leading-[1.05] font-semibold tracking-tight text-fg">
+            Learn to code by
             <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)]">
-              Level Up for Real.
-            </span>
+            actually writing it.
           </h1>
-
-          <p className="text-lg md:text-xl text-gray-600 dark:text-gray-400 max-w-lg leading-relaxed">
-            The professional developer training environment. A ten-stage path plus C and C++ tracks of
-            hand-checked lessons, each stage capped by a real test - learn each idea first, or go straight
-            to practice. Graded by running your code for real.
+          <p className="mt-6 text-lg text-fg-secondary leading-relaxed">
+            A staged path from programming basics to shipping software. Read the concept, predict the output, fill the blanks,
+            then write the function — graded by running your code for real.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
-            <Link
-              to="/dashboard/learn"
-              className="group relative w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-8 py-4 bg-[var(--color-primary)] text-white dark:text-black font-bold rounded-lg overflow-hidden transition-all hover:scale-105 hover:shadow-[0_0_20px_rgba(57,255,20,0.4)]"
-            >
-              <span className="relative z-10">Start Learning Free</span>
-              <ArrowRight size={18} className="relative z-10 group-hover:translate-x-1 transition-transform" />
-              <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
-            </Link>
-
-            <Link
-              to="/dashboard/roadmap"
-              className="w-full sm:w-auto px-8 py-4 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-gray-900 dark:text-white font-medium rounded-lg border border-black/10 dark:border-white/10 transition-colors flex items-center justify-center"
-            >
-              Explore the Roadmap
-            </Link>
+          <div className="mt-8 flex flex-col sm:flex-row gap-3">
+            <ButtonLink to="/dashboard/learn" variant="primary" size="lg">
+              Start learning <ArrowRight size={15} />
+            </ButtonLink>
+            <ButtonLink to="/dashboard/roadmap" variant="secondary" size="lg">
+              Explore the roadmaps
+            </ButtonLink>
           </div>
-        </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 1, delay: 0.2 }}
-          className="relative h-[600px] flex items-center justify-center lg:justify-end"
-        >
-          <div className="relative w-full max-w-sm flex flex-col items-center">
-            {/* The bank is still downloading: hold the column's shape so nothing jumps. */}
-            {!contentReady &&
-              Array.from({ length: 6 }, (_, i) => (
-                <React.Fragment key={i}>
-                  <div className="w-52 h-[3.4rem] rounded-xl border border-black/5 dark:border-white/5 bg-black/5 dark:bg-white/5 animate-pulse" aria-hidden="true" />
-                  {i < 5 && <div className="h-8 w-px my-1 bg-black/10 dark:bg-white/10" aria-hidden="true" />}
-                </React.Fragment>
-              ))}
-            {nodes.map((node, index) => (
-              <React.Fragment key={node.id}>
-                <motion.div
-                  whileHover={node.status !== 'locked' ? { scale: 1.05 } : {}}
-                  className={`w-52 p-4 rounded-xl border flex items-center justify-between backdrop-blur-md transition-colors cursor-default ${
-                    node.status === 'completed'
-                      ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]/30 text-[var(--color-primary)]'
-                      : node.status === 'active'
-                        ? 'bg-black/5 dark:bg-white/10 border-black/30 dark:border-white/30 text-gray-900 dark:text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]'
-                        : 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/5 text-gray-500'
-                  }`}
-                >
-                  <span className="font-mono text-sm font-bold truncate">{node.label}</span>
-                  {node.status === 'completed' && <div className="w-2 h-2 rounded-full bg-[var(--color-primary)] shrink-0" />}
-                  {node.status === 'active' && (
-                    <motion.div
-                      animate={{ scale: [1, 1.5, 1], opacity: [1, 0.5, 1] }}
-                      transition={{ duration: 2, repeat: Infinity }}
-                      className="w-2 h-2 rounded-full bg-gray-900 dark:bg-white shrink-0"
-                    />
-                  )}
-                  {node.status === 'locked' && <div className="w-2 h-2 rounded-full border border-gray-500 shrink-0" />}
-                </motion.div>
-
-                {index < nodes.length - 1 && (
-                  <div className="h-8 w-px relative my-1">
-                    <div
-                      className={`absolute inset-0 ${
-                        node.status === 'completed' ? 'bg-[var(--color-primary)]/50' : 'bg-black/10 dark:bg-white/10'
-                      }`}
-                    />
-                    {node.status === 'active' && (
-                      <motion.div
-                        initial={{ top: 0, height: 0, opacity: 1 }}
-                        animate={{ top: '100%', height: 0, opacity: 0 }}
-                        transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-                        className="absolute left-0 right-0 bg-gray-900 dark:bg-white shadow-[0_0_8px_currentColor]"
-                      />
-                    )}
-                  </div>
-                )}
-              </React.Fragment>
+          <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-fg-secondary">
+            {['Free, runs on your machine', 'No videos', 'Every stage ends in a coding test'].map((t) => (
+              <li key={t} className="inline-flex items-center gap-2">
+                <Check size={13} className="text-success" /> {t}
+              </li>
             ))}
-          </div>
-        </motion.div>
+          </ul>
+        </div>
+
+        {/* Product snapshot */}
+        <div className="min-w-0">
+          {sample ? (
+            <div className="panel overflow-hidden">
+              <div className="panel-head !py-2.5">
+                <div className="min-w-0">
+                  <div className="font-mono text-[11px] uppercase tracking-wider text-fg-muted">
+                    Stage 01 · {sample.language} · {sample.type === 'quiz' ? 'Quiz' : 'Output prediction'}
+                  </div>
+                  <div className="text-sm font-medium text-fg truncate">{sample.title}</div>
+                </div>
+                <span className="badge">{sample.difficulty}</span>
+              </div>
+              <div className="p-4 sm:p-5 flex flex-col gap-4">
+                <p className="challenge-prompt !text-sm">{sample.prompt}</p>
+                {sample.codeSnippet && <CodeBlock code={sample.codeSnippet} language={sample.language} />}
+                <div className="challenge-options" aria-hidden="true">
+                  {order.map((index, position) => (
+                    <div key={index} className={`option-btn ${position === 2 ? 'selected' : ''}`.trim()}>
+                      <span className="option-letter">{String.fromCharCode(65 + position)}</span>
+                      <span className="option-text">{sample.options?.[index]}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-t border-border-subtle bg-surface-2">
+                <span className="font-mono text-xs text-fg-muted">
+                  +{sample.xpReward} XP · 1 / 20
+                </span>
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => intents.openPractice(sample.stageId, sample.id)}>
+                  Check answer
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="panel h-[26rem] animate-pulse" aria-hidden="true" />
+          )}
+        </div>
       </div>
     </section>
   );

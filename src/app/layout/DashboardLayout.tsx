@@ -34,61 +34,59 @@ export const DashboardLayout: React.FC = () => {
   }, [drawerOpen]);
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#0d1117] text-gray-900 dark:text-white font-sans selection:bg-[var(--color-primary)]/30">
+    <div className="min-h-screen bg-bg text-fg">
       {/* Desktop sidebar */}
       <aside className="hidden lg:block fixed left-0 top-0 h-screen w-64 z-40">
         <Sidebar />
       </aside>
 
       {/* Mobile top bar + drawer */}
-      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between px-4 py-3 border-b border-black/5 dark:border-white/5 bg-white/90 dark:bg-[#0d1117]/90 backdrop-blur">
-        <span className="text-lg font-bold flex items-center gap-2">
-          <span className="text-[var(--color-primary)] font-mono">&lt;/&gt;</span>
+      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between h-12 px-4 border-b border-border bg-surface">
+        <span className="text-sm font-semibold flex items-center gap-2 tracking-tight">
+          <span className="text-accent font-mono text-xs" aria-hidden="true">
+            &lt;/&gt;
+          </span>
           Devlingo
         </span>
         <button
           type="button"
           onClick={() => setDrawerOpen(true)}
-          className="p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5"
+          className="btn btn-ghost btn-sm btn-icon"
           aria-label="Open navigation"
           aria-expanded={drawerOpen}
         >
-          <Menu size={22} />
+          <Menu size={18} />
         </button>
       </header>
 
       {drawerOpen && (
         <div className="lg:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Navigation">
           <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
-          <div className="absolute left-0 top-0 h-full shadow-2xl">
+          <div className="absolute left-0 top-0 h-full shadow-dialog">
             <Sidebar onNavigate={() => setDrawerOpen(false)} />
           </div>
           <button
             type="button"
             onClick={() => setDrawerOpen(false)}
-            className="absolute top-3 left-[17rem] p-2 rounded-full bg-white dark:bg-[#161b22] text-gray-700 dark:text-gray-200 shadow"
+            className="btn btn-secondary btn-sm btn-icon absolute top-3 left-[17rem]"
             aria-label="Close navigation"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
       )}
 
       <div className="lg:ml-64 min-h-screen flex flex-col">
         {isGuest && (
-          <div className="px-4 sm:px-8 py-2.5 text-sm bg-[var(--color-primary)]/10 border-b border-[var(--color-primary)]/20 text-gray-700 dark:text-gray-200 flex flex-wrap items-center justify-between gap-2">
-            <span>
-              You are practising as a guest — progress is saved in this browser
+          <div className="px-4 sm:px-8 h-10 text-sm bg-surface border-b border-border text-fg-secondary flex items-center justify-between gap-3">
+            <span className="truncate">
+              Practising as a guest — progress is saved in this browser
               {stats.completedChallenges.length > 0 ? ` (${stats.completedChallenges.length} solved so far)` : ''}.
               {serverStatus === 'offline' && ' The API is offline, so accounts are unavailable right now.'}
             </span>
             {serverStatus !== 'offline' && (
-              <button
-                type="button"
-                onClick={openAuthModal}
-                className="font-semibold text-[var(--color-primary)] hover:underline"
-              >
-                Sign in to sync →
+              <button type="button" onClick={openAuthModal} className="shrink-0 font-medium text-fg hover:text-accent">
+                Sign in to sync
               </button>
             )}
           </div>

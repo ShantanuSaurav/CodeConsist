@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { Check } from 'lucide-react';
 import { Challenge } from '@/types';
 import { Answer, optionOrder } from '@/platform/grading-engine/answers';
 
@@ -76,7 +77,7 @@ export const OptionsChallenge: React.FC<Props> = ({ challenge, answer, onAnswer,
             aria-checked={isSelected}
           >
             <span className={`option-letter ${multi ? 'is-box' : ''}`.trim()}>
-              {multi ? (isSelected ? '✓' : '') : String.fromCharCode(65 + position)}
+              {multi ? (isSelected ? <Check size={12} strokeWidth={3} /> : '') : String.fromCharCode(65 + position)}
             </span>
             <span className="option-text">{option}</span>
             {checked && isCorrect && <span className="option-flag">correct</span>}

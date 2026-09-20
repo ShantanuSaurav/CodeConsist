@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Check, X } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { useFocusTrap } from '@/ui/hooks/useFocusTrap';
 
@@ -49,17 +50,17 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="CodeQuest Pro"
+        aria-label="Devlingo Pro"
         ref={dialogRef}
         tabIndex={-1}
       >
         <div className="modal-header">
           <div>
             <div className="modal-stage-badge">Membership</div>
-            <h3 className="modal-title">CodeQuest Pro</h3>
+            <h3 className="modal-title">Devlingo Pro</h3>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close">
-            ×
+            <X size={16} />
           </button>
         </div>
 
@@ -73,7 +74,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
             {PERKS.map(([title, detail]) => (
               <li key={title}>
                 <span className="pro-check" aria-hidden="true">
-                  ✓
+                  <Check size={14} strokeWidth={2.5} />
                 </span>
                 <div>
                   <strong>{title}</strong>

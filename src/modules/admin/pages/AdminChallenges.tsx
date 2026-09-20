@@ -3,14 +3,17 @@ import { Pencil } from 'lucide-react';
 import { Dropdown } from '@/ui';
 import { AdminChallengeRow, AdminStageRow, adminApi } from '../services/adminApi';
 import {
+  AdminPageHeader,
   Badge,
   Button,
   Card,
   Drawer,
   EmptyState,
+  ErrorText,
   NumberField,
   SelectField,
   Spinner,
+  Table,
   TagsField,
   TextArea,
   TextField,
@@ -64,24 +67,23 @@ export const AdminChallenges: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Challenges</h1>
-        {stages && stages.length > 0 && (
-          <Dropdown
-            value={stageId}
-            onChange={setStageId}
-            size="md"
-            options={stages.map((s) => ({
-              value: s.id,
-              label: s.name,
-              icon: s.icon ? <span className="text-base">{s.icon}</span> : undefined
-            }))}
-            ariaLabel="Select stage"
-          />
-        )}
-      </div>
+      <AdminPageHeader
+        title="Challenges"
+        description="Presentational fields only - answers, test cases and code stay in the authored content."
+        actions={
+          stages && stages.length > 0 ? (
+            <Dropdown
+              value={stageId}
+              onChange={setStageId}
+              size="md"
+              options={stages.map((s) => ({ value: s.id, label: s.name }))}
+              ariaLabel="Select stage"
+            />
+          ) : undefined
+        }
+      />
 
-      {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
+      {error && <ErrorText>{error}</ErrorText>}
 
       {!stages || !challenges ? (
         <Spinner />
@@ -89,44 +91,42 @@ export const AdminChallenges: React.FC = () => {
         <EmptyState>This stage has no challenges.</EmptyState>
       ) : (
         <Card className="p-0 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-black/5 dark:border-white/5">
-                  <th className="px-4 py-3 font-medium">Challenge</th>
-                  <th className="px-4 py-3 font-medium">Type</th>
-                  <th className="px-4 py-3 font-medium">Difficulty</th>
-                  <th className="px-4 py-3 font-medium">XP</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium" />
+          <Table>
+            <thead>
+              <tr>
+                <th>Challenge</th>
+                <th>Type</th>
+                <th>Difficulty</th>
+                <th>XP</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {challenges.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <div className="cell-primary flex items-center gap-2">
+                      {c.title}
+                      {c.isStageTest && <Badge>Stage test</Badge>}
+                    </div>
+                    <div className="text-xs text-fg-muted line-clamp-1 max-w-md">{c.prompt}</div>
+                  </td>
+                  <td className="cell-mono">{c.type}</td>
+                  <td>
+                    <Badge tone={DIFFICULTY_TONE[c.difficulty]}>{c.difficulty}</Badge>
+                  </td>
+                  <td className="cell-num">{c.xpReward}</td>
+                  <td>{c.hidden ? <Badge tone="warning">Hidden</Badge> : <Badge tone="success">Live</Badge>}</td>
+                  <td className="text-right">
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(c)} aria-label={`Edit ${c.title}`}>
+                      <Pencil size={14} />
+                    </Button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {challenges.map((c) => (
-                  <tr key={c.id} className="border-b border-black/5 dark:border-white/5 last:border-0">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
-                        {c.title}
-                        {c.isStageTest && <Badge>Stage test</Badge>}
-                      </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{c.prompt}</div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{c.type}</td>
-                    <td className="px-4 py-3">
-                      <Badge tone={DIFFICULTY_TONE[c.difficulty]}>{c.difficulty}</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{c.xpReward}</td>
-                    <td className="px-4 py-3">{c.hidden ? <Badge tone="warning">Hidden</Badge> : <Badge tone="success">Live</Badge>}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Button variant="ghost" onClick={() => setEditing(c)} aria-label={`Edit ${c.title}`}>
-                        <Pencil size={16} />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </Table>
         </Card>
       )}
 
@@ -198,8 +198,8 @@ const ChallengeEditor: React.FC<{
         </>
       }
     >
-      {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+      {error && <ErrorText>{error}</ErrorText>}
+      <p className="text-xs text-fg-muted mb-4">
         The question logic (answers, test cases, code) isn't editable here - see docs/CONTENT_AUTHORING.md. Presentational fields only.
       </p>
       <TextField label="Title" value={title} onChange={setTitle} maxLength={120} />

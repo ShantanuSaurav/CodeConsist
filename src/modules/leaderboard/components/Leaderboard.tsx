@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
-import { Crown, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { useAppEvent } from '@/platform/events';
+import { Button, EmptyState } from '@/ui';
 
-/** Top accounts by XP, from the local API. */
+/** Top accounts by XP, from the local API. A table, not a stack of cards. */
 export const Leaderboard: React.FC = () => {
   const { leaderboard, user, serverStatus, refreshLeaderboard } = useSession();
 
@@ -16,68 +17,62 @@ export const Leaderboard: React.FC = () => {
     if (serverStatus === 'online') refreshLeaderboard();
   });
 
-  // A solve changes the standings; the challenges module does not need to know we care.
-  useAppEvent('challenge:completed', () => {
-    if (serverStatus === 'online') refreshLeaderboard();
-  });
-
   if (serverStatus !== 'online') {
     return (
-      <div className="rounded-2xl border border-dashed border-black/10 dark:border-white/10 p-8 text-center text-gray-600 dark:text-gray-400">
-        The leaderboard needs the local API.{' '}
-        {serverStatus === 'checking' ? 'Connecting…' : (
+      <EmptyState title="The leaderboard needs the local API.">
+        {serverStatus === 'checking' ? (
+          'Connecting…'
+        ) : (
           <>
-            Start it with <code className="font-mono text-sm">npm run dev:api</code>.
+            Start it with <code className="font-mono text-fg">npm run dev:api</code>.
           </>
         )}
-      </div>
+      </EmptyState>
     );
   }
 
   if (leaderboard.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-black/10 dark:border-white/10 p-8 text-center text-gray-600 dark:text-gray-400">
-        No accounts yet — sign up and you will be first.
-      </div>
-    );
+    return <EmptyState title="No accounts yet.">Sign up and you will be first.</EmptyState>;
   }
 
   return (
-    <div className="rounded-2xl border border-black/5 dark:border-white/5 bg-gray-50 dark:bg-[#161b22] overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-black/5 dark:border-white/5">
-        <span className="text-xs font-mono uppercase tracking-wider text-gray-500">Top by XP</span>
-        <button
-          type="button"
-          onClick={refreshLeaderboard}
-          className="text-gray-500 hover:text-gray-900 dark:hover:text-white inline-flex items-center gap-1 text-xs"
-        >
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="eyebrow !mb-0">Top by XP</span>
+        <Button size="sm" variant="ghost" onClick={refreshLeaderboard}>
           <RefreshCw size={12} /> Refresh
-        </button>
+        </Button>
       </div>
-      <ol>
-        {leaderboard.map((row, i) => {
-          const you = row.username === user?.username && user?.provider !== 'guest';
-          return (
-            <li
-              key={row.username}
-              className={`grid grid-cols-[2.5rem_1fr_auto] sm:grid-cols-[2.5rem_1fr_6rem_6rem_6rem] items-center gap-3 px-5 py-3 border-b last:border-b-0 border-black/5 dark:border-white/5 ${
-                you ? 'bg-[var(--color-primary)]/10' : ''
-              }`}
-            >
-              <span className={`font-mono text-sm ${i < 3 ? 'text-[var(--color-warning)] font-bold' : 'text-gray-500'}`}>
-                {i === 0 ? <Crown size={16} className="inline -mt-0.5" /> : `#${i + 1}`}
-              </span>
-              <span className="font-medium text-gray-900 dark:text-white truncate">
-                {row.username}
-                {you && <span className="ml-2 text-xs text-[var(--color-primary)] font-mono">you</span>}
-              </span>
-              <span className="font-mono text-sm text-[var(--color-primary)] text-right">{row.xp.toLocaleString()} XP</span>
-              <span className="hidden sm:block font-mono text-xs text-gray-500 text-right">Lv {row.level}</span>
-              <span className="hidden sm:block font-mono text-xs text-gray-500 text-right">{row.solved} solved</span>
-            </li>
-          );
-        })}
-      </ol>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-[11px] font-mono uppercase tracking-wider text-fg-muted border-b border-border">
+            <th className="py-2 pr-3 font-medium w-10">#</th>
+            <th className="py-2 pr-3 font-medium">User</th>
+            <th className="py-2 pl-3 font-medium text-right">XP</th>
+            <th className="py-2 pl-3 font-medium text-right hidden sm:table-cell">Level</th>
+            <th className="py-2 pl-3 font-medium text-right hidden sm:table-cell">Solved</th>
+          </tr>
+        </thead>
+        <tbody>
+          {leaderboard.map((row, i) => {
+            const you = row.username === user?.username && user?.provider !== 'guest';
+            return (
+              <tr key={row.username} className={`border-b border-border-subtle ${you ? 'bg-accent-soft' : ''}`}>
+                <td className={`py-2.5 pr-3 font-mono tabular-nums ${i < 3 ? 'text-fg font-medium' : 'text-fg-muted'}`}>
+                  {String(i + 1).padStart(2, '0')}
+                </td>
+                <td className="py-2.5 pr-3 font-medium text-fg truncate max-w-[14rem]">
+                  {row.username}
+                  {you && <span className="ml-2 text-[11px] font-mono text-accent">you</span>}
+                </td>
+                <td className="py-2.5 pl-3 font-mono tabular-nums text-fg text-right">{row.xp.toLocaleString()}</td>
+                <td className="py-2.5 pl-3 font-mono tabular-nums text-fg-muted text-right hidden sm:table-cell">{String(row.level).padStart(2, '0')}</td>
+                <td className="py-2.5 pl-3 font-mono tabular-nums text-fg-muted text-right hidden sm:table-cell">{row.solved}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 };

@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
-import { Check, Crown, Database, Layout, Lock, Network, Rocket, Sparkles, Swords } from 'lucide-react';
+import { ArrowRight, Check, Crown, Lock } from 'lucide-react';
 import type { Stage } from '@/types';
 import { useSession } from '@/platform/session';
 import { stageStatus } from '@/platform/progress';
@@ -11,16 +10,15 @@ type NodeState = 'locked' | 'current' | 'completed';
 
 interface Group {
   title: string;
-  icon: React.ReactNode;
   stageIds: string[];
 }
 
 /** How the core path's ten stages group along the rail. Other tracks are one group each. */
 const CORE_GROUPS: Group[] = [
-  { title: 'Foundations', icon: <Layout size={13} className="text-[var(--color-secondary)]" />, stageIds: ['stage-1', 'stage-2'] },
-  { title: 'Computer Science', icon: <Network size={13} className="text-[var(--color-warning)]" />, stageIds: ['stage-3', 'stage-4'] },
-  { title: 'Web & Backend', icon: <Database size={13} className="text-[var(--color-primary)]" />, stageIds: ['stage-5', 'stage-6', 'stage-7'] },
-  { title: 'Engineering', icon: <Rocket size={13} className="text-purple-400" />, stageIds: ['stage-8', 'stage-9', 'stage-10'] }
+  { title: 'Foundations', stageIds: ['stage-1', 'stage-2'] },
+  { title: 'Computer Science', stageIds: ['stage-3', 'stage-4'] },
+  { title: 'Web & Backend', stageIds: ['stage-5', 'stage-6', 'stage-7'] },
+  { title: 'Engineering', stageIds: ['stage-8', 'stage-9', 'stage-10'] }
 ];
 
 /** Rough reading/solving time from the lesson count - a label, never a claim about progress. */
@@ -43,7 +41,6 @@ function totalXp(stage: Stage): number {
  */
 export const SkillRoadmap: React.FC = () => {
   const { learnerStages: stages, activeTrack, stats } = useSession();
-  const reduceMotion = useReducedMotion();
 
   const groups = useMemo<Group[]>(() => {
     const ids = new Set(stages.map((s) => s.id));
@@ -51,11 +48,7 @@ export const SkillRoadmap: React.FC = () => {
     const covered = new Set(core.flatMap((g) => g.stageIds));
     const rest = stages.filter((s) => !covered.has(s.id)).map((s) => s.id);
     if (core.length && rest.length === 0) return core;
-    const restGroup: Group = {
-      title: activeTrack.track.label,
-      icon: <span aria-hidden="true">{activeTrack.track.icon}</span>,
-      stageIds: rest
-    };
+    const restGroup: Group = { title: activeTrack.track.label, stageIds: rest };
     return core.length ? [...core, restGroup] : [restGroup];
   }, [stages, activeTrack]);
 
@@ -77,15 +70,12 @@ export const SkillRoadmap: React.FC = () => {
   return (
     <div className="roadmap-wrap">
       <div className="roadmap-rail" aria-hidden="true">
-        <div className="roadmap-rail-fill" style={{ height: `${railFillPercent}%`, transition: reduceMotion ? 'none' : undefined }} />
+        <div className="roadmap-rail-fill" style={{ height: `${railFillPercent}%` }} />
       </div>
 
       {groups.map((group) => (
         <section key={group.title} className="roadmap-group" aria-label={group.title}>
-          <div className="roadmap-group-head">
-            <span className="roadmap-group-head-icon">{group.icon}</span>
-            {group.title}
-          </div>
+          <div className="roadmap-group-head">{group.title}</div>
           <ol className="roadmap-path">
             {group.stageIds.map((id) => {
               const stage = byId.get(id);
@@ -108,14 +98,10 @@ export const SkillRoadmap: React.FC = () => {
 
               return (
                 <li key={stage.id} className="roadmap-item">
-                  <motion.button
+                  <button
                     type="button"
                     onClick={open}
                     disabled={!canOpen}
-                    initial={reduceMotion ? false : { opacity: 0, y: 24 }}
-                    whileInView={reduceMotion ? undefined : { opacity: 1, y: 0 }}
-                    viewport={{ once: true, amount: 0.4 }}
-                    transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
                     className={`roadmap-node roadmap-node-${state} ${canOpen ? 'is-clickable' : ''}`}
                     aria-label={`Stage ${stage.index}: ${stage.name} - ${
                       premiumLocked ? 'Pro only' : state === 'completed' ? 'completed' : state === 'current' ? `in progress, ${overall}%` : 'locked'
@@ -123,32 +109,27 @@ export const SkillRoadmap: React.FC = () => {
                   >
                     <span className="roadmap-node-marker">
                       {premiumLocked ? (
-                        <Crown size={18} />
+                        <Crown size={14} />
                       ) : state === 'completed' ? (
-                        <Check size={18} strokeWidth={3} />
+                        <Check size={14} strokeWidth={2.5} />
                       ) : state === 'locked' ? (
-                        <Lock size={16} />
+                        <Lock size={12} />
                       ) : (
                         <span className="roadmap-node-icon-emoji" aria-hidden="true">
-                          {stage.icon}
+                          {String(stage.index).padStart(2, '0')}
                         </span>
                       )}
-                      {state === 'current' && !reduceMotion && <span className="roadmap-node-pulse" />}
                     </span>
 
                     <span className="roadmap-node-body">
                       <span className="roadmap-node-head">
-                        <span className="roadmap-node-index">Stage {stage.index}</span>
+                        <span className="roadmap-node-index">Stage {String(stage.index).padStart(2, '0')}</span>
                         {premiumLocked && <span className="roadmap-node-pro">PRO</span>}
                         {!premiumLocked && hasTest && testPassed && (
-                          <span className="roadmap-node-tag is-done">
-                            <Check size={11} /> Test passed
-                          </span>
+                          <span className="roadmap-node-tag is-done">Test passed</span>
                         )}
                         {!premiumLocked && isCurrent && stage.state === 'Test pending' && (
-                          <span className="roadmap-node-tag is-ready">
-                            <Swords size={11} /> Test ready
-                          </span>
+                          <span className="roadmap-node-tag is-ready">Test ready</span>
                         )}
                       </span>
 
@@ -172,8 +153,8 @@ export const SkillRoadmap: React.FC = () => {
 
                       {isCurrent && (
                         <span className="roadmap-node-cta">
-                          <Sparkles size={13} />
                           {stage.state === 'Test pending' ? 'Take the stage test' : done > 0 ? 'Continue learning' : 'Start this stage'}
+                          <ArrowRight size={13} />
                         </span>
                       )}
                       {premiumLocked && <span className="roadmap-node-cta is-muted">Unlock with Pro</span>}
@@ -181,7 +162,7 @@ export const SkillRoadmap: React.FC = () => {
                         <span className="roadmap-node-cta is-muted">Finish the stage before this one to unlock it</span>
                       )}
                     </span>
-                  </motion.button>
+                  </button>
                 </li>
               );
             })}

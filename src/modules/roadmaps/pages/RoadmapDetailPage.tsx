@@ -19,7 +19,7 @@ import {
 import '../styles/roadmap.css';
 import { ROADMAP_BY_SLUG, roadmapNodeIds } from '../content';
 import { useRoadmapProgress, summarise } from '../services/progress';
-import { useFocusTrap } from '@/ui';
+import { Badge, Button, ButtonLink, ProgressBar, useFocusTrap } from '@/ui';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
@@ -177,49 +177,34 @@ const NodeDrawer: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[450]" role="presentation">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-label={node.title}
         tabIndex={-1}
-        className="absolute right-0 top-0 h-full w-full sm:w-[28rem] bg-white dark:bg-[#0d1117] border-l border-black/10 dark:border-white/10 shadow-2xl overflow-y-auto outline-none"
+        className="absolute right-0 top-0 h-full w-full sm:w-[28rem] bg-surface border-l border-border shadow-dialog overflow-y-auto outline-none"
       >
-        <div className="sticky top-0 z-10 bg-white/95 dark:bg-[#0d1117]/95 backdrop-blur px-6 py-4 border-b border-black/5 dark:border-white/5 flex items-start justify-between gap-3">
+        <div className="sticky top-0 z-10 bg-surface px-6 py-4 border-b border-border flex items-start justify-between gap-3">
           <div>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-gray-500 mb-1">
-              Topic{node.optional ? ' · optional' : ''}
-            </div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white leading-snug">{node.title}</h2>
+            <div className="eyebrow !mb-1">Topic{node.optional ? ' · optional' : ''}</div>
+            <h2 className="text-lg font-semibold text-fg leading-snug tracking-tight">{node.title}</h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5"
-            aria-label="Close"
-          >
-            <X size={20} />
-          </button>
+          <Button variant="ghost" size="sm" icon onClick={onClose} aria-label="Close">
+            <X size={16} />
+          </Button>
         </div>
 
         <div className="px-6 py-5 space-y-6">
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Status">
+          <div className="segmented" role="group" aria-label="Status">
             {STATUS_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
                 type="button"
                 onClick={() => onStatus(opt.value)}
                 aria-pressed={status === opt.value}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-                  status === opt.value
-                    ? opt.value === 'done'
-                      ? 'bg-[var(--color-primary)] text-white dark:text-black border-transparent'
-                      : opt.value === 'learning'
-                        ? 'bg-[var(--color-secondary)] text-white dark:text-black border-transparent'
-                        : 'bg-gray-800 text-white dark:bg-white dark:text-black border-transparent'
-                    : 'border-black/10 dark:border-white/15 text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5'
-                }`}
+                className={`segmented-option ${status === opt.value ? 'is-active' : ''}`.trim()}
               >
                 {opt.icon}
                 {opt.label}
@@ -227,69 +212,53 @@ const NodeDrawer: React.FC<{
             ))}
           </div>
 
-          <p className="text-[15px] leading-relaxed text-gray-700 dark:text-gray-300">{node.description}</p>
+          <p className="text-[0.9375rem] leading-relaxed text-fg-secondary">{node.description}</p>
 
           {stage && (
-            <div className="rounded-xl border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/5 p-4">
-              <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-primary)] mb-2">
-                Practise this on Devlingo
-              </div>
-              <div className="font-semibold text-gray-900 dark:text-white">
-                Stage {stage.index} · {stage.name}
+            <div className="border-t border-b border-border-subtle py-4">
+              <div className="eyebrow">Practise this on Devlingo</div>
+              <div className="text-sm font-medium text-fg">
+                Stage {String(stage.index).padStart(2, '0')} · {stage.name}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  size="sm"
                   disabled={stageLocked}
                   onClick={() => {
                     onClose();
                     intents.openPractice(stage.id);
                   }}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[var(--color-primary)] text-white dark:text-black text-sm font-bold hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                   title={stageLocked ? 'Finish the earlier stages to unlock this one' : undefined}
                 >
-                  <Play size={14} /> {stageLocked ? 'Stage locked' : 'Start the lessons'}
-                </button>
+                  <Play size={13} /> {stageLocked ? 'Stage locked' : 'Start the lessons'}
+                </Button>
                 {reading && (
-                  <Link
-                    to={reading.href}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-black/10 dark:border-white/15 text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-black/5 dark:hover:bg-white/5"
-                  >
-                    <BookOpen size={14} /> {reading.label}
-                  </Link>
+                  <ButtonLink to={reading.href} size="sm" variant="secondary">
+                    <BookOpen size={13} /> {reading.label}
+                  </ButtonLink>
                 )}
               </div>
             </div>
           )}
 
           <div>
-            <h3 className="text-xs font-mono uppercase tracking-wider text-gray-500 mb-3">Free resources</h3>
-            <ul className="space-y-2">
+            <h3 className="eyebrow">Free resources</h3>
+            <ul className="border-t border-border-subtle">
               {node.resources.map((r) => {
                 const internal = r.url.startsWith('/');
                 const inner = (
                   <>
-                    <span
-                      className={`inline-flex items-center gap-1 shrink-0 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                        r.kind === 'roadmap'
-                          ? 'bg-[#ffe066]/60 dark:bg-[#5a4d12] text-gray-900 dark:text-[#fff1b8]'
-                          : r.kind === 'docs'
-                            ? 'bg-[var(--color-secondary)]/10 text-[var(--color-secondary)]'
-                            : r.kind === 'practice'
-                              ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
-                              : 'bg-black/5 dark:bg-white/10 text-gray-600 dark:text-gray-300'
-                      }`}
-                    >
+                    <Badge className="shrink-0 mt-0.5" tone={r.kind === 'practice' ? 'accent' : 'neutral'}>
                       {KIND_ICON[r.kind]} {KIND_LABEL[r.kind]}
-                    </span>
-                    <span className="flex-1 text-sm text-gray-800 dark:text-gray-200 group-hover:underline underline-offset-2">{r.title}</span>
-                    {!internal && <ExternalLink size={13} className="text-gray-400 shrink-0 mt-1" />}
+                    </Badge>
+                    <span className="flex-1 text-sm text-fg group-hover:underline underline-offset-2">{r.title}</span>
+                    {!internal && <ExternalLink size={13} className="text-fg-muted shrink-0 mt-1" />}
                   </>
                 );
-                const cls =
-                  'group flex items-start gap-2.5 rounded-lg border border-black/5 dark:border-white/5 bg-gray-50 dark:bg-[#161b22] px-3 py-2.5 hover:border-black/15 dark:hover:border-white/15 transition';
+                const cls = 'group flex items-start gap-2.5 py-2.5 -mx-2 px-2 rounded-xs hover:bg-surface-2 transition-colors';
                 return (
-                  <li key={r.url + r.title}>
+                  <li key={r.url + r.title} className="border-b border-border-subtle">
                     {internal ? (
                       <Link to={r.url} className={cls} onClick={onClose}>
                         {inner}
@@ -330,35 +299,25 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
   const total = roadmapNodeIds(roadmap).length;
 
   return (
-    <div className="p-6 sm:p-8 max-w-4xl mx-auto">
-      <Link
-        to={ROUTES.roadmaps}
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white mb-6"
-      >
+    <div className="page max-w-4xl">
+      <Link to={ROUTES.roadmaps} className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg mb-6">
         <ArrowLeft size={14} /> All roadmaps
       </Link>
 
-      <header className="flex flex-wrap items-end justify-between gap-6 mb-4">
-        <div className="max-w-2xl">
-          <div className="text-xs font-mono uppercase tracking-wider text-[var(--color-primary)] mb-2">
-            {roadmap.kind === 'role' ? 'Role-based roadmap' : 'Skill-based roadmap'}
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-            <span aria-hidden="true">{roadmap.icon}</span>
-            {roadmap.title}
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">{roadmap.description}</p>
+      <header className="flex flex-wrap items-end justify-between gap-6 pb-6 mb-6 border-b border-border-subtle">
+        <div className="flex-1 max-w-2xl min-w-[16rem]">
+          <div className="eyebrow">{roadmap.kind === 'role' ? 'Role-based roadmap' : 'Skill-based roadmap'}</div>
+          <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight text-fg">{roadmap.title}</h1>
+          <p className="text-fg-secondary mt-2 text-[0.9375rem] leading-relaxed">{roadmap.description}</p>
         </div>
 
-        <div className="w-full sm:w-72 rounded-2xl border border-black/5 dark:border-white/5 bg-gray-50 dark:bg-[#161b22] p-4">
-          <div className="flex justify-between text-sm mb-2">
-            <span className="text-gray-600 dark:text-gray-400">Your progress</span>
-            <span className="font-mono font-bold text-[var(--color-primary)]">{summary.percent}%</span>
+        <div className="w-full sm:w-64">
+          <div className="flex justify-between items-baseline mb-2">
+            <span className="text-xs text-fg-muted">Your progress</span>
+            <span className="font-mono text-sm font-medium text-fg tabular-nums">{summary.percent}%</span>
           </div>
-          <div className="h-2 w-full bg-black/5 dark:bg-white/10 rounded-full overflow-hidden">
-            <div className="h-full bg-[var(--color-primary)] transition-all" style={{ width: `${summary.percent}%` }} />
-          </div>
-          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 text-[11px] font-mono text-gray-500">
+          <ProgressBar value={summary.percent} label={`${summary.done} of ${total} topics done`} />
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11px] font-mono text-fg-muted">
             <span>{summary.done} done</span>
             <span>{summary.learning} learning</span>
             <span>{summary.skipped} skipped</span>
@@ -391,7 +350,7 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
           </button>
         ))}
         <span className="rm-filter-hint">
-          <Swords size={12} className="text-[var(--color-primary)]" /> practised in Devlingo
+          <Swords size={12} className="text-accent" /> practised in Devlingo
         </span>
       </div>
 

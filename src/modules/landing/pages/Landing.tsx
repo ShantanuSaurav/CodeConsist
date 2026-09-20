@@ -9,7 +9,7 @@ import { FinalCTA } from '../components/FinalCTA';
 import { Footer } from '../components/Footer';
 
 export const Landing: React.FC = () => (
-  <div className="bg-white dark:bg-[#0d1117] min-h-screen text-gray-900 dark:text-white font-sans selection:bg-[var(--color-primary)]/30">
+  <div className="bg-bg min-h-screen text-fg">
     <Navbar />
     <Hero />
     <SocialProof />

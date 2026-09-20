@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AdminLanguageRow, adminApi } from '../services/adminApi';
-import { Badge, Card, EmptyState, Spinner, Toggle } from '../components/ui';
+import { AdminPageHeader, Badge, Card, EmptyState, ErrorText, Spinner, Table, Toggle } from '../components/ui';
 
 /**
  * /admin/languages. One row per src/data/tracks.ts language track. "Hidden"
@@ -36,49 +36,52 @@ export const AdminLanguages: React.FC = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Languages</h1>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        These are the same language tracks learners pick from on the Learn page - hide one to unpublish it without deleting any content.
-      </p>
+      <AdminPageHeader
+        title="Languages"
+        description="The same language tracks learners pick from on the Learn page. Hide one to unpublish it without deleting any content."
+      />
 
-      {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
+      {error && <ErrorText>{error}</ErrorText>}
 
       {!languages ? (
         <Spinner />
       ) : languages.length === 0 ? (
         <EmptyState>No language tracks found.</EmptyState>
       ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
-          {languages.map((lang) => (
-            <Card key={lang.id}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{lang.icon}</span>
-                  <div>
-                    <div className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                      {lang.label}
-                      {lang.hidden && <Badge tone="warning">Hidden</Badge>}
+        <Card className="p-0 overflow-hidden">
+          <Table>
+            <thead>
+              <tr>
+                <th>Track</th>
+                <th>Stages</th>
+                <th>Challenges</th>
+                <th>Status</th>
+                <th className="text-right">Published</th>
+              </tr>
+            </thead>
+            <tbody>
+              {languages.map((lang) => (
+                <tr key={lang.id}>
+                  <td>
+                    <div className="cell-primary">{lang.label}</div>
+                    <div className="text-xs text-fg-muted line-clamp-1 max-w-lg">{lang.description}</div>
+                  </td>
+                  <td className="cell-num">{lang.stageCount}</td>
+                  <td className="cell-num">{lang.challengeCount}</td>
+                  <td>
+                    {lang.hidden ? <Badge tone="warning">Hidden</Badge> : <Badge tone="success">Live</Badge>}
+                    {busyId === lang.id && <span className="ml-2 text-xs text-fg-muted">Saving…</span>}
+                  </td>
+                  <td>
+                    <div className="flex justify-end">
+                      <Toggle label="" checked={!lang.hidden} onChange={() => toggleHidden(lang)} />
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{lang.tagline}</div>
-                  </div>
-                </div>
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-3">{lang.description}</p>
-              <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 dark:text-gray-400">
-                <span>{lang.stageCount} stages</span>
-                <span>{lang.challengeCount} challenges</span>
-              </div>
-              <div className="mt-3 pt-3 border-t border-black/5 dark:border-white/5">
-                <Toggle
-                  label={lang.hidden ? 'Unpublish (hidden from learners)' : 'Published'}
-                  checked={!lang.hidden}
-                  onChange={() => toggleHidden(lang)}
-                />
-              </div>
-              {busyId === lang.id && <div className="text-xs text-gray-400 mt-1">Saving…</div>}
-            </Card>
-          ))}
-        </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </Card>
       )}
     </div>
   );

@@ -1,117 +1,98 @@
 import React from 'react';
-import { motion } from 'framer-motion';
-import { Award, CheckCircle2, Circle, Flame, Lock } from 'lucide-react';
+import { Check, Lock } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
 import { nextRankLevel, rankTitle, solvedOn } from '@/platform/xp-leveling/insights';
+import { ProgressBar, Stat } from '@/ui';
 
 const DAILY_GOAL = 3;
 
-/** "Learning should feel like progress" - the cards show the visitor's real numbers. */
+/** "Progress you can see" - every figure here is the visitor's real number. */
 export const Gamification: React.FC = () => {
   const { stats, stages } = useSession();
   const level = levelProgress(stats.xp);
   const today = solvedOn(stats).length;
   const goalPercent = Math.min(100, Math.round((today / DAILY_GOAL) * 100));
   const nextRank = nextRankLevel(level.level);
+  const shown = stages.slice(0, 5);
 
   return (
-    <section className="py-32 bg-gray-50 dark:bg-[#161b22]/30 border-y border-black/5 dark:border-white/5 relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-1/3 h-full bg-[var(--color-primary)]/5 blur-[150px] pointer-events-none" />
-
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-20">
-          <h2 className="text-3xl md:text-5xl font-bold text-gray-900 dark:text-white mb-6">
-            Learning Should Feel Like Progress.
+    <section className="py-20 sm:py-28 border-t border-border">
+      <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-2xl mb-12">
+          <div className="eyebrow">Progress</div>
+          <h2 className="text-[1.75rem] sm:text-[2.25rem] font-semibold tracking-tight text-fg leading-tight">
+            Progress you can see, computed from what you solved.
           </h2>
-          <p className="text-gray-600 dark:text-gray-400 text-lg max-w-2xl mx-auto">
-            Stay motivated with RPG-style progression. Build your streak, earn XP, and unlock the next stage.
+          <p className="mt-4 text-fg-secondary text-lg leading-relaxed">
+            XP, levels, streaks and stage unlocks are all derived from your real attempts. Nothing on this page is a mock-up:
+            these are your numbers right now.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <motion.div
-            whileHover={{ y: -5 }}
-            className="bg-white dark:bg-[#0d1117] border border-black/10 dark:border-white/10 rounded-2xl p-8 flex flex-col space-y-8"
-          >
-            <div className="flex items-center space-x-3 text-[var(--color-warning)]">
-              <Flame size={24} className="fill-[var(--color-warning)]" />
-              <span className="font-bold text-xl">
-                {stats.streak} Day Streak
-              </span>
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-10 lg:gap-16">
+          {/* Your numbers */}
+          <div>
+            <div className="grid grid-cols-3 gap-6 pb-6 mb-6 border-b border-border-subtle">
+              <Stat label="Streak" value={`${stats.streak} ${stats.streak === 1 ? 'day' : 'days'}`} />
+              <Stat label="Level" value={String(level.level).padStart(2, '0')} hint={rankTitle(level.level)} />
+              <Stat label="XP" value={stats.xp.toLocaleString()} hint={nextRank ? `next rank at level ${nextRank}` : 'top rank'} />
             </div>
 
-            <div className="h-px bg-black/5 dark:bg-white/5 w-full" />
+            <div className="mb-6">
+              <div className="flex items-center justify-between text-sm mb-2">
+                <span className="text-fg">Level {String(level.level).padStart(2, '0')}</span>
+                <span className="font-mono text-xs text-fg-muted">
+                  {level.into} / {level.needed} XP
+                </span>
+              </div>
+              <ProgressBar value={level.percent} label={`${level.into} of ${level.needed} XP into this level`} />
+            </div>
 
             <div>
-              <div className="text-sm font-mono text-gray-500 mb-2">DAILY GOAL</div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-gray-900 dark:text-white font-medium">Solve {DAILY_GOAL} challenges</div>
-                <div className="text-[var(--color-primary)] font-mono font-bold">
+              <div className="flex items-center justify-between text-sm mb-2">
+                <span className="text-fg">Daily goal · solve {DAILY_GOAL} challenges</span>
+                <span className="font-mono text-xs text-fg-muted">
                   {today} / {DAILY_GOAL}
-                </div>
+                </span>
               </div>
-              <div className="w-full h-2 bg-black/5 dark:bg-white/5 rounded-full overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  whileInView={{ width: `${goalPercent}%` }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 1, delay: 0.3 }}
-                  className="h-full bg-[var(--color-primary)]"
-                />
-              </div>
+              <ProgressBar value={goalPercent} tone="success" label={`${today} of ${DAILY_GOAL} solved today`} />
             </div>
-          </motion.div>
+          </div>
 
-          <motion.div
-            whileHover={{ y: -5 }}
-            className="bg-gradient-to-br from-white to-gray-50 dark:from-[#161b22] dark:to-[#0d1117] border border-black/10 dark:border-white/10 rounded-2xl p-8 flex flex-col items-center justify-center text-center shadow-lg"
-          >
-            <div className="w-20 h-20 rounded-full bg-[var(--color-secondary)]/10 border border-[var(--color-secondary)]/30 flex items-center justify-center mb-6 relative">
-              <Award size={32} className="text-[var(--color-secondary)]" />
-              <div className="absolute -bottom-2 bg-[var(--color-secondary)] text-black text-xs font-bold px-2 py-0.5 rounded-full">
-                LVL {String(level.level).padStart(2, '0')}
-              </div>
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{rankTitle(level.level)}</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              {nextRank ? `Next rank at Level ${nextRank}` : 'Top rank reached'} · {level.into}/{level.needed} XP into this level
-            </p>
-          </motion.div>
-
-          <motion.div
-            whileHover={{ y: -5 }}
-            className="bg-white dark:bg-[#0d1117] border border-black/10 dark:border-white/10 rounded-2xl p-8"
-          >
-            <div className="text-sm font-mono text-gray-500 mb-6">STAGE UNLOCKS</div>
-            <div className="space-y-4">
-              {stages.slice(0, 4).map((stage) => {
+          {/* Stage unlocks */}
+          <div>
+            <div className="eyebrow">Stage unlocks</div>
+            <ol className="border-t border-border-subtle">
+              {shown.map((stage) => {
                 const done = stage.state === 'Completed';
                 const active = stage.state === 'In progress' || stage.state === 'Test pending';
                 return (
-                  <div
-                    key={stage.id}
-                    className={
-                      active
-                        ? 'flex items-center space-x-3 text-gray-900 dark:text-white font-medium bg-black/5 dark:bg-white/5 p-2 rounded-lg -mx-2'
-                        : done
-                          ? 'flex items-center space-x-3 text-gray-700 dark:text-gray-300'
-                          : 'flex items-center space-x-3 text-gray-500'
-                    }
-                  >
+                  <li key={stage.id} className="flex items-center gap-3 py-3 border-b border-border-subtle">
                     {done ? (
-                      <CheckCircle2 size={18} className="text-[var(--color-primary)] shrink-0" />
+                      <span className="w-5 h-5 rounded-xs bg-success-soft text-success flex items-center justify-center shrink-0">
+                        <Check size={12} strokeWidth={2.5} />
+                      </span>
                     ) : active ? (
-                      <Circle size={18} className="text-[var(--color-secondary)] fill-[var(--color-secondary)]/20 shrink-0" />
+                      <span className="w-5 h-5 rounded-xs border-[1.5px] border-accent shrink-0" />
                     ) : (
-                      <Lock size={18} className="shrink-0" />
+                      <span className="w-5 h-5 flex items-center justify-center text-fg-muted shrink-0">
+                        <Lock size={12} />
+                      </span>
                     )}
-                    <span className="truncate">{stage.name}</span>
-                  </div>
+                    <span className="font-mono text-xs text-fg-muted w-6 shrink-0">{String(stage.index).padStart(2, '0')}</span>
+                    <span className={`text-sm truncate ${active ? 'text-fg font-medium' : done ? 'text-fg-secondary' : 'text-fg-muted'}`}>
+                      {stage.name}
+                    </span>
+                    {active && <span className="ml-auto badge badge-accent">Current</span>}
+                  </li>
                 );
               })}
-            </div>
-          </motion.div>
+              {stages.length > shown.length && (
+                <li className="py-3 text-xs text-fg-muted font-mono">+ {stages.length - shown.length} more stages</li>
+              )}
+            </ol>
+          </div>
         </div>
       </div>
     </section>

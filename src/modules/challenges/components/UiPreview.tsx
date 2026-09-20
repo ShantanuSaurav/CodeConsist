@@ -58,10 +58,8 @@ export const UiPreview: React.FC<UiPreviewProps> = ({
           margin: 0;
           padding: 24px;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-          background-color: #0d1117;
-          background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
-          background-size: 16px 16px;
-          color: #e6edf3;
+          background-color: #0F1216;
+          color: #E4E4E7;
           min-height: 100vh;
           display: flex;
           flex-direction: column;

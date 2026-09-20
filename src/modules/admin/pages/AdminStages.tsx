@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, Pencil } from 'lucide-react';
 import { AdminStageRow, adminApi } from '../services/adminApi';
-import { Badge, Button, Card, Drawer, EmptyState, Spinner, TextArea, TextField, Toggle } from '../components/ui';
+import { AdminPageHeader, Badge, Button, Card, Drawer, EmptyState, ErrorText, Spinner, Table, TextArea, TextField, Toggle } from '../components/ui';
 
 const LANGUAGE_LABEL: Record<string, string> = { javascript: 'JavaScript', python: 'Python', c: 'C', cpp: 'C++' };
 
@@ -67,13 +67,12 @@ export const AdminStages: React.FC = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Stages</h1>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        Rename, hide/unpublish, mark premium, or reorder a stage within its language track. The lessons and stage test inside a stage are
-        edited from Challenges.
-      </p>
+      <AdminPageHeader
+        title="Stages"
+        description="Rename, hide/unpublish, mark premium, or reorder a stage within its language track. The lessons and stage test inside a stage are edited from Challenges."
+      />
 
-      {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
+      {error && <ErrorText>{error}</ErrorText>}
 
       {!stages ? (
         <Spinner />
@@ -83,41 +82,36 @@ export const AdminStages: React.FC = () => {
         <div className="space-y-8">
           {grouped.map(([group, rows]) => (
             <div key={group}>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400 mb-3">
-                {group}
-              </h2>
+              <h2 className="eyebrow">{group}</h2>
               <Card className="p-0 overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <Table>
                     <thead>
-                      <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-black/5 dark:border-white/5">
-                        <th className="px-4 py-3 font-medium">Stage</th>
-                        <th className="px-4 py-3 font-medium">Lessons</th>
-                        <th className="px-4 py-3 font-medium">Test</th>
-                        <th className="px-4 py-3 font-medium">Status</th>
-                        <th className="px-4 py-3 font-medium">Order</th>
-                        <th className="px-4 py-3 font-medium" />
+                      <tr>
+                        <th>Stage</th>
+                        <th>Lessons</th>
+                        <th>Test</th>
+                        <th>Status</th>
+                        <th>Order</th>
+                        <th />
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((stage, i) => (
-                        <tr key={stage.id} className="border-b border-black/5 dark:border-white/5 last:border-0">
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2 font-medium text-gray-900 dark:text-white">
-                              {stage.icon && <span>{stage.icon}</span>} {stage.name}
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{stage.description}</div>
+                        <tr key={stage.id}>
+                          <td>
+                            <div className="cell-primary">{stage.name}</div>
+                            <div className="text-xs text-fg-muted line-clamp-1 max-w-md">{stage.description}</div>
                           </td>
-                          <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{stage.challengeCount}</td>
-                          <td className="px-4 py-3">
+                          <td className="cell-num">{stage.challengeCount}</td>
+                          <td>
                             <Badge tone={stage.hasTest ? 'success' : 'default'}>{stage.hasTest ? 'Yes' : 'No'}</Badge>
                           </td>
-                          <td className="px-4 py-3">
+                          <td>
                             <button
                               type="button"
                               disabled={busyId === stage.id}
                               onClick={() => toggleHidden(stage)}
-                              className="flex flex-wrap gap-1"
+                              className="flex flex-wrap gap-1 cursor-pointer"
                               title={stage.hidden ? 'Unpublish - click to make visible to learners' : 'Live - click to hide from learners'}
                             >
                               {stage.hidden && <Badge tone="warning">Hidden</Badge>}
@@ -125,13 +119,13 @@ export const AdminStages: React.FC = () => {
                               {!stage.hidden && !stage.isPremium && <Badge tone="success">Live</Badge>}
                             </button>
                           </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1">
+                          <td>
+                            <div className="flex items-center gap-0.5">
                               <button
                                 type="button"
                                 disabled={busyId === stage.id || i === 0}
                                 onClick={() => reorder(stage, 'up')}
-                                className="p-1 rounded text-gray-400 hover:text-gray-900 dark:hover:text-white disabled:opacity-25"
+                                className="btn btn-ghost btn-sm btn-icon disabled:opacity-25"
                                 aria-label={`Move ${stage.name} up`}
                               >
                                 <ArrowUp size={14} />
@@ -140,23 +134,22 @@ export const AdminStages: React.FC = () => {
                                 type="button"
                                 disabled={busyId === stage.id || i === rows.length - 1}
                                 onClick={() => reorder(stage, 'down')}
-                                className="p-1 rounded text-gray-400 hover:text-gray-900 dark:hover:text-white disabled:opacity-25"
+                                className="btn btn-ghost btn-sm btn-icon disabled:opacity-25"
                                 aria-label={`Move ${stage.name} down`}
                               >
                                 <ArrowDown size={14} />
                               </button>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <Button variant="ghost" onClick={() => setEditing(stage)} aria-label={`Edit ${stage.name}`}>
-                              <Pencil size={16} />
+                          <td className="text-right">
+                            <Button variant="ghost" size="sm" onClick={() => setEditing(stage)} aria-label={`Edit ${stage.name}`}>
+                              <Pencil size={14} />
                             </Button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
-                  </table>
-                </div>
+                </Table>
               </Card>
             </div>
           ))}
@@ -232,7 +225,7 @@ const StageEditor: React.FC<{
         </>
       }
     >
-      {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
+      {error && <ErrorText>{error}</ErrorText>}
       <TextField label="Name" value={name} onChange={setName} maxLength={80} />
       <TextArea label="Description" value={description} onChange={setDescription} rows={3} maxLength={400} />
       <TextField label="Icon (emoji)" value={icon} onChange={setIcon} maxLength={8} hint="Shown on the learner's path list." />
@@ -241,7 +234,7 @@ const StageEditor: React.FC<{
       <button
         type="button"
         onClick={revertToOriginal}
-        className="text-xs text-[var(--color-primary)] hover:underline mt-2"
+        className="link-btn mt-2"
       >
         Reset text fields to the originally authored values
       </button>

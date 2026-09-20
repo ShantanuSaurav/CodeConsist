@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react';
 import { adminApi } from '../services/adminApi';
-import { Badge, Button, Card, EmptyState, Spinner } from '../components/ui';
+import { AdminPageHeader, Badge, Button, Card, EmptyState, ErrorText, Spinner, Table } from '../components/ui';
 
 type Status = Awaited<ReturnType<typeof adminApi.excelStatus>>;
 
@@ -67,20 +67,23 @@ export const AdminExcelSettings: React.FC = () => {
     }
   };
 
-  if (error) return <p className="text-red-500 text-sm">{error}</p>;
+  if (error) return <ErrorText>{error}</ErrorText>;
   if (!status) return <Spinner label="Loading Excel sync status…" />;
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Microsoft Excel sync</h1>
+      <AdminPageHeader
+        title="Microsoft Excel sync"
+        description="An optional, best-effort mirror of user records into an Excel table. Devlingo's own database is always the source of truth."
+      />
 
       <Card className="mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Configuration</h2>
+          <h2 className="text-sm font-medium text-fg">Configuration</h2>
           <Badge tone={status.configured ? 'success' : 'default'}>{status.configured ? 'Configured' : 'Not configured'}</Badge>
         </div>
         {!status.configured && (
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          <p className="text-sm text-fg-secondary mb-4">
             Excel sync is not set up. Signup, login and progress all work normally without it - set the MICROSOFT_* variables described
             in .env.example, then restart the server, to enable it.
           </p>
@@ -88,39 +91,39 @@ export const AdminExcelSettings: React.FC = () => {
         <div className="grid sm:grid-cols-3 gap-3 text-sm">
           <div className="flex items-center gap-2">
             {status.tenantConfigured ? (
-              <CheckCircle2 size={16} className="text-emerald-500" />
+              <CheckCircle2 size={15} className="text-success" />
             ) : (
-              <XCircle size={16} className="text-gray-400" />
+              <XCircle size={15} className="text-fg-muted" />
             )}
-            <span className="text-gray-700 dark:text-gray-300">Azure tenant</span>
+            <span className="text-fg-secondary">Azure tenant</span>
           </div>
           <div className="flex items-center gap-2">
             {status.clientConfigured ? (
-              <CheckCircle2 size={16} className="text-emerald-500" />
+              <CheckCircle2 size={15} className="text-success" />
             ) : (
-              <XCircle size={16} className="text-gray-400" />
+              <XCircle size={15} className="text-fg-muted" />
             )}
-            <span className="text-gray-700 dark:text-gray-300">App credentials</span>
+            <span className="text-fg-secondary">App credentials</span>
           </div>
           <div className="flex items-center gap-2">
             {status.workbookConfigured ? (
-              <CheckCircle2 size={16} className="text-emerald-500" />
+              <CheckCircle2 size={15} className="text-success" />
             ) : (
-              <XCircle size={16} className="text-gray-400" />
+              <XCircle size={15} className="text-fg-muted" />
             )}
-            <span className="text-gray-700 dark:text-gray-300">Workbook location</span>
+            <span className="text-fg-secondary">Workbook location</span>
           </div>
         </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+        <div className="text-xs text-fg-muted mt-3 font-mono">
           Worksheet "{status.worksheetName}", table "{status.tableName}".
         </div>
       </Card>
 
       <Card className="mb-6">
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Actions</h2>
+        <h2 className="text-sm font-medium text-fg mb-4">Actions</h2>
         <div className="flex flex-wrap gap-2 mb-3">
           <Button variant="secondary" onClick={runTest} disabled={busy !== null}>
-            <RefreshCw size={14} className="inline mr-1.5" />
+            <RefreshCw size={13} />
             {busy === 'test' ? 'Testing…' : 'Test connection'}
           </Button>
           <Button variant="secondary" onClick={runSyncAll} disabled={busy !== null || !status.configured}>
@@ -135,39 +138,41 @@ export const AdminExcelSettings: React.FC = () => {
           </Button>
         </div>
         {testResult && (
-          <p className={`text-sm ${testResult.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{testResult.message}</p>
+          <p className={`text-sm ${testResult.ok ? 'text-success' : 'text-error'}`}>{testResult.message}</p>
         )}
-        {actionMessage && <p className="text-sm text-gray-600 dark:text-gray-400">{actionMessage}</p>}
+        {actionMessage && <p className="text-sm text-fg-secondary">{actionMessage}</p>}
         {status.sync.lastFullSyncAt && (
-          <p className="text-xs text-gray-400 mt-2">Last full sync: {new Date(status.sync.lastFullSyncAt).toLocaleString()}</p>
+          <p className="text-xs text-fg-muted mt-2 font-mono">Last full sync: {new Date(status.sync.lastFullSyncAt).toLocaleString()}</p>
         )}
       </Card>
 
-      <Card>
-        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Recent failures</h2>
+      <Card className="p-0 overflow-hidden">
+        <div className="panel-head">
+          <h2 className="panel-title">Recent failures</h2>
+        </div>
         {status.sync.failures.length === 0 ? (
           <EmptyState>No sync failures recorded.</EmptyState>
         ) : (
-          <table className="w-full text-sm">
+          <Table>
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-black/5 dark:border-white/5">
-                <th className="py-2 font-medium">User</th>
-                <th className="py-2 font-medium">Reason</th>
-                <th className="py-2 font-medium">Error</th>
-                <th className="py-2 font-medium">When</th>
+              <tr>
+                <th>User</th>
+                <th>Reason</th>
+                <th>Error</th>
+                <th>When</th>
               </tr>
             </thead>
             <tbody>
               {status.sync.failures.map((f) => (
-                <tr key={f.id} className="border-b border-black/5 dark:border-white/5 last:border-0">
-                  <td className="py-2 text-gray-900 dark:text-white">{f.username}</td>
-                  <td className="py-2 text-gray-700 dark:text-gray-300">{f.reason}</td>
-                  <td className="py-2 text-gray-500 dark:text-gray-400 max-w-xs truncate">{f.error}</td>
-                  <td className="py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap">{new Date(f.at).toLocaleString()}</td>
+                <tr key={f.id}>
+                  <td className="cell-primary">{f.username}</td>
+                  <td>{f.reason}</td>
+                  <td className="cell-mono text-fg-muted max-w-xs truncate">{f.error}</td>
+                  <td className="cell-mono text-fg-muted whitespace-nowrap">{new Date(f.at).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         )}
       </Card>
     </div>

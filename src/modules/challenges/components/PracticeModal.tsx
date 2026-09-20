@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ClipboardList, Trophy, X } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { Challenge, ExecutionResult } from '@/types';
 import { Answer, optionOrder } from '@/platform/grading-engine/answers';
@@ -414,9 +415,9 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         <div className="modal-header">
           <div className="modal-header-main">
             <div className="modal-stage-badge">
-              <span aria-hidden="true">{activeStage.icon}</span> Stage {activeStage.index} ·{' '}
-              {isTestMode ? 'Stage test · ' : ''}
-              {activeStage.name}
+              Stage {String(activeStage.index).padStart(2, '0')} · {activeStage.name}
+              {isTestMode ? ' · Stage test' : ''}
+              {!finished && !choosingMode ? ` · ${challenge.language} · ${typeLabel(challenge)}` : ''}
             </div>
             <h3 className="modal-title">
               {finished ? (isTestMode ? 'Stage cleared' : 'Lessons complete') : choosingMode ? activeStage.name : challenge.title}
@@ -424,15 +425,13 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
             {!finished && !choosingMode && (
               <div className="modal-meta">
                 <span className={`pill pill-${challenge.difficulty}`}>{challenge.difficulty}</span>
-                <span className="pill pill-type">{typeLabel(challenge)}</span>
-                <span className="pill pill-lang">{challenge.language}</span>
                 {alreadySolved && <span className="pill pill-done">solved before</span>}
                 {!isTestMode && <LearningModeSwitch size="sm" value={learningMode} onChange={setLearningMode} />}
               </div>
             )}
           </div>
           <button type="button" className="modal-close-btn" onClick={closePractice} aria-label="Close">
-            ×
+            <X size={16} />
           </button>
         </div>
 
@@ -465,7 +464,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
           {finished ? (
             <div className="celebration-view">
               <div className="celebration-icon" aria-hidden="true">
-                {isTestMode || testPassed ? '🏆' : '📝'}
+                {isTestMode || testPassed ? <Trophy size={20} /> : <ClipboardList size={20} />}
               </div>
 
               {isTestMode ? (
@@ -522,7 +521,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       className="btn btn-solid btn-lg"
                       onClick={() => openStageTest(activeStage.id)}
                     >
-                      Take the stage test →
+                      Take the stage test
                     </button>
                   </>
                 ) : isTestMode && nextStage && nextStage.state !== 'Locked' ? (
@@ -535,7 +534,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       className="btn btn-solid btn-lg"
                       onClick={() => openPractice(nextStage.id)}
                     >
-                      Start Stage {nextStage.index} →
+                      Start Stage {nextStage.index}
                     </button>
                   </>
                 ) : (
@@ -679,7 +678,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       className="btn btn-ghost btn-sm"
                       onClick={() => setRevealedHints((n) => n + 1)}
                     >
-                      Show a hint ({hints.length - revealedHints} left) · costs 10% of the XP
+                      Show a hint · {hints.length - revealedHints} left · costs 10% XP
                     </button>
                   )}
                 </div>
@@ -693,7 +692,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
               {checked && (
                 <div className={`feedback-banner ${isCorrect ? 'correct' : 'incorrect'}`} role="status">
                   <span className="feedback-icon" aria-hidden="true">
-                    {isCorrect ? '✓' : '✗'}
+                    {isCorrect ? <Check size={12} strokeWidth={3} /> : <X size={12} strokeWidth={3} />}
                   </span>
                   <div className="feedback-content">
                     <div className="feedback-heading-row">
@@ -765,7 +764,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
             <div className="footer-left">
               <span className="challenge-xp-reward">+{challenge.xpReward} XP</span>
               <span className="footer-count">
-                {activeChallengeIndex + 1} of {challenges.length}
+                {activeChallengeIndex + 1} / {challenges.length}
               </span>
             </div>
 
@@ -782,7 +781,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
 
               {checked && isCorrect ? (
                 <button type="button" className="btn btn-solid" onClick={advance}>
-                  {activeChallengeIndex + 1 < challenges.length ? 'Next challenge →' : 'Finish stage →'}
+                  {activeChallengeIndex + 1 < challenges.length ? 'Next' : 'Finish stage'}
                 </button>
               ) : checked ? (
                 <>

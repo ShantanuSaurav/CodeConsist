@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Code2, Columns, LayoutTemplate } from 'lucide-react';
+import { Check, Circle, Code2, Columns, LayoutTemplate, X } from 'lucide-react';
 import { Challenge, ExecutionResult } from '@/types';
 import { CodeEditor } from '@/ui/primitives/CodeEditor';
 import { CodeBlock } from '@/ui/primitives/CodeBlock';
@@ -126,7 +126,7 @@ function getTestCaseTitle(
               onClick={() => setUiViewMode('split')}
             >
               <Columns size={13} />
-              <span>Split View</span>
+              <span>Split</span>
             </button>
             <button
               type="button"
@@ -134,7 +134,7 @@ function getTestCaseTitle(
               onClick={() => setUiViewMode('editor')}
             >
               <Code2 size={13} />
-              <span>Code Only</span>
+              <span>Code</span>
             </button>
             <button
               type="button"
@@ -142,7 +142,7 @@ function getTestCaseTitle(
               onClick={() => setUiViewMode('preview')}
             >
               <LayoutTemplate size={13} />
-              <span>Live UI Preview</span>
+              <span>Preview</span>
             </button>
           </div>
         ) : (
@@ -182,7 +182,7 @@ function getTestCaseTitle(
         <div className="test-panel">
           <div className="test-panel-head">
             <div className="test-panel-title-cluster">
-              <span className="test-panel-title">Test Results</span>
+              <span className="test-panel-title">Tests</span>
               <span className="test-panel-count-badge">
                 {visibleCases.length} {visibleCases.length === 1 ? 'test' : 'tests'}
               </span>
@@ -190,7 +190,7 @@ function getTestCaseTitle(
             {result && (
               <span className={`test-verdict is-${result.status}`}>
                 {isUi && result.status === 'passed'
-                  ? `All UI & DOM Tests Passed · +${challenge.xpReward} XP`
+                  ? `All tests passed · +${challenge.xpReward} XP`
                   : statusLabel(result)}
                 {result.time ? ` · ${result.time}` : ''}
               </span>
@@ -206,7 +206,7 @@ function getTestCaseTitle(
                   <div className="test-row-main">
                     <span className={`test-status-pill is-${state}`}>
                       <span className="test-icon" aria-hidden="true">
-                        {state === 'pass' ? '✓' : state === 'fail' ? '✗' : '○'}
+                        {state === 'pass' ? <Check size={11} strokeWidth={3} /> : state === 'fail' ? <X size={11} strokeWidth={3} /> : <Circle size={9} />}
                       </span>
                       <span>{state === 'pass' ? 'Pass' : state === 'fail' ? 'Fail' : `Test ${tc.index + 1}`}</span>
                     </span>

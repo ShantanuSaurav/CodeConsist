@@ -10,18 +10,20 @@ export const ChallengesPage: React.FC<{ readingFor?: ReadingResolver }> = ({ rea
   const tests = allChallenges.filter((c) => c.isStageTest).length;
 
   return (
-    <div className="p-6 sm:p-8 max-w-7xl mx-auto">
+    <div className="page max-w-5xl">
       <PageHeader
-        eyebrow="Library"
-        title="Every challenge"
-        description={`${lessons} lessons and ${tests} stage tests across ${stages.length} stages${tracks.length > 1 ? ` - showing ${activeTrack.track.label}; pick "All tracks" to search everything` : ""}. Search, filter, and drill exactly what you want.`}
+        eyebrow="Challenges"
+        title="Library"
+        description={`${lessons} lessons and ${tests} stage tests across ${stages.length} stages${
+          tracks.length > 1 ? `. Showing ${activeTrack.track.label}; pick "All tracks" to search everything` : ''
+        }.`}
         aside={
-          <div className="text-right">
-            <div className="text-3xl font-bold font-mono text-gray-900 dark:text-white">
+          <div className="sm:text-right">
+            <div className="text-2xl font-semibold font-mono text-fg tabular-nums leading-none">
               {stats.completedChallenges.length}
-              <span className="text-gray-400 text-xl"> / {allChallenges.length}</span>
+              <span className="text-fg-muted text-base"> / {allChallenges.length}</span>
             </div>
-            <div className="text-xs text-gray-500">solved</div>
+            <div className="text-xs text-fg-muted mt-1">solved</div>
           </div>
         }
       />

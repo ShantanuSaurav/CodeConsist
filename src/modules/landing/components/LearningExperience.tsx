@@ -1,17 +1,17 @@
 import React, { useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { CheckCircle2, Play } from 'lucide-react';
+import { Check, Play } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
-import { CodeBlock } from '@/ui/primitives/CodeBlock';
+import { Button, CodeBlock } from '@/ui';
 
 const FORMATS = [
   ['Quiz & output prediction', 'Read a snippet, say exactly what it prints.'],
-  ['Fill the blanks & ordering', 'Complete code inline, or drag pseudocode into the right order.'],
-  ['Code & debug', 'Write the function or fix the planted bug. Graded by real test runs.']
+  ['Fill the blanks & ordering', 'Complete code inline, or put pseudocode in the right order.'],
+  ['Code & debug', 'Write the function or fix the planted bug. Graded by real test runs.'],
+  ['Stage tests', 'One coding problem with hidden cases at the end of every stage.']
 ];
 
-/** "Learn by doing" section - shows a real challenge from the bank, not a mock-up. */
+/** "Learn by doing" - shows a real coding challenge from the bank, not a mock-up. */
 export const LearningExperience: React.FC = () => {
   const { allChallenges } = useSession();
 
@@ -24,71 +24,55 @@ export const LearningExperience: React.FC = () => {
   );
 
   return (
-    <section className="py-32 bg-white dark:bg-[#0d1117]">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-24 items-center">
-          <div>
-            <h2 className="text-3xl md:text-5xl font-bold text-gray-900 dark:text-white mb-6">Learn by Doing.</h2>
-            <p className="text-gray-600 dark:text-gray-400 text-lg mb-8">
-              No long videos. Seven interactive lesson formats that get straight to the point, and a
-              coding test at the end of every stage.
-            </p>
+    <section className="py-20 sm:py-28 border-t border-border bg-surface">
+      <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+        <div className="max-w-lg">
+          <div className="eyebrow">Practice</div>
+          <h2 className="text-[1.75rem] sm:text-[2.25rem] font-semibold tracking-tight text-fg leading-tight">Learn by doing.</h2>
+          <p className="mt-4 text-fg-secondary text-lg leading-relaxed">
+            No long videos. Seven interactive lesson formats that get straight to the point, and a coding test at the end of
+            every stage.
+          </p>
 
-            <div className="space-y-4">
-              {FORMATS.map(([title, desc]) => (
-                <div
-                  key={title}
-                  className="bg-gray-50 dark:bg-[#161b22] border border-black/5 dark:border-white/5 p-5 rounded-xl flex items-start gap-3"
-                >
-                  <CheckCircle2 size={18} className="text-[var(--color-primary)] mt-0.5 shrink-0" />
-                  <div>
-                    <h4 className="font-bold text-gray-900 dark:text-white mb-1">{title}</h4>
-                    <p className="text-gray-600 dark:text-gray-400 text-sm">{desc}</p>
-                  </div>
+          <ul className="mt-8 border-t border-border-subtle">
+            {FORMATS.map(([title, desc]) => (
+              <li key={title} className="flex items-start gap-3 py-3.5 border-b border-border-subtle">
+                <span className="w-5 h-5 rounded-xs bg-success-soft text-success flex items-center justify-center shrink-0 mt-0.5">
+                  <Check size={12} strokeWidth={2.5} />
+                </span>
+                <div>
+                  <div className="text-sm font-medium text-fg">{title}</div>
+                  <div className="text-sm text-fg-secondary mt-0.5">{desc}</div>
                 </div>
-              ))}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {sample && (
+          <div className="panel overflow-hidden min-w-0">
+            <div className="panel-head !py-2.5">
+              <div className="min-w-0">
+                <div className="font-mono text-[11px] uppercase tracking-wider text-fg-muted">
+                  Stage 01 · {sample.language} · Code
+                </div>
+                <div className="text-sm font-medium text-fg truncate">{sample.title}</div>
+              </div>
+              <span className="badge">{sample.testCases?.length ?? 0} tests</span>
+            </div>
+            <div className="p-4 sm:p-5 flex flex-col gap-4">
+              <p className="text-sm text-fg-secondary leading-relaxed">{sample.prompt}</p>
+              <CodeBlock code={sample.starterCode ?? ''} language={sample.language} showLineNumbers />
+            </div>
+            <div className="px-4 sm:px-5 py-3 border-t border-border-subtle bg-surface-2 flex items-center justify-between gap-3">
+              <span className="font-mono text-xs text-fg-muted">+{sample.xpReward} XP</span>
+              <Button variant="primary" size="sm" onClick={() => intents.openPractice(sample.stageId, sample.id)}>
+                <Play size={13} />
+                Solve it now
+              </Button>
             </div>
           </div>
-
-          {sample && (
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              className="rounded-xl overflow-hidden border border-black/10 dark:border-white/10 bg-gray-50 dark:bg-[#161b22] shadow-2xl"
-            >
-              <div className="flex items-center justify-between px-4 py-3 border-b border-black/5 dark:border-white/5 bg-white dark:bg-[#0d1117]">
-                <div className="flex space-x-2">
-                  <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50" />
-                  <div className="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50" />
-                  <div className="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50" />
-                </div>
-                <div className="font-mono text-xs text-gray-500 truncate px-3">{sample.title}</div>
-                <div className="w-12" />
-              </div>
-
-              <div className="p-5">
-                <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">{sample.prompt}</p>
-                <CodeBlock code={sample.starterCode ?? ''} language={sample.language} showLineNumbers />
-              </div>
-
-              <div className="px-5 py-4 border-t border-black/5 dark:border-white/5 bg-white dark:bg-[#0d1117] flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => intents.openPractice(sample.stageId, sample.id)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-[var(--color-primary)]/10 text-[var(--color-primary)] rounded-lg hover:bg-[var(--color-primary)]/20 transition-colors font-medium text-sm"
-                >
-                  <Play size={16} />
-                  <span>Solve it now</span>
-                </button>
-                <div className="flex items-center space-x-3 text-sm">
-                  <span className="text-gray-500">{sample.testCases?.length ?? 0} test cases</span>
-                  <span className="font-mono text-[var(--color-warning)] font-bold">+{sample.xpReward} XP</span>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </div>
+        )}
       </div>
     </section>
   );

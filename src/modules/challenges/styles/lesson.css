@@ -1,10 +1,10 @@
 /* ==========================================================================
-   Beginner "concept teaching" flow shown before a lesson's quick check.
-   Shares tokens with practice.css / tokens.css so it reads as the same app,
-   not a bolted-on feature.
+   Beginner "concept teaching" flow shown before a lesson's quick check, and
+   the learning-mode chooser. Reads tokens.css so it is the same product as
+   the rest of the modal.
    ========================================================================== */
 
-.concept-teaching { display: flex; flex-direction: column; gap: 1.1rem; }
+.concept-teaching { display: flex; flex-direction: column; gap: var(--space-5); }
 
 /* ------------------------------------------------------------- step tracker */
 
@@ -12,100 +12,82 @@
   display: flex;
   align-items: center;
   list-style: none;
-  margin: 0.9rem 0 0;
+  margin: var(--space-3) 0 0;
   padding: 0;
   flex-wrap: wrap;
-  gap: 0.15rem;
+  gap: 2px;
 }
-.lesson-step { display: flex; align-items: center; gap: 0.4rem; }
+.lesson-step { display: flex; align-items: center; gap: var(--space-2); }
 .lesson-step-dot {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.35rem;
-  height: 1.35rem;
-  border-radius: 999px;
-  font-size: 0.68rem;
-  font-weight: 700;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  font-weight: 500;
   font-family: var(--font-mono);
-  border: 1.5px solid var(--line);
-  color: var(--ink-faint);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--surface);
   flex: none;
 }
-.lesson-step-label {
-  font-size: 0.74rem;
-  color: var(--ink-faint);
-  white-space: nowrap;
-}
-.lesson-step-connector { width: 1.1rem; height: 1.5px; background: var(--line); margin: 0 0.25rem; }
-.lesson-step-active .lesson-step-dot { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.lesson-step-active .lesson-step-label { color: var(--ink); font-weight: 600; }
-.lesson-step-done .lesson-step-dot { border-color: var(--ok); background: var(--ok); color: var(--accent-ink); }
-.lesson-step-done .lesson-step-label { color: var(--ink-dim); }
+.lesson-step-label { font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; }
+.lesson-step-connector { width: 16px; height: 1px; background: var(--border); margin: 0 var(--space-1); }
+.lesson-step-active .lesson-step-dot { border-color: var(--accent); color: var(--accent); }
+.lesson-step-active .lesson-step-label { color: var(--text); font-weight: 500; }
+.lesson-step-done .lesson-step-dot { border-color: var(--success); background: var(--success); color: #fff; }
+.dark .lesson-step-done .lesson-step-dot { color: #06140a; }
+.lesson-step-done .lesson-step-label { color: var(--text-secondary); }
 
 /* ---------------------------------------------------------------- lesson intro */
 
-.lesson-intro { display: flex; flex-direction: column; gap: 0.3rem; padding-bottom: 0.6rem; border-bottom: 1px dashed var(--line); }
+.lesson-intro { display: flex; flex-direction: column; gap: var(--space-1); padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-subtle); }
 .lesson-intro-badge {
   align-self: flex-start;
-  font-family: var(--font-label);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--accent-2-ink);
-  background: color-mix(in srgb, var(--accent-2) 18%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-2) 40%, transparent);
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
+  color: var(--text-muted);
 }
-.lesson-intro-title { font-family: var(--font-display); font-size: 1.15rem; margin: 0; color: var(--ink); }
-.lesson-intro-summary { margin: 0; color: var(--ink-dim); font-size: 0.9rem; }
+.lesson-intro-title { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; margin: 0; color: var(--text); }
+.lesson-intro-summary { margin: 0; color: var(--text-secondary); font-size: var(--text-base); }
 
 /* ----------------------------------------------------------- explanation text */
 
-.concept-explanation { display: flex; flex-direction: column; gap: 0.6rem; }
-.concept-explanation-text { margin: 0; color: var(--ink); line-height: 1.6; font-size: 0.95rem; }
-.concept-explain-more { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+.concept-explanation { display: flex; flex-direction: column; gap: var(--space-3); }
+.concept-explanation-text { margin: 0; color: var(--text); line-height: 1.65; font-size: var(--text-md); max-width: 66ch; }
+.concept-explain-more { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
 .concept-explain-more-body {
-  font-size: 0.88rem;
-  line-height: 1.55;
-  color: var(--ink-dim);
-  background: var(--bg-raise);
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  padding: 0.75rem 0.9rem;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border-left: 2px solid var(--border-strong);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  max-width: 66ch;
 }
 
 /* --------------------------------------------------------------- code example */
 
-.concept-example { display: flex; flex-direction: column; gap: 0.5rem; }
-.concept-example-label { font-family: var(--font-label); font-size: 0.78rem; font-weight: 700; color: var(--ink-faint); }
-.concept-callouts {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-.concept-callouts li {
-  display: flex;
-  gap: 0.6rem;
-  font-size: 0.85rem;
-  color: var(--ink-dim);
-  line-height: 1.5;
-}
+.concept-example { display: flex; flex-direction: column; gap: var(--space-2); }
+.concept-example-label { font-size: var(--text-xs); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.concept-callouts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.concept-callouts li { display: flex; gap: var(--space-3); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
 .concept-callout-line {
   flex: none;
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--accent-2-ink);
-  background: color-mix(in srgb, var(--accent-2) 16%, transparent);
-  border-radius: 4px;
-  padding: 0.05rem 0.4rem;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 0 0.4em;
   height: fit-content;
+  line-height: 1.5;
 }
 
 /* --------------------------------------------------------------------- try it */
@@ -113,137 +95,121 @@
 .try-it {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0.9rem;
-  background: var(--bg-raise);
+  gap: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-4);
 }
-.try-it-head { display: flex; flex-direction: column; gap: 0.35rem; }
-.try-it-badge {
-  align-self: flex-start;
-  font-family: var(--font-label);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--secondary);
-}
-.try-it-instructions { margin: 0; font-size: 0.88rem; color: var(--ink-dim); }
-.try-it-actions { display: flex; gap: 0.5rem; }
+.try-it-head { display: flex; flex-direction: column; gap: var(--space-1); }
+.try-it-badge { align-self: flex-start; font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
+.try-it-instructions { margin: 0; font-size: var(--text-base); color: var(--text-secondary); }
+.try-it-actions { display: flex; gap: var(--space-2); }
 .try-it-output {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   white-space: pre-wrap;
   word-break: break-word;
-  background: var(--bg);
-  border: 1px solid var(--line-soft);
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
   border-radius: var(--radius-sm);
-  padding: 0.6rem 0.75rem;
-  color: var(--ink);
+  padding: var(--space-2) var(--space-3);
+  color: var(--code-text);
   max-height: 10rem;
   overflow: auto;
 }
-.try-it-output.is-error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.try-it-output.is-error { color: #FCA5A5; }
 
 /* -------------------------------------------------------------- quick check bridge */
 
-.quick-check-bridge {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-  align-items: flex-start;
-  padding: 0.9rem 0;
-}
-.quick-check-bridge p { margin: 0; color: var(--ink-dim); font-size: 0.92rem; line-height: 1.55; }
+.quick-check-bridge { display: flex; flex-direction: column; gap: var(--space-4); align-items: flex-start; padding: var(--space-3) 0; }
+.quick-check-bridge p { margin: 0; color: var(--text-secondary); font-size: var(--text-base); line-height: 1.6; max-width: 60ch; }
 
 /* ------------------------------------------------------------- inline markers */
 
 .lesson-complete-banner {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  font-size: 0.86rem;
-  color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
-  border-radius: var(--radius-sm);
-  padding: 0.55rem 0.8rem;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border-left: 2px solid var(--success);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: var(--space-2) var(--space-3);
 }
-.lesson-complete-banner strong { color: var(--ink); }
+.lesson-complete-banner svg { color: var(--success); flex: none; }
+.lesson-complete-banner strong { color: var(--text); font-weight: 500; }
 
 .practice-marker {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.4em;
   align-self: flex-start;
-  font-family: var(--font-label);
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--secondary);
-  background: color-mix(in srgb, var(--secondary) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--secondary) 30%, transparent);
-  border-radius: 999px;
-  padding: 0.2rem 0.65rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 /* ------------------------------------------------------- learning mode chooser */
 
-.mode-chooser { display: flex; flex-direction: column; gap: 1.25rem; padding: 0.25rem 0 0.5rem; }
-.mode-chooser-head { display: flex; flex-direction: column; gap: 0.35rem; }
-.mode-chooser-title { font-family: var(--font-display); font-size: 1.35rem; margin: 0; color: var(--ink); }
-.mode-chooser-summary { margin: 0; color: var(--ink-dim); font-size: 0.9rem; }
-.mode-chooser-options { display: grid; gap: 0.75rem; }
+.mode-chooser { display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-2) 0; max-width: 44rem; margin: 0 auto; width: 100%; }
+.mode-chooser-head { display: flex; flex-direction: column; gap: var(--space-1); }
+.mode-chooser-title { font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.01em; margin: 0; color: var(--text); }
+.mode-chooser-summary { margin: 0; color: var(--text-secondary); font-size: var(--text-base); }
+.mode-chooser-options { display: grid; gap: var(--space-3); }
 @media (min-width: 640px) { .mode-chooser-options { grid-template-columns: 1fr 1fr; } }
 
 .mode-option {
   display: flex;
   align-items: flex-start;
-  gap: 0.85rem;
+  gap: var(--space-3);
   text-align: left;
   width: 100%;
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-raise);
-  color: var(--ink);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
   cursor: pointer;
   font-family: inherit;
-  transition: border-color var(--fast) var(--ease), transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
-.mode-option:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 8px 24px -14px rgba(0, 0, 0, 0.3); }
-.mode-option:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
-.mode-option.is-recommended { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.mode-option:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.mode-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mode-option.is-recommended { border-color: var(--accent); }
 .mode-option-icon {
   flex: none;
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
 }
-.mode-option-body { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-width: 0; }
-.mode-option-title { font-family: var(--font-display); font-weight: 700; font-size: 1rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.mode-option-body { display: flex; flex-direction: column; gap: var(--space-1); flex: 1; min-width: 0; }
+.mode-option-title { font-weight: 600; font-size: var(--text-base); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .mode-option-tag {
-  font-family: var(--font-label);
-  font-size: 0.62rem;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--accent-2-ink);
-  background: color-mix(in srgb, var(--accent-2) 18%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-2) 40%, transparent);
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 0 0.5em;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-xs);
 }
-.mode-option-flow { font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent); }
-.mode-option-blurb { font-size: 0.85rem; color: var(--ink-dim); line-height: 1.5; }
-.mode-option-arrow { flex: none; color: var(--ink-faint); margin-top: 0.6rem; }
-.mode-option:hover .mode-option-arrow { color: var(--accent); }
+.mode-option-flow { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
+.mode-option-blurb { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
+.mode-option-arrow { flex: none; color: var(--text-muted); margin-top: 6px; }
+.mode-option:hover .mode-option-arrow { color: var(--text); }
 
 /* Header row of the practice modal gains the switch next to the meta pills. */
 .modal-meta .mode-switch { margin-left: auto; }

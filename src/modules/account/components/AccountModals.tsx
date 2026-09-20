@@ -3,9 +3,8 @@ import { useAppEvent } from '@/platform/events';
 import { useBodyScrollLock } from '@/ui';
 
 /*
- * The modals (and framer-motion, which they animate with) download the first
- * time one is opened. Most visits never open either, and this listener is
- * mounted on every visit, so it stays tiny.
+ * The modals download the first time one is opened. Most visits never open
+ * either, and this listener is mounted on every visit, so it stays tiny.
  */
 const AuthModal = React.lazy(() => import('./AuthModal').then((m) => ({ default: m.AuthModal })));
 const SubscriptionModal = React.lazy(() => import('./SubscriptionModal').then((m) => ({ default: m.SubscriptionModal })));

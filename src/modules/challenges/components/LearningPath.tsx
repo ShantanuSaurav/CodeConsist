@@ -1,221 +1,260 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowRight, BookOpen, CheckCircle2, Lock, Play, RotateCcw, Swords, Zap } from 'lucide-react';
-import type { ReadingResolver } from '@/types';
+import { BookOpen, Check, ChevronDown, Lock, Minus } from 'lucide-react';
+import type { ReadingResolver, Stage } from '@/types';
 import { useSession } from '@/platform/session';
 import { stageStatus } from '@/platform/progress';
 import { intents } from '@/platform/events';
+import { Badge, Button, ProgressBar } from '@/ui';
 
 export interface LearningPathProps {
   /** Where a stage's reading lives, if the app has any. */
   readingFor?: ReadingResolver;
 }
 
+type Visual = 'completed' | 'current' | 'locked' | 'pro';
+
 /**
- * The selected track's stages, in order (the core path is the ten stages;
- * C and C++ are one each). Each card shows lesson progress and the state of
- * the stage's coding test; the primary action follows that state, and the
- * two quiet links underneath open the same lessons in Learn or Practice mode.
+ * The selected track's stages as one vertical progression. Each stage is a
+ * node on a rail: number, name, lesson count, and - expanded - the lessons
+ * themselves with their solved/current state, plus the stage test. The stage
+ * in progress opens by default; the rest fold to a single line.
  */
 export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
   const { learnerStages: stages, stats, learningMode } = useSession();
+  const solved = useMemo(() => new Set(stats.completedChallenges), [stats.completedChallenges]);
+
+  const currentId = useMemo(
+    () => (stages.find((s) => s.state === 'Test pending') ?? stages.find((s) => s.state === 'In progress'))?.id ?? null,
+    [stages]
+  );
+
+  const [open, setOpen] = useState<Set<string>>(() => new Set(currentId ? [currentId] : []));
+  // A new track (or a newly opened stage) expands the stage in progress.
+  useEffect(() => {
+    if (currentId) setOpen((prev) => (prev.has(currentId) ? prev : new Set([...prev, currentId])));
+  }, [currentId]);
+
+  const toggle = (id: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
-    <ol className="space-y-4">
-      {stages.map((stage, i) => {
-        const { done, total, percent, hasTest, testPassed, testUnlocked } = stageStatus(stage, stats);
+    <ol className="relative">
+      {/* The rail behind the stage markers. */}
+      <span className="absolute left-[15px] top-4 bottom-4 w-px bg-border" aria-hidden="true" />
+
+      {stages.map((stage) => {
+        const status = stageStatus(stage, stats);
         const premiumLocked = Boolean(stage.isPremium) && !stats.isPremium;
         const locked = stage.state === 'Locked' && !premiumLocked;
-        const testPending = stage.state === 'Test pending';
-        const completed = stage.state === 'Completed';
-        const active = stage.state === 'In progress';
-
-        const primary = () => {
-          if (premiumLocked) intents.openPro();
-          else if (testPending) intents.openStageTest(stage.id);
-          else if (!locked) intents.openPractice(stage.id);
-        };
-
-        const label = premiumLocked
-          ? 'Unlock with Pro'
-          : testPending
-            ? 'Take the test'
-            : completed
-              ? 'Review'
-              : done > 0
-                ? 'Continue'
-                : 'Start';
-
-        const Icon = premiumLocked ? Lock : testPending ? Swords : completed ? RotateCcw : Play;
+        const visual: Visual = premiumLocked ? 'pro' : stage.state === 'Completed' ? 'completed' : locked ? 'locked' : 'current';
+        const expanded = open.has(stage.id) && !locked;
         const reading = readingFor?.(stage.id) ?? null;
 
         return (
-          <motion.li
-            key={stage.id}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: Math.min(i * 0.04, 0.4), duration: 0.35 }}
-            className={`relative rounded-2xl border p-5 sm:p-6 transition-colors ${
-              completed
-                ? 'bg-[var(--color-primary)]/5 border-[var(--color-primary)]/30'
-                : testPending
-                  ? 'bg-gray-50 dark:bg-[#161b22] border-[var(--color-secondary)]/40'
-                  : active
-                    ? 'bg-gray-50 dark:bg-[#161b22] border-black/10 dark:border-white/15 shadow-lg'
-                    : 'bg-gray-50/60 dark:bg-[#161b22]/60 border-black/5 dark:border-white/5'
-            } ${locked ? 'opacity-70' : ''}`}
-            aria-label={`Stage ${stage.index}, ${stage.name}, ${done} of ${total} lessons solved${
-              hasTest ? `, test ${testPassed ? 'passed' : testUnlocked ? 'ready' : 'locked'}` : ''
-            }`}
-          >
-            <div className="flex flex-col md:flex-row md:items-center gap-5">
-              <div
-                className={`w-14 h-14 rounded-xl flex items-center justify-center text-2xl shrink-0 border ${
-                  completed
-                    ? 'bg-[var(--color-primary)]/15 border-[var(--color-primary)]/30'
-                    : locked
-                      ? 'bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/5 grayscale'
-                      : 'bg-white dark:bg-[#0d1117] border-black/10 dark:border-white/10'
-                }`}
-                aria-hidden="true"
+          <li key={stage.id} className="relative pl-12 pb-8 last:pb-0">
+            <StageMarker visual={visual} index={stage.index} />
+
+            {/* Stage header - the one row that is always visible. */}
+            <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+              <button
+                type="button"
+                className="group text-left min-w-0 flex-1 disabled:cursor-default"
+                onClick={() => toggle(stage.id)}
+                disabled={locked}
+                aria-expanded={expanded}
+                aria-controls={`stage-${stage.id}-lessons`}
               >
-                {locked || premiumLocked ? <Lock size={20} className="text-gray-400" /> : stage.icon}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <span className="font-mono text-xs text-gray-500">STAGE {stage.index}</span>
-                  {stage.isPremium && (
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--color-warning)]/15 text-[var(--color-warning)] border border-[var(--color-warning)]/30">
-                      Pro
-                    </span>
-                  )}
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                      completed
-                        ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
-                        : testPending
-                          ? 'bg-[var(--color-secondary)]/15 text-[var(--color-secondary)]'
-                          : active
-                            ? 'bg-black/5 dark:bg-white/10 text-gray-700 dark:text-gray-200'
-                            : 'bg-black/5 dark:bg-white/5 text-gray-500'
-                    }`}
-                  >
-                    {premiumLocked ? 'Pro only' : stage.state}
-                  </span>
+                <div className="flex items-center gap-2 font-mono text-xs text-fg-muted">
+                  <span>Stage {String(stage.index).padStart(2, '0')}</span>
+                  {stage.isPremium && <Badge tone="warning">Pro</Badge>}
+                  {stage.state === 'Test pending' && <Badge tone="info">Test ready</Badge>}
                 </div>
-                <h3
-                  className={`text-lg sm:text-xl font-bold ${
-                    locked ? 'text-gray-500' : 'text-gray-900 dark:text-white'
-                  }`}
-                >
+                <h3 className={`mt-0.5 text-[1.0625rem] font-semibold tracking-tight ${locked ? 'text-fg-muted' : 'text-fg'}`}>
                   {stage.name}
-                </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{stage.description}</p>
-
-                <div className="mt-4 flex items-center gap-3">
-                  <div className="flex-1 h-1.5 bg-black/5 dark:bg-white/10 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all ${completed ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-secondary)]'}`}
-                      style={{ width: `${percent}%` }}
+                  {!locked && (
+                    <ChevronDown
+                      size={14}
+                      className={`inline-block ml-1.5 -mt-0.5 text-fg-muted transition-transform ${expanded ? 'rotate-180' : ''}`}
+                      aria-hidden="true"
                     />
-                  </div>
-                  <span className="font-mono text-xs text-gray-600 dark:text-gray-400 shrink-0">
-                    {done}/{total} lessons
-                  </span>
-                </div>
+                  )}
+                </h3>
+                <p className={`text-sm mt-0.5 ${locked ? 'text-fg-muted' : 'text-fg-secondary'}`}>{stage.description}</p>
+              </button>
 
+              <div className="shrink-0 text-right">
+                <div className="font-mono text-xs text-fg-muted">
+                  {status.done} / {status.total} lessons
+                </div>
+                <ProgressBar
+                  value={status.percent}
+                  size="sm"
+                  tone={visual === 'completed' ? 'success' : 'accent'}
+                  className="w-32 mt-1.5"
+                  label={`${status.done} of ${status.total} lessons in ${stage.name}`}
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            {!locked && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <StageAction stage={stage} premiumLocked={premiumLocked} testPending={stage.state === 'Test pending'} done={status.done} />
+                {!premiumLocked && stage.state !== 'Test pending' && (
+                  <div className="flex items-center gap-1 text-xs text-fg-muted ml-1">
+                    <button
+                      type="button"
+                      onClick={() => intents.openPractice(stage.id, undefined, 'learn')}
+                      className={`px-1.5 py-1 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'learn' ? 'text-fg font-medium' : ''}`}
+                      title="Theory, examples and a try-it before each new idea"
+                    >
+                      Learn
+                    </button>
+                    <span aria-hidden="true">/</span>
+                    <button
+                      type="button"
+                      onClick={() => intents.openPractice(stage.id, undefined, 'practice')}
+                      className={`px-1.5 py-1 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'practice' ? 'text-fg font-medium' : ''}`}
+                      title="Jump straight to the questions"
+                    >
+                      Practice
+                    </button>
+                  </div>
+                )}
                 {reading && (
-                  <Link
-                    to={reading.href}
-                    className="mt-3 mr-4 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-secondary)] hover:underline underline-offset-2"
-                  >
+                  <Link to={reading.href} className="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg">
                     <BookOpen size={13} />
-                    {done === 0 && !completed ? 'Read first' : 'Read the article'}
+                    {status.done === 0 && stage.state !== 'Completed' ? 'Read first' : 'Read the article'}
                     {reading.minutes ? ` · ${reading.minutes} min` : ''}
                   </Link>
                 )}
-
-                {hasTest && (
-                  <div
-                    className={`mt-3 inline-flex items-center gap-2 text-xs font-mono ${
-                      testPassed
-                        ? 'text-[var(--color-primary)]'
-                        : testUnlocked
-                          ? 'text-[var(--color-secondary)]'
-                          : 'text-gray-500'
-                    }`}
-                  >
-                    {testPassed ? <CheckCircle2 size={14} /> : testUnlocked ? <Swords size={14} /> : <Lock size={12} />}
-                    <span>
-                      {testPassed
-                        ? 'Stage test passed'
-                        : testUnlocked
-                          ? 'Stage test ready'
-                          : `Stage test · unlocks after ${total} lessons`}
-                      {stage.test && <span className="text-gray-500 font-sans"> — {stage.test.title}</span>}
-                    </span>
-                  </div>
-                )}
               </div>
+            )}
 
-              {!locked && (
-                <div className="flex md:flex-col gap-2 md:items-stretch shrink-0">
-                  <button
-                    type="button"
-                    onClick={primary}
-                    className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all duration-150 active:scale-[0.98] cursor-pointer ${
-                      premiumLocked
-                        ? 'bg-[var(--color-warning)] text-black hover:brightness-105 hover:-translate-y-0.5 shadow-[0_4px_14px_rgba(245,158,11,0.3)]'
-                        : completed
-                          ? 'border border-black/10 dark:border-white/15 text-gray-800 dark:text-gray-100 hover:bg-black/5 dark:hover:bg-white/5 hover:-translate-y-0.5 shadow-xs'
-                          : 'bg-[var(--color-primary)] text-white dark:text-black hover:brightness-105 hover:-translate-y-0.5 shadow-[0_4px_14px_rgba(22,163,11,0.25)] dark:shadow-[0_4px_16px_rgba(57,255,20,0.3)]'
-                    }`}
-                  >
-                    <Icon size={16} />
-                    <span>{label}</span>
-                    {!completed && !premiumLocked && <ArrowRight size={16} />}
-                  </button>
-                  {testPending && (
+            {/* Lessons */}
+            {expanded && (
+              <ol id={`stage-${stage.id}-lessons`} className="mt-4 border-t border-border-subtle">
+                {stage.challenges.map((c, i) => {
+                  const isDone = solved.has(c.id);
+                  const isNext = !isDone && stage.challenges.slice(0, i).every((p) => solved.has(p.id));
+                  return (
+                    <li key={c.id} className="border-b border-border-subtle">
+                      <button
+                        type="button"
+                        onClick={() => (premiumLocked ? intents.openPro() : intents.openPractice(stage.id, c.id))}
+                        className="w-full flex items-center gap-3 py-2 px-1 -mx-1 rounded-xs text-left hover:bg-surface-2 transition-colors"
+                      >
+                        <LessonMark state={isDone ? 'done' : isNext ? 'next' : 'todo'} />
+                        <span className={`flex-1 min-w-0 truncate text-sm ${isDone ? 'text-fg-secondary' : isNext ? 'text-fg font-medium' : 'text-fg-secondary'}`}>
+                          {c.title}
+                        </span>
+                        <span className="hidden sm:inline font-mono text-[11px] text-fg-muted shrink-0">{c.difficulty}</span>
+                        <span className="font-mono text-[11px] text-fg-muted shrink-0 w-14 text-right">+{c.xpReward} XP</span>
+                      </button>
+                    </li>
+                  );
+                })}
+                {stage.test && (
+                  <li>
                     <button
                       type="button"
-                      onClick={() => intents.openPractice(stage.id)}
-                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border border-black/10 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all cursor-pointer shadow-xs"
+                      onClick={() => (premiumLocked ? intents.openPro() : status.testUnlocked || status.testPassed ? intents.openStageTest(stage.id) : undefined)}
+                      disabled={!premiumLocked && !status.testUnlocked && !status.testPassed}
+                      className="w-full flex items-center gap-3 py-2.5 px-1 -mx-1 rounded-xs text-left hover:bg-surface-2 transition-colors disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                      title={!status.testUnlocked && !status.testPassed ? `Unlocks after ${status.total} lessons` : undefined}
                     >
-                      Review lessons
+                      <LessonMark state={status.testPassed && solved.has(stage.test.id) ? 'done' : status.testUnlocked ? 'next' : 'locked'} />
+                      <span className="flex-1 min-w-0 truncate text-sm">
+                        <span className={`font-medium ${status.testUnlocked || solved.has(stage.test.id) ? 'text-fg' : 'text-fg-muted'}`}>Stage test</span>
+                        <span className="text-fg-muted"> — {stage.test.title}</span>
+                      </span>
+                      <span className="font-mono text-[11px] text-fg-muted shrink-0 w-14 text-right">+{stage.test.xpReward} XP</span>
                     </button>
-                  )}
-                  {!premiumLocked && !testPending && (
-                    <div className="flex md:justify-center gap-1 text-xs" aria-label="Open in a specific mode">
-                      <button
-                        type="button"
-                        onClick={() => intents.openPractice(stage.id, undefined, 'learn')}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5 ${
-                          learningMode === 'learn' ? 'text-[var(--color-primary)] font-semibold' : 'text-gray-500'
-                        }`}
-                        title="Theory, examples and a try-it before each new idea"
-                      >
-                        <BookOpen size={12} /> Learn
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => intents.openPractice(stage.id, undefined, 'practice')}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black/5 dark:hover:bg-white/5 ${
-                          learningMode === 'practice' ? 'text-[var(--color-primary)] font-semibold' : 'text-gray-500'
-                        }`}
-                        title="Jump straight to the questions"
-                      >
-                        <Zap size={12} /> Practice
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </motion.li>
+                  </li>
+                )}
+              </ol>
+            )}
+          </li>
         );
       })}
     </ol>
+  );
+};
+
+/* ------------------------------------------------------------------ pieces */
+
+const StageMarker: React.FC<{ visual: Visual; index: string }> = ({ visual, index }) => {
+  const base = 'absolute left-0 top-0.5 w-8 h-8 rounded-sm border flex items-center justify-center font-mono text-xs bg-surface';
+  if (visual === 'completed')
+    return (
+      <span className={`${base} border-success/40 text-success`} aria-hidden="true">
+        <Check size={14} strokeWidth={2.5} />
+      </span>
+    );
+  if (visual === 'current')
+    return (
+      <span className={`${base} border-accent text-accent font-semibold`} aria-hidden="true">
+        {String(index).padStart(2, '0')}
+      </span>
+    );
+  return (
+    <span className={`${base} border-border text-fg-muted`} aria-hidden="true">
+      <Lock size={12} />
+    </span>
+  );
+};
+
+const LessonMark: React.FC<{ state: 'done' | 'next' | 'todo' | 'locked' }> = ({ state }) => {
+  if (state === 'done')
+    return (
+      <span className="w-4 h-4 rounded-xs bg-success-soft text-success flex items-center justify-center shrink-0" aria-label="Solved">
+        <Check size={10} strokeWidth={3} />
+      </span>
+    );
+  if (state === 'next')
+    return <span className="w-4 h-4 rounded-xs border-[1.5px] border-accent shrink-0" aria-label="Up next" />;
+  if (state === 'locked')
+    return (
+      <span className="w-4 h-4 flex items-center justify-center text-fg-muted shrink-0" aria-label="Locked">
+        <Lock size={10} />
+      </span>
+    );
+  return (
+    <span className="w-4 h-4 flex items-center justify-center text-fg-disabled shrink-0" aria-label="Not started">
+      <Minus size={10} />
+    </span>
+  );
+};
+
+const StageAction: React.FC<{ stage: Stage; premiumLocked: boolean; testPending: boolean; done: number }> = ({
+  stage,
+  premiumLocked,
+  testPending,
+  done
+}) => {
+  const completed = stage.state === 'Completed';
+  const onClick = () => {
+    if (premiumLocked) intents.openPro();
+    else if (testPending) intents.openStageTest(stage.id);
+    else intents.openPractice(stage.id);
+  };
+  const label = premiumLocked ? 'Unlock with Pro' : testPending ? 'Take the test' : completed ? 'Review' : done > 0 ? 'Continue' : 'Start';
+  return (
+    <>
+      <Button size="sm" variant={completed || premiumLocked ? 'secondary' : 'primary'} onClick={onClick}>
+        {label}
+      </Button>
+      {testPending && (
+        <Button size="sm" variant="secondary" onClick={() => intents.openPractice(stage.id)}>
+          Review lessons
+        </Button>
+      )}
+    </>
   );
 };

@@ -3,7 +3,7 @@ import { Play, RotateCcw, Trash2 } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ExecutionResult, SupportedLanguage } from '@/types';
-import { CodeEditor, Dropdown } from '@/ui';
+import { Button, CodeEditor, Dropdown } from '@/ui';
 import { compilerService } from '@/platform/execution/compilerService';
 import { STORAGE_KEYS, readJson, writeJson } from '@/platform/storage/storage';
 
@@ -232,14 +232,8 @@ export const Playground: React.FC = () => {
   const errored = result?.status === 'error' || Boolean(result?.stderr);
   const needsJudge0 = !ALWAYS_AVAILABLE.includes(draft.language) && !judge0Configured;
 
-  const statusLabel = isRunning ? '● running' : errored ? '● error' : needsJudge0 ? '● needs setup' : '● ready';
-  const statusClass = isRunning
-    ? 'text-[var(--color-secondary)]'
-    : errored
-      ? 'text-red-500'
-      : needsJudge0
-        ? 'text-[var(--color-warning)]'
-        : 'text-[var(--color-primary)]';
+  const statusLabel = isRunning ? 'running' : errored ? 'error' : needsJudge0 ? 'needs setup' : 'ready';
+  const statusClass = isRunning ? 'text-info' : errored ? 'text-error' : needsJudge0 ? 'text-warning' : 'text-success';
 
   const consoleText = isRunning
     ? progress || 'Running…'
@@ -248,20 +242,13 @@ export const Playground: React.FC = () => {
       : 'Press Run to execute this code.';
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-      {/* Editor */}
-      <div className="xl:col-span-3 rounded-2xl overflow-hidden border border-black/10 dark:border-white/10 bg-gray-50 dark:bg-[#161b22] shadow-xl flex flex-col">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-black/5 dark:border-white/5 bg-white dark:bg-[#0d1117]">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex space-x-2 shrink-0">
-              <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50" />
-              <div className="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50" />
-              <div className="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50" />
-            </div>
-            <span className="font-mono text-xs text-gray-500 truncate">{FILE_NAMES[draft.language]}</span>
-          </div>
+    <div className="grid grid-cols-1 xl:grid-cols-5 border border-border rounded-lg overflow-hidden bg-surface">
+      {/* ------------------------------------------------------------- editor */}
+      <div className="xl:col-span-3 flex flex-col min-w-0 xl:border-r border-border">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 h-auto min-h-[44px] py-1.5 border-b border-border bg-surface-2">
+          <span className="font-mono text-xs text-fg-secondary truncate pl-1">{FILE_NAMES[draft.language]}</span>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <label className="sr-only" htmlFor="playground-language">
               Language
             </label>
@@ -285,45 +272,30 @@ export const Playground: React.FC = () => {
               size="sm"
               options={[
                 { value: '', label: 'Custom code' },
-                ...Object.keys(SNIPPETS[draft.language] ?? {}).map((name) => ({
-                  value: name,
-                  label: name
-                }))
+                ...Object.keys(SNIPPETS[draft.language] ?? {}).map((name) => ({ value: name, label: name }))
               ]}
               ariaLabel="Code Examples"
             />
 
-            <button
-              type="button"
-              onClick={resetCode}
-              title="Reset to the starter code for this language"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium min-h-[32px] border border-black/10 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all cursor-pointer shadow-xs"
-            >
-              <RotateCcw size={12} />
+            <Button size="sm" variant="ghost" onClick={resetCode} title="Reset to the starter code for this language">
+              <RotateCcw size={13} />
               <span className="hidden sm:inline">Reset</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={clearCode}
-              title="Clear the editor"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium min-h-[32px] border border-black/10 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all cursor-pointer shadow-xs"
-            >
-              <Trash2 size={12} />
+            </Button>
+            <Button size="sm" variant="ghost" onClick={clearCode} title="Clear the editor">
+              <Trash2 size={13} />
               <span className="hidden sm:inline">Clear</span>
-            </button>
+            </Button>
           </div>
         </div>
 
         {needsJudge0 && (
-          <div className="mx-4 mt-3 px-3 py-2 rounded-lg text-xs bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/30 text-amber-700 dark:text-amber-300">
-            {LANGUAGE_LABELS[draft.language]} needs a Judge0 endpoint configured on the API server. JavaScript and
-            Python run with no setup. See <code className="font-mono">.env.example</code> for how to add one — Run
-            still works and will explain this again if you try it.
+          <div className="notice notice-warn m-3 mb-0 text-xs">
+            {LANGUAGE_LABELS[draft.language]} needs a Judge0 endpoint configured on the API server. JavaScript and Python run with no
+            setup. See <code>.env.example</code> for how to add one — Run still works and will explain this again if you try it.
           </div>
         )}
 
-        <div className="p-3 flex-1">
+        <div className="p-3 flex-1 min-h-0">
           <CodeEditor
             value={draft.code}
             onChange={setCode}
@@ -334,61 +306,55 @@ export const Playground: React.FC = () => {
           />
         </div>
 
-        <div className="px-4 py-3 border-t border-black/5 dark:border-white/5 bg-white dark:bg-[#0d1117] flex items-center justify-between gap-3">
-          <span className="font-mono text-xs text-gray-500 truncate">{compilerService.engineFor(draft.language)}</span>
-          <button
-            type="button"
-            disabled={isRunning}
-            onClick={run}
-            className="inline-flex items-center gap-2 px-5 py-2 bg-[var(--color-primary)] text-white dark:text-black font-bold rounded-xl text-sm hover:brightness-105 hover:-translate-y-0.5 active:scale-[0.98] shadow-[0_2px_12px_rgba(22,163,11,0.25)] dark:shadow-[0_2px_14px_rgba(57,255,20,0.3)] transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-          >
-            <Play size={14} />
+        <div className="px-3 h-11 border-t border-border bg-surface-2 flex items-center justify-between gap-3">
+          <span className="font-mono text-xs text-fg-muted truncate pl-1">{compilerService.engineFor(draft.language)}</span>
+          <Button variant="primary" size="sm" disabled={isRunning} onClick={run}>
+            <Play size={13} />
             <span>{isRunning ? 'Running…' : 'Run'}</span>
-            <span className="hidden sm:inline font-mono text-[10px] opacity-70 border border-current/30 rounded px-1">Ctrl+Enter</span>
-          </button>
+            <kbd className="hidden sm:inline-block ml-1 !border-current/30 !bg-transparent !text-current opacity-70">Ctrl+Enter</kbd>
+          </Button>
         </div>
       </div>
 
-      {/* Console */}
-      <div className="xl:col-span-2 rounded-2xl border border-black/10 dark:border-white/10 bg-gray-50 dark:bg-[#161b22] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-black/5 dark:border-white/5 bg-white dark:bg-[#0d1117]">
-          <strong className="text-sm text-gray-900 dark:text-white">Console</strong>
+      {/* ------------------------------------------------------------ console */}
+      <div className="xl:col-span-2 flex flex-col min-w-0 border-t xl:border-t-0 border-border">
+        <div className="flex items-center justify-between px-4 h-11 border-b border-border bg-surface-2">
+          <span className="text-sm font-medium text-fg">Console</span>
           <div className="flex items-center gap-3 text-xs font-mono">
-            {result?.time && <span className="text-gray-500">{result.time}</span>}
-            <span className={statusClass}>{statusLabel}</span>
+            {result?.time && <span className="text-fg-muted">{result.time}</span>}
+            <span className={`inline-flex items-center gap-1.5 ${statusClass}`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true" />
+              {statusLabel}
+            </span>
           </div>
         </div>
 
         <pre
-          className={`flex-1 m-0 p-4 font-mono text-sm leading-relaxed whitespace-pre-wrap break-words min-h-[16rem] overflow-auto ${
-            errored ? 'text-red-600 dark:text-red-400' : 'text-gray-800 dark:text-gray-200'
+          className={`flex-1 m-0 p-4 font-mono text-[0.8125rem] leading-relaxed whitespace-pre-wrap break-words min-h-[16rem] overflow-auto ${
+            errored ? 'text-error' : 'text-fg'
           }`}
         >
           {consoleText}
         </pre>
 
         {serverStatus === 'offline' && draft.language === 'javascript' && (
-          <p className="px-4 pb-3 text-xs text-gray-500">
-            The API server is not running, so this uses the in-browser sandbox. Start it with{' '}
-            <code className="font-mono">npm run dev:api</code> for the Node sandbox.
+          <p className="px-4 pb-3 text-xs text-fg-muted">
+            The API server is not running, so this uses the in-browser sandbox. Start it with <code>npm run dev:api</code> for the
+            Node sandbox.
           </p>
         )}
         {serverStatus === 'offline' && !ALWAYS_AVAILABLE.includes(draft.language) && (
-          <p className="px-4 pb-3 text-xs text-gray-500">
+          <p className="px-4 pb-3 text-xs text-fg-muted">
             The API server is not running, so {LANGUAGE_LABELS[draft.language]} cannot run right now. Start it with{' '}
-            <code className="font-mono">npm run dev:api</code>.
+            <code>npm run dev:api</code>.
           </p>
         )}
 
-        <div className="px-4 py-3 border-t border-black/5 dark:border-white/5 bg-white dark:bg-[#0d1117] flex items-center justify-between gap-3 text-sm">
-          <span className="text-gray-600 dark:text-gray-400">Want tests and XP with it?</span>
-          <button
-            type="button"
-            onClick={() => intents.openPractice()}
-            className="px-3.5 py-1.5 rounded-xl border border-black/10 dark:border-white/10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all whitespace-nowrap cursor-pointer shadow-xs"
-          >
-            Open a challenge →
-          </button>
+        <div className="px-4 h-11 border-t border-border bg-surface-2 flex items-center justify-between gap-3 text-sm">
+          <span className="text-fg-muted text-xs">Want tests and XP with it?</span>
+          <Button size="sm" variant="ghost" onClick={() => intents.openPractice()}>
+            Open a challenge
+          </Button>
         </div>
       </div>
     </div>

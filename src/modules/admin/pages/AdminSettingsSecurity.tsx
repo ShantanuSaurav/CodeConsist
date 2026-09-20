@@ -3,10 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { KeyRound } from 'lucide-react';
 import { AdminApiError, adminApi } from '../services/adminApi';
 import { useAdminAuth } from '../services/AdminAuthContext';
-import { Button, Card, Field } from '../components/ui';
+import { AdminPageHeader, Button, Card, ErrorText, Field } from '../components/ui';
 
-const passwordInputClass =
-  'w-full px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-[#161b22] border border-black/10 dark:border-white/10 text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 disabled:opacity-60 transition-all shadow-xs';
+const passwordInputClass = 'w-full';
 
 /**
  * /admin/settings/security - the ONLY supported way to change the Admin
@@ -76,17 +75,15 @@ export const AdminSettingsSecurity: React.FC = () => {
 
   return (
     <div className="max-w-xl">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Security</h1>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        Change the Admin User ID and/or Admin Password used to sign in to this console. This is the only way to change them - the
-        ADMIN_USER_ID/ADMIN_PASSWORD environment variables are only ever read once, the first time this server starts with no
-        administrator account yet.
-      </p>
+      <AdminPageHeader
+        title="Security"
+        description="Change the Admin User ID and/or Admin Password used to sign in to this console. This is the only way to change them - the ADMIN_USER_ID/ADMIN_PASSWORD environment variables are only ever read once, the first time this server starts with no administrator account yet."
+      />
 
       <Card>
         <div className="flex items-center gap-2 mb-5">
-          <KeyRound size={18} className="text-[var(--color-primary)]" />
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Update Admin Credentials</h2>
+          <KeyRound size={15} className="text-fg-muted" />
+          <h2 className="text-sm font-medium text-fg">Update admin credentials</h2>
         </div>
 
         <form onSubmit={onSubmit} autoComplete="off">
@@ -136,16 +133,12 @@ export const AdminSettingsSecurity: React.FC = () => {
             />
           </Field>
 
-          {error && (
-            <p className="text-sm text-red-500 mb-4" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <ErrorText>{error}</ErrorText>}
 
           <Button type="submit" variant="primary" disabled={submitting}>
-            {submitting ? 'Updating…' : 'Update Admin Credentials'}
+            {submitting ? 'Updating…' : 'Update admin credentials'}
           </Button>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+          <p className="text-xs text-fg-muted mt-3">
             Saving this signs you out of every admin session, including this one - you'll need to sign back in with the new
             credentials.
           </p>

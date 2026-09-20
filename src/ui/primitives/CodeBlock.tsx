@@ -56,11 +56,6 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
     <div className={`code-block ${className}`.trim()}>
       <div className="code-block-head">
         <div className="code-block-head-left">
-          <span className="code-block-dots" aria-hidden="true">
-            <span className="dot dot-red" />
-            <span className="dot dot-yellow" />
-            <span className="dot dot-green" />
-          </span>
           <span className="code-block-lang">{label ?? LANGUAGE_LABELS[language] ?? language}</span>
         </div>
         <span className="code-block-lines">

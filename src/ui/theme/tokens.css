@@ -1,58 +1,159 @@
 /* ==========================================================================
-   Devlingo — tokens read by the CodeQuest component styles.
+   Devlingo design tokens.
 
-   These mirror the Tailwind theme in src/index.css so the practice modal,
-   code editor, pills and toasts match the rest of the app in both themes.
-   Dark mode is the `.dark` class on <html>, same as Tailwind's variant.
+   One semantic vocabulary for the whole product. Tailwind utilities
+   (src/app/index.css) and the hand-written component CSS both read these,
+   so light and dark are two versions of the same interface, never two
+   interfaces. Dark mode is the `.dark` class on <html>.
+
+   Rules of thumb
+   - Surfaces and borders do the structural work. Accent is for the primary
+     action, progress, the active nav item and success. Not for decoration.
+   - Text has three levels: text, text-secondary, text-muted. Nothing else.
+   - Radii are small. Shadows are rare and only on floating layers
+     (menus, dialogs, drawers).
    ========================================================================== */
 :root {
-  --bg:        #FFFFFF;
-  --bg-raise:  #F9FAFB;
-  --ink:       #0F172A;
-  --ink-dim:   #4B5563;
-  --ink-faint: #6B7280;
-  --accent:    #16A30B;
-  --accent-hover: #128009;
-  /* Text ON the accent. Devlingo's dark primary is a neon lime, so white on it
-     is unreadable; the pair flips with the theme. */
-  --accent-ink: #FFFFFF;
-  --accent-2:  #FFB300;
-  /* Amber as TEXT. #FFB300 on white is 1.7:1 - unreadable for low vision.
-     Fills and borders keep --accent-2; anything that has to be read uses this. */
-  --accent-2-ink: #8A5A00;
-  --secondary: #0284C7;
-  --danger:    #E5372E;
-  --ok:        #16A30B;
-  --line:      rgba(15, 23, 42, 0.12);
-  --line-soft: rgba(15, 23, 42, 0.06);
+  /* --------------------------------------------------------------- colour */
+  --bg: #F6F7F9;
+  --surface: #FFFFFF;
+  --surface-2: #F1F3F5;
+  --surface-3: #E8EBEF;
 
-  --font-display: 'Inter', system-ui, sans-serif;
-  --font-head: 'Inter', system-ui, sans-serif;
-  --font-label: 'Inter', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --border: rgba(15, 23, 42, 0.10);
+  --border-subtle: rgba(15, 23, 42, 0.06);
+  --border-strong: rgba(15, 23, 42, 0.20);
 
+  --text: #0F172A;
+  --text-secondary: #4B5563;
+  --text-muted: #6B7280;
+  --text-disabled: #9CA3AF;
+
+  --accent: #15803D;
+  --accent-hover: #166534;
+  --accent-fg: #FFFFFF;
+  --accent-soft: rgba(21, 128, 61, 0.10);
+  --accent-ring: rgba(21, 128, 61, 0.30);
+
+  --success: #15803D;
+  --success-soft: rgba(21, 128, 61, 0.10);
+  --warning: #A16207;
+  --warning-soft: rgba(202, 138, 4, 0.12);
+  --error: #DC2626;
+  --error-soft: rgba(220, 38, 38, 0.10);
+  --info: #2563EB;
+  --info-soft: rgba(37, 99, 235, 0.10);
+
+  /* Code surfaces stay dark in both themes: an editor is a tool, not a page. */
+  --code-bg: #0F1216;
+  --code-bg-raised: #14181D;
+  --code-border: rgba(255, 255, 255, 0.08);
+  --code-text: #D4D4D8;
+  --code-muted: #6B7280;
+  --code-gutter: #52525B;
+  --code-focus: rgba(255, 255, 255, 0.22);
+  --code-selection: rgba(96, 165, 250, 0.28);
+  --code-caret: #F3F4F6;
+
+  /* ----------------------------------------------------------- typography */
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --text-xs: 0.75rem;     /* 12 */
+  --text-sm: 0.8125rem;   /* 13 */
+  --text-base: 0.875rem;  /* 14 */
+  --text-md: 0.9375rem;   /* 15 */
+  --text-lg: 1.125rem;    /* 18 */
+  --text-xl: 1.25rem;     /* 20 */
+  --text-2xl: 1.5rem;     /* 24 */
+  --text-3xl: 1.75rem;    /* 28 */
+
+  /* -------------------------------------------------------------- spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ---------------------------------------------------------------- shape */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+
+  /* ------------------------------------------------------------- elevation */
+  --shadow-menu: 0 8px 24px -8px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.06);
+  --shadow-dialog: 0 24px 64px -16px rgba(15, 23, 42, 0.35);
+
+  /* --------------------------------------------------------------- motion */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --fast: 160ms;
-  --med: 400ms;
+  --fast: 120ms;
+  --med: 220ms;
+
+  /* -------------------------------------------------------- legacy aliases
+     Older component CSS still speaks the previous vocabulary. These map it
+     onto the new tokens so nothing breaks while it is migrated. New code
+     should use the names above. */
+  --bg-raise: var(--surface);
+  --ink: var(--text);
+  --ink-dim: var(--text-secondary);
+  --ink-faint: var(--text-muted);
+  --accent-ink: var(--accent-fg);
+  --accent-2: var(--warning);
+  --accent-2-ink: var(--warning);
+  --secondary: var(--info);
+  --danger: var(--error);
+  --ok: var(--success);
+  --line: var(--border);
+  --line-soft: var(--border-subtle);
+  --brand: var(--accent);
+  --card: var(--surface);
+  --bg-soft: var(--surface-2);
+  --font-display: var(--font-sans);
+  --font-head: var(--font-sans);
+  --font-label: var(--font-sans);
+  --font-body: var(--font-sans);
+  --radius: var(--radius-lg);
 }
 
 .dark {
-  --bg:        #0D1117;
-  --bg-raise:  #161B22;
-  --ink:       #E6EDF3;
-  --ink-dim:   #9CA3AF;
-  --ink-faint: #6B7280;
-  --accent:    #39FF14;
-  --accent-hover: #2CE60D;
-  --accent-ink: #000000;
-  --accent-2:  #FFB300;
-  --accent-2-ink: #FFC861;
-  --secondary: #00E5FF;
-  --danger:    #FF5A4E;
-  --ok:        #39FF14;
-  --line:      rgba(230, 237, 243, 0.12);
-  --line-soft: rgba(230, 237, 243, 0.06);
+  --bg: #090B0D;
+  --surface: #0F1216;
+  --surface-2: #14181D;
+  --surface-3: #1A1F26;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --text: #F3F4F6;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
+  --text-disabled: #52525B;
+
+  --accent: #7BE06E;
+  --accent-hover: #93EA88;
+  --accent-fg: #07110A;
+  --accent-soft: rgba(123, 224, 110, 0.12);
+  --accent-ring: rgba(123, 224, 110, 0.35);
+
+  --success: #4ADE80;
+  --success-soft: rgba(74, 222, 128, 0.12);
+  --warning: #EAB308;
+  --warning-soft: rgba(234, 179, 8, 0.12);
+  --error: #F87171;
+  --error-soft: rgba(248, 113, 113, 0.12);
+  --info: #60A5FA;
+  --info-soft: rgba(96, 165, 250, 0.12);
+
+  --shadow-menu: 0 8px 24px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-dialog: 0 24px 64px -16px rgba(0, 0, 0, 0.7);
 }
 
 @media (prefers-reduced-motion: reduce) {

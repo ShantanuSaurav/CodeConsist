@@ -1,15 +1,29 @@
 import React, { useState } from 'react';
-import { PageHeader } from '@/ui/primitives/PageHeader';
 import { useSession } from '@/platform/session';
-import { Dropdown, LearningModeSwitch } from '@/ui';
+import { Button, Dropdown, LearningModeSwitch, PageHeader, Switch } from '@/ui';
 import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
 
-const CARD = 'bg-gray-50 dark:bg-[#161b22] border border-black/5 dark:border-white/5 rounded-2xl p-6';
-const ROW = 'flex items-center justify-between gap-4 py-3 border-b last:border-b-0 border-black/5 dark:border-white/5';
-const BTN_LINE =
-  'px-4 py-2 rounded-xl border border-black/10 dark:border-white/15 text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.98] transition-all cursor-pointer shadow-xs disabled:opacity-50';
+/** One settings row: label + description on the left, the control on the right. */
+const Row: React.FC<{ title: React.ReactNode; description?: React.ReactNode; children: React.ReactNode }> = ({ title, description, children }) => (
+  <div className="row items-start sm:items-center flex-col sm:flex-row gap-2 sm:gap-6">
+    <div className="min-w-0">
+      <div className="row-title">{title}</div>
+      {description && <div className="row-desc max-w-md">{description}</div>}
+    </div>
+    <div className="shrink-0 flex items-center gap-3">{children}</div>
+  </div>
+);
+
+const Section: React.FC<{ id: string; title: string; danger?: boolean; children: React.ReactNode }> = ({ id, title, danger, children }) => (
+  <section aria-labelledby={id} className="pb-8 mb-8 border-b border-border-subtle last:border-b-0 last:pb-0 last:mb-0">
+    <h2 id={id} className={`section-title mb-1 ${danger ? 'text-error' : ''}`}>
+      {title}
+    </h2>
+    <div className="row-list">{children}</div>
+  </section>
+);
 
 export const SettingsPage: React.FC = () => {
   const { user, stats, serverStatus, logout, resetProgress, learningMode, setLearningMode, tracks, selectedTrackId, setSelectedTrack } = useSession();
@@ -21,163 +35,95 @@ export const SettingsPage: React.FC = () => {
   const level = levelProgress(stats.xp);
 
   return (
-    <div className="p-6 sm:p-8 max-w-3xl mx-auto space-y-6">
-      <PageHeader eyebrow="Settings" title="Account & preferences" />
+    <div className="page max-w-3xl">
+      <PageHeader eyebrow="Settings" title="Settings" />
 
-      <section className={CARD}>
-        <h2 className="text-sm font-mono uppercase tracking-wider text-gray-500 mb-2">Account</h2>
-        <div className={ROW}>
-          <div>
-            <div className="font-medium text-gray-900 dark:text-white">
-              {signedIn ? user!.username : 'Not signed in'}
-            </div>
-            <div className="text-xs text-gray-500">
-              {signedIn
-                ? user!.email
-                : 'Progress is stored in this browser. Sign in to sync it across devices and join the leaderboard.'}
-            </div>
-          </div>
+      <Section id="settings-account" title="Account">
+        <Row
+          title={signedIn ? user!.username : 'Not signed in'}
+          description={
+            signedIn ? user!.email : 'Progress is stored in this browser. Sign in to sync it across devices and join the leaderboard.'
+          }
+        >
           {signedIn ? (
-            <button type="button" className={BTN_LINE} onClick={logout}>
-              Sign out
-            </button>
+            <Button onClick={logout}>Sign out</Button>
           ) : (
-            <button
-              type="button"
-              onClick={openAuthModal}
-              disabled={serverStatus === 'offline'}
-              className="px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white dark:text-black text-sm font-bold hover:brightness-110 disabled:opacity-50"
-            >
+            <Button variant="primary" onClick={openAuthModal} disabled={serverStatus === 'offline'}>
               Sign in or register
-            </button>
+            </Button>
           )}
-        </div>
-        <div className={ROW}>
-          <span className="text-sm text-gray-700 dark:text-gray-300">Level</span>
-          <span className="font-mono text-sm text-gray-900 dark:text-white">
-            {level.level} · {level.percent}% to {level.level + 1}
+        </Row>
+        <Row title="Level">
+          <span className="font-mono text-sm text-fg tabular-nums">
+            {String(level.level).padStart(2, '0')} · {level.percent}% to {level.level + 1}
           </span>
-        </div>
-        <div className={ROW}>
-          <span className="text-sm text-gray-700 dark:text-gray-300">Membership</span>
-          <div className="flex items-center gap-3">
-            <span className={`font-mono text-sm ${stats.isPremium ? 'text-[var(--color-primary)]' : 'text-gray-900 dark:text-white'}`}>
-              {stats.isPremium ? 'Pro' : 'Free'}
-            </span>
-            {!stats.isPremium && (
-              <button type="button" className={BTN_LINE} onClick={openSubModal}>
-                Unlock Pro stages
-              </button>
-            )}
-          </div>
-        </div>
-        <div className={ROW}>
-          <span className="text-sm text-gray-700 dark:text-gray-300">API server</span>
+        </Row>
+        <Row title="Membership">
+          <span className={`font-mono text-sm ${stats.isPremium ? 'text-accent' : 'text-fg'}`}>{stats.isPremium ? 'Pro' : 'Free'}</span>
+          {!stats.isPremium && <Button onClick={openSubModal}>Unlock Pro stages</Button>}
+        </Row>
+        <Row title="API server">
           <span
-            className={`font-mono text-sm ${
-              serverStatus === 'online'
-                ? 'text-[var(--color-primary)]'
-                : serverStatus === 'checking'
-                  ? 'text-gray-500'
-                  : 'text-red-500'
+            className={`inline-flex items-center gap-1.5 font-mono text-sm ${
+              serverStatus === 'online' ? 'text-success' : serverStatus === 'checking' ? 'text-fg-muted' : 'text-error'
             }`}
           >
+            <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true" />
             {serverStatus === 'online' ? 'connected' : serverStatus === 'checking' ? 'checking…' : 'offline'}
           </span>
-        </div>
-      </section>
+        </Row>
+      </Section>
 
-      <section className={CARD}>
-        <h2 className="text-sm font-mono uppercase tracking-wider text-gray-500 mb-2">Appearance</h2>
-        <div className={ROW}>
-          <span className="text-sm text-gray-700 dark:text-gray-300">Dark mode</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={theme === 'dark'}
-            onClick={toggleTheme}
-            className={`w-11 h-6 rounded-full relative transition-colors ${
-              theme === 'dark' ? 'bg-[var(--color-primary)]' : 'bg-black/15'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${
-                theme === 'dark' ? 'left-[22px]' : 'left-0.5'
-              }`}
-            />
-          </button>
-        </div>
-      </section>
+      <Section id="settings-appearance" title="Appearance">
+        <Row title="Dark mode" description="Switch between the light and dark interface.">
+          <Switch checked={theme === 'dark'} onChange={toggleTheme} ariaLabel="Dark mode" />
+        </Row>
+      </Section>
 
-      <section className={CARD}>
-        <h2 className="text-sm font-mono uppercase tracking-wider text-gray-500 mb-2">Learning</h2>
-        <div className={ROW}>
-          <div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">How you learn</div>
-            <div className="text-xs text-gray-500 mt-0.5">
-              Learn & Understand walks through theory, an example and a try-it before each new idea; Practice goes straight to
-              the challenges. Same grading, XP and unlocking either way.
-            </div>
-          </div>
+      <Section id="settings-learning" title="Learning">
+        <Row
+          title="Learning mode"
+          description="Learn walks through theory, an example and a try-it before each new idea; Practice goes straight to the challenges. Same grading, XP and unlocking either way."
+        >
           <LearningModeSwitch value={learningMode} onChange={setLearningMode} />
-        </div>
+        </Row>
         {tracks.length > 1 && (
-          <div className={ROW}>
-            <div>
-              <div className="text-sm font-medium text-gray-900 dark:text-white">Current track</div>
-              <div className="text-xs text-gray-500 mt-0.5">Which path the Learn page, the skill tree and "Continue learning" follow.</div>
-            </div>
+          <Row title="Current track" description='Which path the Learn page, the skill map and "Continue learning" follow.'>
             <Dropdown
               value={selectedTrackId}
               onChange={setSelectedTrack}
-              size="md"
-              options={tracks.map(({ track }) => ({
-                value: track.id,
-                label: track.label,
-                icon: <span className="text-base">{track.icon}</span>
-              }))}
+              options={tracks.map(({ track }) => ({ value: track.id, label: track.label }))}
               ariaLabel="Current track"
             />
-          </div>
+          </Row>
         )}
-      </section>
+      </Section>
 
-      <section className={`${CARD} border-red-500/20`}>
-        <h2 className="text-sm font-mono uppercase tracking-wider text-red-500 mb-2">Danger zone</h2>
-        <div className={ROW}>
-          <div>
-            <div className="text-sm font-medium text-gray-900 dark:text-white">Reset progress</div>
-            <div className="text-xs text-gray-500">
-              Erases XP, streaks and every solve{signedIn ? ' - on this device and on your account' : ' in this browser'}.
-            </div>
-          </div>
+      <Section id="settings-danger" title="Danger zone" danger>
+        <Row
+          title="Reset progress"
+          description={`Erases XP, streaks and every solve${signedIn ? ' - on this device and on your account' : ' in this browser'}.`}
+        >
           {confirmingReset ? (
-            <div className="flex items-center gap-2">
-              <button type="button" className={BTN_LINE} onClick={() => setConfirmingReset(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
+            <>
+              <Button onClick={() => setConfirmingReset(false)}>Cancel</Button>
+              <Button
+                variant="danger"
                 onClick={() => {
                   setConfirmingReset(false);
                   resetProgress();
                 }}
-                className="px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-bold hover:bg-red-600 hover:-translate-y-0.5 active:scale-[0.98] shadow-[0_2px_10px_rgba(239,68,68,0.3)] transition-all cursor-pointer"
               >
                 Erase everything
-              </button>
-            </div>
+              </Button>
+            </>
           ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmingReset(true)}
-              className="px-4 py-2 rounded-xl border border-red-500/40 text-red-500 text-sm font-medium hover:bg-red-500/10 active:scale-[0.98] transition-all cursor-pointer shadow-xs"
-            >
+            <Button variant="danger-line" onClick={() => setConfirmingReset(true)}>
               Reset…
-            </button>
+            </Button>
           )}
-        </div>
-      </section>
+        </Row>
+      </Section>
     </div>
   );
 };

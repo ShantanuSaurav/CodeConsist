@@ -1,54 +1,108 @@
-/* Tailwind entry. Devlingo's palette lives here as Tailwind theme tokens; the
-   CodeQuest component styles (practice modal, editor, toasts) read the same
-   colours through the variables in styles/tokens.css, so both halves of the UI
-   swap themes together. */
+/* Tailwind entry.
+
+   The design tokens live in src/ui/theme/tokens.css. This file maps them
+   onto Tailwind's theme so pages can write `bg-surface`, `text-fg-muted`,
+   `border-border` and get the same value the hand-written component CSS
+   uses - and get dark mode for free, because the token itself flips under
+   `.dark`. Pages should not need `dark:` variants for colour. */
 @import "tailwindcss";
+@import "../ui/theme/tokens.css";
+@import "../ui/theme/components.css";
 
 @custom-variant dark (&:is(.dark *));
 
-@theme {
-  --color-primary: var(--primary);
-  --color-primary-dark: var(--primary-dark);
-  --color-secondary: var(--secondary);
-  --color-warning: #ffb300;
-  --color-error: #ff3b30;
+@theme inline {
+  /* Reset the default palette we do not want reaching into the product. The
+     handful of neutrals/utility colours below are the whole vocabulary. */
+  --color-bg: var(--bg);
   --color-surface: var(--surface);
-  --color-surface-raised: var(--surface-raised);
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+
+  --color-fg: var(--text);
+  --color-fg-secondary: var(--text-secondary);
+  --color-fg-muted: var(--text-muted);
+  --color-fg-disabled: var(--text-disabled);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-error: var(--error);
+  --color-error-soft: var(--error-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --color-code-bg: var(--code-bg);
+  --color-code-border: var(--code-border);
+  --color-code-text: var(--code-text);
+  --color-code-muted: var(--code-muted);
+
+  /* Legacy names, kept while the last pages are migrated. */
+  --color-primary: var(--accent);
+  --color-primary-dark: var(--accent-hover);
+  --color-secondary: var(--info);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-lg);
+  --radius-2xl: var(--radius-lg);
+
+  --shadow-menu: var(--shadow-menu);
+  --shadow-dialog: var(--shadow-dialog);
 }
 
 @layer base {
-  :root {
-    --primary: #16a30b;
-    --primary-dark: #128009;
-    --secondary: #0284c7;
-    --surface: #ffffff;
-    --surface-raised: #f9fafb;
-    color-scheme: light;
-  }
-  :root.dark {
-    --primary: #39ff14;
-    --primary-dark: #2ce60d;
-    --secondary: #00e5ff;
-    --surface: #0d1117;
-    --surface-raised: #161b22;
-    color-scheme: dark;
-  }
+  :root { color-scheme: light; }
+  :root.dark { color-scheme: dark; }
+
   html {
     scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
   }
   body {
-    background-color: var(--surface);
-    color: #0f172a;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    transition: background-color 0.3s ease, color 0.3s ease;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv11', 'ss01';
   }
-  .dark body {
-    color: #e6edf3;
-  }
+  ::selection { background: var(--accent-soft); }
   :focus-visible {
-    outline: 2px solid var(--primary);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+  /* Buttons and links inherit type, so the hierarchy is set once. */
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  strong, b { font-weight: 600; }
+  code, kbd, pre, samp { font-family: var(--font-mono); }
+}
+
+/* ------------------------------------------------------- app-level helpers
+   Small layout utilities that every page uses, so paddings stay on the scale. */
+@utility page {
+  padding: var(--space-6) var(--space-4);
+  @media (min-width: 640px) { padding: var(--space-8) var(--space-6); }
+  @media (min-width: 1024px) { padding: var(--space-10) var(--space-8); }
+  margin-inline: auto;
+  width: 100%;
 }
