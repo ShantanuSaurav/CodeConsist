@@ -139,9 +139,11 @@ export const SkillRoadmap: React.FC = () => {
                       <span className="roadmap-node-meta">
                         <span>~{estimatedMinutes(stage)} min</span>
                         <span>+{totalXp(stage)} XP</span>
-                        <span>
-                          {done}/{total} lessons
-                        </span>
+                        {!locked && (
+                          <span>
+                            {done}/{total} lessons
+                          </span>
+                        )}
                         {overall > 0 && <span>{overall}%</span>}
                       </span>
 
@@ -158,9 +160,6 @@ export const SkillRoadmap: React.FC = () => {
                         </span>
                       )}
                       {premiumLocked && <span className="roadmap-node-cta is-muted">Unlock with Pro</span>}
-                      {locked && !premiumLocked && (
-                        <span className="roadmap-node-cta is-muted">Finish the stage before this one to unlock it</span>
-                      )}
                     </span>
                   </button>
                 </li>

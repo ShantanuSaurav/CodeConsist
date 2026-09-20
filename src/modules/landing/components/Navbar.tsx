@@ -4,7 +4,7 @@ import { Menu, Moon, Sun, X } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
-import { Button, ButtonLink } from '@/ui';
+import { Button, ButtonLink, DevlingoLogo } from '@/ui';
 
 const LINKS = [
   { to: '/dashboard/learn', label: 'Learn' },
@@ -38,11 +38,8 @@ export const Navbar: React.FC = () => {
       }`}
     >
       <div className="max-w-6xl mx-auto px-6 h-full flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 text-fg font-semibold tracking-tight">
-          <span className="font-mono text-xs text-accent" aria-hidden="true">
-            &lt;/&gt;
-          </span>
-          <span>Devlingo</span>
+        <Link to="/" className="flex items-center" aria-label="Devlingo home">
+          <DevlingoLogo size="sm" wordmark />
         </Link>
 
         <div className="hidden md:flex items-center gap-6 text-sm text-fg-secondary">

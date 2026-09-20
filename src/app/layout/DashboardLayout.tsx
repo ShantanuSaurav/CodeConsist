@@ -4,7 +4,7 @@ import { Menu, X } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
-import { PageSkeleton } from '@/ui';
+import { DevlingoLogo, PageSkeleton } from '@/ui';
 
 /**
  * The app shell: fixed sidebar on desktop, a drawer on small screens.
@@ -42,12 +42,7 @@ export const DashboardLayout: React.FC = () => {
 
       {/* Mobile top bar + drawer */}
       <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between h-12 px-4 border-b border-border bg-surface">
-        <span className="text-sm font-semibold flex items-center gap-2 tracking-tight">
-          <span className="text-accent font-mono text-xs" aria-hidden="true">
-            &lt;/&gt;
-          </span>
-          Devlingo
-        </span>
+        <DevlingoLogo size="sm" wordmark />
         <button
           type="button"
           onClick={() => setDrawerOpen(true)}

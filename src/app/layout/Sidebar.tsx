@@ -21,7 +21,7 @@ import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
 import { ROUTES } from '@/config/routes';
-import { Dropdown, ProgressBar } from '@/ui';
+import { DevlingoLogo, Dropdown, ProgressBar } from '@/ui';
 
 const ICON = 16;
 
@@ -65,15 +65,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
   return (
     <div className="w-64 h-full border-r border-border bg-surface flex flex-col">
       <div className="px-3 pt-4 pb-3 flex-1 overflow-y-auto scroll-thin">
-        <Link
-          to="/"
-          className="flex items-center gap-2 px-3 h-8 mb-4 text-fg font-semibold tracking-tight"
-          onClick={onNavigate}
-        >
-          <span className="font-mono text-xs text-accent" aria-hidden="true">
-            &lt;/&gt;
-          </span>
-          <span>Devlingo</span>
+        <Link to="/" className="flex items-center px-3 h-8 mb-4" onClick={onNavigate} aria-label="Devlingo home">
+          <DevlingoLogo size="sm" wordmark />
         </Link>
 
         {/* Persistent track switcher - always visible, always changeable. */}

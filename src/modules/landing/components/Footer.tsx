@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { DevlingoLogo } from '@/ui';
 
 const REPO = 'https://github.com/ShantanuSaurav/Devlingo';
 
@@ -34,11 +35,8 @@ export const Footer: React.FC = () => (
   <footer className="border-t border-border">
     <div className="max-w-6xl mx-auto px-6 py-12 grid grid-cols-2 md:grid-cols-4 gap-8">
       <div className="col-span-2 md:col-span-1">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="font-mono text-xs text-accent" aria-hidden="true">
-            &lt;/&gt;
-          </span>
-          <span className="font-semibold text-fg tracking-tight">Devlingo</span>
+        <div className="mb-3">
+          <DevlingoLogo size="sm" wordmark />
         </div>
         <p className="text-sm text-fg-muted max-w-xs">The developer training environment. Open source; runs entirely on your machine.</p>
       </div>

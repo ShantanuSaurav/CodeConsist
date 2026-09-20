@@ -16,9 +16,9 @@ const Row: React.FC<{ title: React.ReactNode; description?: React.ReactNode; chi
   </div>
 );
 
-const Section: React.FC<{ id: string; title: string; danger?: boolean; children: React.ReactNode }> = ({ id, title, danger, children }) => (
+const Section: React.FC<{ id: string; title: string; children: React.ReactNode }> = ({ id, title, children }) => (
   <section aria-labelledby={id} className="pb-8 mb-8 border-b border-border-subtle last:border-b-0 last:pb-0 last:mb-0">
-    <h2 id={id} className={`section-title mb-1 ${danger ? 'text-error' : ''}`}>
+    <h2 id={id} className="section-title mb-1">
       {title}
     </h2>
     <div className="row-list">{children}</div>
@@ -36,7 +36,7 @@ export const SettingsPage: React.FC = () => {
 
   return (
     <div className="page max-w-3xl">
-      <PageHeader eyebrow="Settings" title="Settings" />
+      <PageHeader title="Settings" />
 
       <Section id="settings-account" title="Account">
         <Row
@@ -55,7 +55,7 @@ export const SettingsPage: React.FC = () => {
         </Row>
         <Row title="Level">
           <span className="font-mono text-sm text-fg tabular-nums">
-            {String(level.level).padStart(2, '0')} · {level.percent}% to {level.level + 1}
+            {String(level.level).padStart(2, '0')} · {level.percent}% to {String(level.level + 1).padStart(2, '0')}
           </span>
         </Row>
         <Row title="Membership">
@@ -99,7 +99,7 @@ export const SettingsPage: React.FC = () => {
         )}
       </Section>
 
-      <Section id="settings-danger" title="Danger zone" danger>
+      <Section id="settings-danger" title="Danger zone">
         <Row
           title="Reset progress"
           description={`Erases XP, streaks and every solve${signedIn ? ' - on this device and on your account' : ' in this browser'}.`}

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Award, Code2, Flame, Lock, Star, Swords } from 'lucide-react';
+import { Award, Code2, Flame, Star, Swords } from 'lucide-react';
 import { PageHeader, ProgressBar, SectionHeader, Stat } from '@/ui';
 import { useSession } from '@/platform/session';
 import { levelProgress, xpForLevel } from '@/platform/xp-leveling/leveling';
@@ -67,7 +67,7 @@ export const AchievementsPage: React.FC = () => {
             </div>
             <ProgressBar value={level.percent} className="mt-4" label={`${level.into} of ${level.needed} XP to level ${level.level + 1}`} />
             <div className="mt-2 text-xs font-mono text-fg-muted">
-              {level.into} / {level.needed} XP to level {level.level + 1} · next at {xpForLevel(level.level + 1).toLocaleString()} XP
+              {level.into} / {level.needed} XP to level {String(level.level + 1).padStart(2, '0')} · {xpForLevel(level.level + 1).toLocaleString()} XP total
             </div>
           </div>
 
@@ -113,12 +113,12 @@ export const AchievementsPage: React.FC = () => {
           {badges.map((b) => (
             <li key={b.id} className={`flex items-center gap-3 p-4 border-r border-b border-border-subtle ${b.earnedAt ? '' : 'opacity-60'}`}>
               <div
-                className={`w-8 h-8 rounded-sm flex items-center justify-center shrink-0 ${
-                  b.earnedAt ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-fg-muted'
+                className={`w-7 h-7 rounded-sm flex items-center justify-center shrink-0 ${
+                  b.earnedAt ? 'bg-accent-soft text-accent' : 'border border-border'
                 }`}
                 aria-hidden="true"
               >
-                {b.earnedAt ? ICONS[b.kind] : <Lock size={13} />}
+                {b.earnedAt ? ICONS[b.kind] : null}
               </div>
               <div className="min-w-0">
                 <div className="text-sm font-medium text-fg truncate">{b.title}</div>

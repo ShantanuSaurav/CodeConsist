@@ -77,5 +77,7 @@ export const STORAGE_KEYS = {
   /** 'learn' | 'practice' - how the learner wants to reach a stage's challenges; unset until chosen. */
   learningMode: 'cq-learning-mode',
   /** Separate from the learner's own token - the admin app is a distinct session. */
-  adminToken: 'cq-admin-token'
+  adminToken: 'cq-admin-token',
+  /** '1' once the welcome intro at "/" has been seen in this browser; it then stays out of the way. */
+  intro: 'cq-intro-seen'
 } as const;

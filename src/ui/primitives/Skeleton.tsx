@@ -1,4 +1,5 @@
 import React from 'react';
+import { DevlingoLogo } from './DevlingoLogo';
 
 /**
  * Loading placeholders for the two moments the app has nothing to show yet:
@@ -37,9 +38,7 @@ export const PageSkeleton: React.FC<{ label?: string }> = ({ label = 'Loading' }
 /** The whole-window fallback while the very first route chunk downloads. */
 export const AppSplash: React.FC = () => (
   <div className="app-splash" role="status" aria-label="Loading Devlingo">
-    <span className="app-splash-mark" aria-hidden="true">
-      &lt;/&gt;
-    </span>
+    <DevlingoLogo size="lg" decorative />
     <span className="app-splash-bar" aria-hidden="true" />
   </div>
 );

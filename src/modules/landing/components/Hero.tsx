@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ArrowRight, Check } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { optionOrder } from '@/platform/grading-engine/answers';
@@ -53,13 +53,7 @@ export const Hero: React.FC = () => {
             </ButtonLink>
           </div>
 
-          <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-fg-secondary">
-            {['Free, runs on your machine', 'No videos', 'Every stage ends in a coding test'].map((t) => (
-              <li key={t} className="inline-flex items-center gap-2">
-                <Check size={13} className="text-success" /> {t}
-              </li>
-            ))}
-          </ul>
+          <p className="mt-8 text-sm text-fg-muted">Free, runs on your machine · No videos · Every stage ends in a coding test</p>
         </div>
 
         {/* Product snapshot */}

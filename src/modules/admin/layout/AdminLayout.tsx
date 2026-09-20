@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAdminAuth } from '../services/AdminAuthContext';
 import { Spinner } from '../components/ui';
+import { DevlingoLogo } from '@/ui';
 
 const ICON = 16;
 
@@ -76,12 +77,8 @@ export const AdminLayout: React.FC = () => {
   const Nav = ({ onNavigate }: { onNavigate?: () => void }) => (
     <div className="w-60 h-full border-r border-border bg-surface flex flex-col">
       <div className="px-3 pt-4 pb-3 flex-1 overflow-y-auto scroll-thin">
-        <div className="flex items-center gap-2 px-3 h-8 mb-4">
-          <span className="font-mono text-xs text-accent" aria-hidden="true">
-            &lt;/&gt;
-          </span>
-          <span className="text-fg font-semibold tracking-tight">Devlingo</span>
-          <span className="badge badge-mono ml-auto">admin</span>
+        <div className="flex items-center px-3 h-8 mb-4">
+          <DevlingoLogo size="sm" wordmark suffix={<span className="badge badge-mono ml-1">admin</span>} />
         </div>
         <nav aria-label="Admin">
           {GROUPS.map((group) => (
@@ -126,12 +123,7 @@ export const AdminLayout: React.FC = () => {
       </aside>
 
       <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between h-12 px-4 border-b border-border bg-surface">
-        <span className="text-sm font-semibold flex items-center gap-2 tracking-tight">
-          <span className="text-accent font-mono text-xs" aria-hidden="true">
-            &lt;/&gt;
-          </span>
-          Devlingo <span className="badge badge-mono">admin</span>
-        </span>
+        <DevlingoLogo size="sm" wordmark suffix={<span className="badge badge-mono ml-1">admin</span>} />
         <button type="button" onClick={() => setDrawerOpen(true)} className="btn btn-ghost btn-sm btn-icon" aria-label="Open navigation">
           <Menu size={18} />
         </button>

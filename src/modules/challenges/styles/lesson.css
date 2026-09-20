@@ -1,3 +1,4 @@
+@layer components {
 /* ==========================================================================
    Beginner "concept teaching" flow shown before a lesson's quick check, and
    the learning-mode chooser. Reads tokens.css so it is the same product as
@@ -214,3 +215,5 @@
 /* Header row of the practice modal gains the switch next to the meta pills. */
 .modal-meta .mode-switch { margin-left: auto; }
 .concept-review-btn { align-self: flex-start; }
+
+}

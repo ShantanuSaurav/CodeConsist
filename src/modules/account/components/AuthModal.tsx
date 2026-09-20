@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { useFocusTrap } from '@/ui/hooks/useFocusTrap';
 import { Button } from '@/ui/primitives/Button';
+import { DevlingoLogo } from '@/ui/primitives/DevlingoLogo';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -69,10 +70,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         tabIndex={-1}
         className="modal-card !w-[min(26rem,100%)] !h-auto !max-h-[92vh] overflow-y-auto"
       >
-        <div className="modal-header">
-          <div className="modal-header-main">
-            <div className="modal-stage-badge">Account</div>
-            <h3 className="modal-title">{isSignUp ? 'Create an account' : 'Sign in'}</h3>
+        <div className="modal-header items-center">
+          <div className="modal-header-main flex items-center gap-3">
+            <DevlingoLogo size="md" decorative />
+            <div>
+              <div className="modal-stage-badge">Devlingo account</div>
+              <h3 className="modal-title">{isSignUp ? 'Create an account' : 'Sign in'}</h3>
+            </div>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close">
             <X size={16} />

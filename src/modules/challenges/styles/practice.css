@@ -1,3 +1,4 @@
+@layer components {
 /* ==========================================================================
    Practice modal and challenge types.
 
@@ -987,3 +988,5 @@
 }
 .ui-preview-status-tag.is-live { color: var(--success); background: var(--success-soft); }
 .ui-preview-status-tag.is-updating { color: var(--warning); background: var(--warning-soft); }
+
+}

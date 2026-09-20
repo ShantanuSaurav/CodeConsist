@@ -1,0 +1,111 @@
+@layer components {
+/* ==========================================================================
+   Welcome intro - the first thing a new visitor sees at "/".
+
+   One sequence, about 1.7 s end to end: the mark settles, then the wordmark,
+   the tagline and the actions each follow with a short fade-and-rise. No
+   scaling zooms, no glow, no looping motion. With reduced motion the whole
+   thing is simply visible.
+   ========================================================================== */
+
+.welcome {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4) calc(var(--space-8) + env(safe-area-inset-bottom, 0px));
+  background: var(--bg);
+  color: var(--text);
+}
+
+.welcome-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: 100%;
+  max-width: 28rem;
+}
+
+.welcome-logo,
+.welcome-name,
+.welcome-tagline,
+.welcome-actions {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: welcomeIn 520ms var(--ease) forwards;
+}
+.welcome-logo    { animation-delay: 80ms; animation-duration: 620ms; }
+.welcome-name    { animation-delay: 640ms; }
+.welcome-tagline { animation-delay: 920ms; }
+.welcome-actions { animation-delay: 1200ms; }
+
+@keyframes welcomeIn {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.welcome-logo {
+  width: clamp(9rem, 26vw, 12.5rem);
+  height: auto;
+  display: block;
+  user-select: none;
+}
+
+.welcome-name {
+  margin-top: var(--space-6);
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.welcome-tagline {
+  margin-top: var(--space-2);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.welcome-actions {
+  margin-top: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+}
+.welcome-actions .btn-primary { min-width: 12rem; }
+@media (max-width: 480px) {
+  .welcome-actions .btn-primary { width: 100%; }
+}
+
+.welcome-secondary {
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-xs);
+  transition: color var(--fast) var(--ease);
+}
+.welcome-secondary:hover { color: var(--text); }
+
+.welcome-corner {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-logo,
+  .welcome-name,
+  .welcome-tagline,
+  .welcome-actions {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+}

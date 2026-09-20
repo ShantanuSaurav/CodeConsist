@@ -7,7 +7,7 @@
    `.dark`. Pages should not need `dark:` variants for colour. */
 @import "tailwindcss";
 @import "../ui/theme/tokens.css";
-@import "../ui/theme/components.css";
+@import "../ui/theme/components.css" layer(components);
 
 @custom-variant dark (&:is(.dark *));
 

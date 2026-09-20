@@ -92,13 +92,15 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                 <div className="font-mono text-xs text-fg-muted">
                   {status.done} / {status.total} lessons
                 </div>
-                <ProgressBar
-                  value={status.percent}
-                  size="sm"
-                  tone={visual === 'completed' ? 'success' : 'accent'}
-                  className="w-32 mt-1.5"
-                  label={`${status.done} of ${status.total} lessons in ${stage.name}`}
-                />
+                {!locked && (
+                  <ProgressBar
+                    value={status.percent}
+                    size="sm"
+                    tone={visual === 'completed' ? 'success' : 'accent'}
+                    className="w-32 mt-1.5"
+                    label={`${status.done} of ${status.total} lessons in ${stage.name}`}
+                  />
+                )}
               </div>
             </div>
 

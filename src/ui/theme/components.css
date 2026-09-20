@@ -417,7 +417,11 @@ textarea::placeholder { color: var(--text-muted); }
   tab-size: 2;
   background: var(--code-bg);
   color: var(--code-text);
+  scrollbar-width: thin;
+  scrollbar-color: var(--code-gutter) transparent;
 }
+.code-block-body::-webkit-scrollbar { width: 6px; height: 6px; }
+.code-block-body::-webkit-scrollbar-thumb { background: var(--code-gutter); border-radius: 3px; }
 .code-block-body:focus-visible { outline: 2px solid var(--code-focus); outline-offset: -2px; }
 
 .code-line { display: flex; min-height: 1.6em; }
@@ -755,7 +759,6 @@ kbd {
   background: var(--bg);
   color: var(--text-muted);
 }
-.app-splash-mark { font-family: var(--font-mono); font-size: 1.25rem; font-weight: 600; color: var(--text); }
 .app-splash-bar {
   width: 6rem;
   height: 2px;

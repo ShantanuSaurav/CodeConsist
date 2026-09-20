@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Check, Play } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { Button, CodeBlock } from '@/ui';
@@ -34,19 +34,17 @@ export const LearningExperience: React.FC = () => {
             every stage.
           </p>
 
-          <ul className="mt-8 border-t border-border-subtle">
-            {FORMATS.map(([title, desc]) => (
-              <li key={title} className="flex items-start gap-3 py-3.5 border-b border-border-subtle">
-                <span className="w-5 h-5 rounded-xs bg-success-soft text-success flex items-center justify-center shrink-0 mt-0.5">
-                  <Check size={12} strokeWidth={2.5} />
-                </span>
+          <ol className="mt-8 border-t border-border-subtle">
+            {FORMATS.map(([title, desc], i) => (
+              <li key={title} className="flex items-start gap-4 py-3.5 border-b border-border-subtle">
+                <span className="font-mono text-xs text-fg-muted pt-0.5 w-5 shrink-0">{String(i + 1).padStart(2, '0')}</span>
                 <div>
                   <div className="text-sm font-medium text-fg">{title}</div>
                   <div className="text-sm text-fg-secondary mt-0.5">{desc}</div>
                 </div>
               </li>
             ))}
-          </ul>
+          </ol>
         </div>
 
         {sample && (

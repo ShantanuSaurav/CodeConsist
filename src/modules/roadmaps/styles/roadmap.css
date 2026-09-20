@@ -1,3 +1,4 @@
+@layer components {
 /* ==========================================================================
    Roadmaps. Two views share one visual language:
    - the learner's track as a vertical rail of stage nodes (SkillRoadmap);
@@ -293,4 +294,6 @@
   .rm-topic-status { display: none; }
   .rm-filter-hint { margin-left: 0; width: 100%; }
   .roadmap-group-head { margin-left: 48px; }
+}
+
 }

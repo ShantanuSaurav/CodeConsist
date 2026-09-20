@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { AdminApiError, useAdminAuth } from '../services/AdminAuthContext';
 import { Button } from '../components/ui';
+import { DevlingoLogo } from '@/ui';
 
 /**
  * /admin/login - Devlingo's administrator console sign-in.
@@ -47,12 +48,8 @@ export const AdminLogin: React.FC = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg px-4 py-10">
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2 mb-6">
-          <span className="font-mono text-xs text-accent" aria-hidden="true">
-            &lt;/&gt;
-          </span>
-          <span className="text-fg font-semibold tracking-tight">Devlingo</span>
-          <span className="badge badge-mono">admin</span>
+        <div className="flex items-center mb-6">
+          <DevlingoLogo size="md" wordmark suffix={<span className="badge badge-mono ml-1">admin</span>} />
         </div>
 
         <div className="panel">
