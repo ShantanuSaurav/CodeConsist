@@ -38,12 +38,7 @@ export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onEnter, onExplore }
         </h1>
         <p className="welcome-tagline">Learn. Practice. Build.</p>
 
-        <div
-          className="welcome-actions"
-          onAnimationEnd={(e) => {
-            if (e.target === e.currentTarget) enterRef.current?.focus({ preventScroll: true });
-          }}
-        >
+        <div className="welcome-actions">
           <Button ref={enterRef} variant="primary" size="lg" onClick={onEnter}>
             Enter Devlingo
           </Button>
