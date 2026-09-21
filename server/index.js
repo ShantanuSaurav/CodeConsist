@@ -19,14 +19,15 @@ import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 
 import * as store from './db.js';
-import { loadContent, getChallenge, contentSnapshot, applyLearnerOverrides, applyChallengeOverride } from './content.js';
+import { loadContent, getChallenge, contentSnapshot, applyLearnerOverrides, applyChallengeOverride, allChallenges } from './content.js';
 import { compileTsModule } from './build.js';
 import { createAdminRouter } from './admin.js';
+import { createGeminiClient } from './ai.js';
 import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken } from './auth.js';
 import { bootstrapAdminAccount, authenticateAdmin, publicAdmin, requireAdminAuth } from './admin-auth.js';
 import * as excel from './excel.js';
@@ -58,14 +59,38 @@ const JUDGE0_LANGUAGE_IDS = { java: 62, c: 50, cpp: 54, go: 60 };
 let grading;
 let leveling;
 let gradingPath;
+/**
+ * What the admin router needs from this file and cannot import (it would be
+ * a cycle): the schema the authored content is validated with, the same
+ * runners that grade learners' code, and the Gemini client behind the AI
+ * question assistant. Filled in by bootstrap() below; the router reads them
+ * per request, so mounting it before bootstrap is fine.
+ */
+const adminDeps = { validateChallenge: null, runSolution: null, ai: null };
 
 async function bootstrap() {
   await store.load();
+
+  // Reads GEMINI_API_KEY / GEMINI_MODEL from .env (server/env.js). Unset is
+  // fine: the client reports `configured: false` and the console explains.
+  adminDeps.ai = createGeminiClient();
 
   gradingPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'grading-engine', 'grading.ts'), 'grading.mjs');
   const levelingPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'xp-leveling', 'leveling.ts'), 'leveling.mjs');
   grading = await import(pathToFileURL(gradingPath).href);
   leveling = await import(pathToFileURL(levelingPath).href);
+
+  // The admin console creates questions against the SAME zod schema the
+  // authored TypeScript is validated with, so a question written in the
+  // browser can never be something the renderer or grader would choke on.
+  const schemaPath = await compileTsModule(path.join(ROOT, 'src', 'modules', 'challenges', 'schema.ts'), 'challenge-schema.mjs');
+  const { ChallengeSchema } = await import(pathToFileURL(schemaPath).href);
+  adminDeps.validateChallenge = (candidate) => {
+    const result = ChallengeSchema.safeParse(candidate);
+    if (result.success) return { ok: true, challenge: result.data, issues: [] };
+    return { ok: false, challenge: null, issues: result.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) };
+  };
+  adminDeps.runSolution = runSolutionAgainstTests;
 
   await loadContent();
 
@@ -126,7 +151,7 @@ app.get('/api/health', (_req, res) => {
   const snapshot = contentSnapshot();
   res.json({
     ok: true,
-    challenges: snapshot?.challenges.length ?? 0,
+    challenges: allChallenges().length,
     stages: snapshot?.stages.length ?? 0,
     users: store.db().users.length,
     uptimeSeconds: Math.round(process.uptime()),
@@ -250,6 +275,7 @@ app.get(
   asyncRoute(async (_req, res) => {
     const snapshot = await loadContent();
     const overrides = store.getContentOverrides();
+    // Includes the admin-authored questions (server/content.js).
     const merged = applyLearnerOverrides(snapshot, overrides);
     const hiddenLanguages = Object.keys(overrides.languages).filter((id) => overrides.languages[id]?.hidden);
     res.json({
@@ -268,7 +294,7 @@ app.get(
 // requireAdminAuth (server/admin-auth.js), which verifies the admin bearer
 // token against the live admin record - nothing about optionalAuth/req.user
 // above is involved in, or a substitute for, that check.
-app.use('/api/admin', createAdminRouter());
+app.use('/api/admin', createAdminRouter(adminDeps));
 
 /* ---------------------------------------------------------------- progress */
 
@@ -349,7 +375,9 @@ async function verifySubmission(challenge, body) {
     return { ok: true, verified: false, reason: 'DOM and UI tests verified in browser sandbox.' };
   }
 
-  if (challenge.language === 'javascript') {
+  // TypeScript runs through the same sandbox: the runner strips nothing, so
+  // only type-annotation-free TS passes - the same rule the client applies.
+  if (challenge.language === 'javascript' || challenge.language === 'typescript') {
     const result = await runJsInChild({
       code,
       entryFunction: challenge.entryFunction,
@@ -359,7 +387,7 @@ async function verifySubmission(challenge, body) {
   }
 
   if (challenge.language === 'python') {
-    const result = runPythonLocally(code, challenge.entryFunction, challenge.testCases ?? []);
+    const result = await runPythonLocally(code, challenge.entryFunction, challenge.testCases ?? []);
     if (result.skipped) {
       return { ok: true, verified: false, reason: 'No local Python; accepted on the client report.' };
     }
@@ -388,6 +416,15 @@ app.post(
     const verdict = await verifySubmission(challenge, req.body ?? {});
     if (!verdict.ok) {
       return res.status(422).json({ error: 'That submission does not solve the challenge.', reason: verdict.reason });
+    }
+
+    // A correct answer below the pass mark does not complete the lesson.
+    if (!leveling.isPassingSolve(attempts, hintsUsed)) {
+      return res.status(422).json({
+        error: `Correct, but below the pass mark of ${leveling.PASS_SCORE}%. Retry the lesson for a fresh attempt.`,
+        reason: 'below-pass-mark',
+        score: leveling.rawScore(attempts, hintsUsed)
+      });
     }
 
     const progress = store.getProgress(req.user.id);
@@ -444,11 +481,13 @@ app.post(
  * discarded the smaller one while still marking its challenges solved.
  */
 function completedStagesFor(completedIds) {
-  const snapshot = contentSnapshot();
+  // The learner-facing view: authored + admin-authored questions, minus
+  // anything an admin hid - the same list the client counts against.
+  const merged = applyLearnerOverrides(contentSnapshot(), store.getContentOverrides());
   const solved = new Set(completedIds);
-  return snapshot.stages
+  return merged.stages
     .filter((stage) => {
-      const inStage = snapshot.challenges.filter((c) => c.stageId === stage.id);
+      const inStage = merged.challenges.filter((c) => c.stageId === stage.id);
       return inStage.length > 0 && inStage.every((c) => solved.has(c.id));
     })
     .map((stage) => stage.id);
@@ -634,18 +673,49 @@ const PYTHON_HARNESS = [
  */
 function runPythonLocally(code, entryFunction, testCases) {
   const exe = findPython();
-  if (!exe) return { skipped: true };
-  try {
-    const out = execFileSync(exe, ['-c', PYTHON_HARNESS], {
-      input: JSON.stringify({ code, entry: entryFunction }) + '\n' + JSON.stringify(testCases) + '\n',
-      encoding: 'utf8',
-      timeout: 15000,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    return JSON.parse(out.trim().split('\n').pop());
-  } catch {
-    return { passed: false };
+  if (!exe) return Promise.resolve({ skipped: true });
+  // Asynchronous on purpose: a solution that sleeps must not freeze every
+  // other request for the length of the timeout.
+  return new Promise((resolve) => {
+    const child = execFile(
+      exe,
+      ['-c', PYTHON_HARNESS],
+      { encoding: 'utf8', timeout: 15000, windowsHide: true, maxBuffer: 1024 * 1024 },
+      (err, out) => {
+        if (err) return resolve({ passed: false });
+        try {
+          resolve(JSON.parse(String(out).trim().split('\n').pop()));
+        } catch {
+          resolve({ passed: false });
+        }
+      }
+    );
+    child.stdin.on('error', () => {});
+    child.stdin.end(JSON.stringify({ code, entry: entryFunction }) + '\n' + JSON.stringify(testCases) + '\n');
+  });
+}
+
+/**
+ * Run a reference solution against a question's test cases, the way the
+ * validator does for authored content. Used by the admin console before it
+ * saves a coding question, so a broken one never reaches a learner.
+ * Returns { status: 'passed' | 'failed' | 'error' | 'skipped', testResults, stderr, reason }.
+ */
+async function runSolutionAgainstTests(challenge, code) {
+  const testCases = challenge.testCases ?? [];
+  if (challenge.language === 'javascript' || challenge.language === 'typescript') {
+    const result = await runJsInChild({ code, entryFunction: challenge.entryFunction, testCases });
+    return { ...result, reason: 'Run by the server sandbox.' };
   }
+  if (challenge.language === 'python') {
+    const result = await runPythonLocally(code, challenge.entryFunction, testCases);
+    if (result.skipped) return { status: 'skipped', testResults: [], stderr: '', reason: 'No local Python on this server, so the solution could not be executed here.' };
+    return { status: result.passed ? 'passed' : 'failed', testResults: [], stderr: '', reason: 'Run with the local CPython.' };
+  }
+  if (challenge.language === 'html' || challenge.uiPreview) {
+    return { status: 'skipped', testResults: [], stderr: '', reason: 'Frontend questions run in the learner\'s browser; the server cannot execute them.' };
+  }
+  return { status: 'skipped', testResults: [], stderr: '', reason: `No server engine for ${challenge.language}.` };
 }
 
 /* ---------------------------------------------------------------- execution */

@@ -11,6 +11,7 @@ import { Gamification } from '../components/Gamification';
 import { FinalCTA } from '../components/FinalCTA';
 import { Footer } from '../components/Footer';
 import { WelcomeIntro } from '../components/WelcomeIntro';
+import '../styles/landing.css';
 
 /**
  * "/" - the public entry point.
@@ -42,7 +43,7 @@ export const Landing: React.FC = () => {
   if (intro) return <WelcomeIntro onEnter={enter} onExplore={explore} />;
 
   return (
-    <div className="bg-bg min-h-screen text-fg">
+    <div className="landing bg-bg min-h-screen text-fg">
       <Navbar />
       <Hero />
       <SocialProof />

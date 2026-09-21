@@ -38,6 +38,15 @@ const EMPTY = {
    * hidden / premium / reordered", so there is exactly one roadmap, not two.
    */
   contentOverrides: { stages: {}, challenges: {}, languages: {} },
+  /**
+   * Questions an administrator wrote in the console, keyed by id. Each is a
+   * complete Challenge (validated against the same zod schema the authored
+   * TypeScript goes through, and - for code - with its solution executed)
+   * plus `createdAt`/`updatedAt`. server/content.js appends them to their
+   * stage after the authored lessons, so learners get them through
+   * /api/content exactly like everything else.
+   */
+  customChallenges: {},
   /** State for the optional Microsoft Excel sync - see server/excel.js. */
   excelSync: { rowIndexByUserId: {}, lastSyncedAtByUser: {}, lastFullSyncAt: null, failures: [] }
 };
@@ -66,6 +75,10 @@ function migrate(loaded) {
         ? loaded.contentOverrides.languages
         : {}
   };
+  next.customChallenges =
+    loaded.customChallenges && typeof loaded.customChallenges === 'object' && !Array.isArray(loaded.customChallenges)
+      ? loaded.customChallenges
+      : {};
   next.excelSync = {
     rowIndexByUserId:
       loaded.excelSync?.rowIndexByUserId && typeof loaded.excelSync.rowIndexByUserId === 'object'
@@ -297,6 +310,46 @@ export function setLanguageOverride(languageId, patch) {
   }
   persist();
   return overrides[languageId] ?? null;
+}
+
+/* ------------------------------------------------------- custom challenges */
+
+/** Every admin-authored question, in creation order. */
+export function allCustomChallenges() {
+  return Object.values(db().customChallenges);
+}
+
+/**
+ * Own-property lookups only: `customChallenges` is a plain object, so a
+ * bracket lookup for 'constructor' or '__proto__' would hand back something
+ * truthy from Object.prototype and the caller would treat it as a question.
+ */
+export function getCustomChallenge(id) {
+  const all = db().customChallenges;
+  return typeof id === 'string' && Object.hasOwn(all, id) ? all[id] : null;
+}
+
+/** Insert or replace one admin-authored question (validated by the caller). */
+export function putCustomChallenge(challenge) {
+  const existing = getCustomChallenge(challenge.id);
+  const now = new Date().toISOString();
+  db().customChallenges[challenge.id] = {
+    ...challenge,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  };
+  persist();
+  return db().customChallenges[challenge.id];
+}
+
+/** Remove one admin-authored question, along with any presentational override on it. */
+export function deleteCustomChallenge(id) {
+  const existed = Boolean(getCustomChallenge(id));
+  if (!existed) return false;
+  delete db().customChallenges[id];
+  if (Object.hasOwn(db().contentOverrides.challenges, id)) delete db().contentOverrides.challenges[id];
+  persist();
+  return true;
 }
 
 /* ------------------------------------------------------------------ audit */

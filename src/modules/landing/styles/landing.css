@@ -1,0 +1,126 @@
+@layer components {
+/* ==========================================================================
+   Landing page - motion only, kept quiet.
+
+   Sections fade up as they scroll in, the hero's pieces arrive in order,
+   numbers count up once, cards lift a little on hover. No decoration
+   beyond the design system's own surfaces and borders. With reduced motion
+   everything is simply visible.
+   ========================================================================== */
+
+.landing {
+  animation: landingIn 400ms var(--ease) both;
+}
+@keyframes landingIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ----------------------------------------------------------- scroll reveal */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 600ms var(--ease),
+    transform 600ms var(--ease);
+}
+.reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* -------------------------------------------------------------------- hero */
+
+.hero-in {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: heroIn 600ms var(--ease) forwards;
+}
+@keyframes heroIn {
+  to { opacity: 1; transform: none; }
+}
+.hero-in-1 { animation-delay: 60ms; }
+.hero-in-2 { animation-delay: 180ms; }
+.hero-in-3 { animation-delay: 300ms; }
+.hero-in-4 { animation-delay: 420ms; }
+
+.hero-panel-wrap {
+  opacity: 0;
+  transform: translateY(16px);
+  animation: heroIn 700ms var(--ease) 240ms forwards;
+}
+.hero-panel {
+  box-shadow: 0 20px 50px -28px rgba(15, 23, 42, 0.3);
+}
+.dark .hero-panel {
+  box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.7);
+}
+
+/* ------------------------------------------------------------------- cards */
+
+.step-card,
+.progress-card {
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  height: 100%;
+}
+.step-card {
+  transition: transform var(--med) var(--ease), border-color var(--med) var(--ease);
+}
+.step-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-4);
+}
+.step-icon { color: var(--text-muted); }
+
+.practice-panel {
+  box-shadow: 0 20px 50px -28px rgba(15, 23, 42, 0.3);
+}
+.dark .practice-panel { box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.7); }
+
+/* ---------------------------------------------------------------- progress */
+
+/* The bars grow into place when the section scrolls in. */
+.landing-progress .progress-fill {
+  transition: width 900ms var(--ease) 100ms;
+}
+
+/* --------------------------------------------------------------- final cta */
+
+.cta-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: var(--space-10) var(--space-8);
+}
+@media (min-width: 640px) {
+  .cta-panel { padding: var(--space-12); }
+}
+.cta-arrow svg { transition: transform var(--med) var(--ease); }
+.cta-arrow:hover svg { transform: translateX(3px); }
+
+/* ---------------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .landing, .hero-in, .hero-panel-wrap { animation: none; opacity: 1; transform: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .step-card, .cta-arrow svg { transition: none; }
+  .landing-progress .progress-fill { transition: none; }
+}
+}

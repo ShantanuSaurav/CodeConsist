@@ -22,9 +22,21 @@
  */
 import express from 'express';
 import * as store from './db.js';
-import { contentSnapshot, applyChallengeOverride, applyStageOverride } from './content.js';
+import {
+  contentSnapshot,
+  applyChallengeOverride,
+  applyStageOverride,
+  allChallenges,
+  getChallenge,
+  authoredChallenge,
+  isCustomChallenge,
+  isModifiedChallenge
+} from './content.js';
+import { EXECUTABLE_LANGUAGES, generateChallengeId, mergeIssues, normalizeChallengeInput } from './custom-challenges.js';
 import { requireAdminAuth, publicAdmin, updateAdminCredentials } from './admin-auth.js';
 import * as excel from './excel.js';
+import { GeminiError } from './ai.js';
+import { AiInputError, KINDS as AI_KINDS, draftQuestion, findDuplicates, suggestQuestions } from './ai-questions.js';
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -46,9 +58,19 @@ function adminUserRow(user) {
   };
 }
 
-export function createAdminRouter() {
+/**
+ * @param {object} deps - handed in by server/index.js once it has compiled the
+ *   content schema and runners (a direct import would be a cycle):
+ *   validateChallenge(candidate) -> { ok, challenge, issues[] } via the zod ChallengeSchema;
+ *   runSolution(challenge, code) -> { status, testResults, stderr, reason };
+ *   ai -> the Gemini client from server/ai.js ({ configured, model, generateJson }).
+ */
+export function createAdminRouter(deps = {}) {
   const router = express.Router();
-  router.use(express.json({ limit: '256kb' }));
+  // Bodies are parsed by the app-level parser in server/index.js (256kb); a
+  // second parser here would be a no-op. Per-field limits live in
+  // server/custom-challenges.js so an oversized question gets a message
+  // naming the field rather than a bare 413.
   router.use(requireAdminAuth);
 
   function audit(req, action, target, details) {
@@ -112,7 +134,7 @@ export function createAdminRouter() {
           // `users` (see server/db.js), so there is nothing to exclude here.
           users: users.length,
           premium: users.filter((u) => u.isPremium).length,
-          challenges: snapshot?.challenges.length ?? 0,
+          challenges: allChallenges().length,
           stages: snapshot?.stages.length ?? 0,
           totalXpAwarded: totalXp,
           totalSolves: totalSolved,
@@ -120,6 +142,7 @@ export function createAdminRouter() {
         },
         signupsByDay: last14Days,
         judge0Configured: process.env.JUDGE0_API_URL ? true : false,
+        geminiConfigured: Boolean(deps.ai?.configured),
         excel: excel.excelSettingsSummary()
       });
     })
@@ -193,7 +216,7 @@ export function createAdminRouter() {
     const byLanguage = {};
     const byStage = [];
     for (const stage of snapshot?.stages ?? []) {
-      const challenges = (snapshot?.challenges ?? []).filter((c) => c.stageId === stage.id);
+      const challenges = allChallenges().filter((c) => c.stageId === stage.id);
       let solved = 0;
       for (const c of challenges) solved += solvedCount.get(c.id) ?? 0;
       byStage.push({
@@ -208,7 +231,7 @@ export function createAdminRouter() {
 
     // Attempted-but-rarely-solved is the honest signal for "this one is too
     // hard or badly worded" - never invented, always derived from real attempts.
-    const mostMissed = (snapshot?.challenges ?? [])
+    const mostMissed = allChallenges()
       .map((c) => {
         const attempts = attemptCount.get(c.id) ?? 0;
         const solved = solvedCount.get(c.id) ?? 0;
@@ -235,7 +258,7 @@ export function createAdminRouter() {
       ...track,
       hidden: Boolean(overrides[track.id]?.hidden),
       stageCount: (snapshot?.stages ?? []).filter((s) => track.stageIds.includes(s.id)).length,
-      challengeCount: (snapshot?.challenges ?? []).filter((c) =>
+      challengeCount: allChallenges().filter((c) =>
         track.stageIds.includes(c.stageId)
       ).length
     }));
@@ -261,8 +284,8 @@ export function createAdminRouter() {
         ...applyStageOverride(stage, overrides),
         trackId: trackOf.get(stage.id)?.id ?? null,
         trackLabel: trackOf.get(stage.id)?.label ?? null,
-        challengeCount: (snapshot?.challenges ?? []).filter((c) => c.stageId === stage.id && !c.isStageTest).length,
-        hasTest: (snapshot?.challenges ?? []).some((c) => c.stageId === stage.id && c.isStageTest),
+        challengeCount: allChallenges().filter((c) => c.stageId === stage.id && !c.isStageTest).length,
+        hasTest: allChallenges().some((c) => c.stageId === stage.id && c.isStageTest),
         hidden: Boolean(overrides[stage.id]?.hidden),
         order: overrides[stage.id]?.order ?? i,
         // The admin view always shows the ORIGINAL authored values alongside
@@ -329,37 +352,188 @@ export function createAdminRouter() {
   });
 
   /* --------------------------------------------------- content: challenges */
-  router.get('/content/challenges', (req, res) => {
-    const snapshot = contentSnapshot();
+
+  /**
+   * One table row, the shape every challenge route answers with so the
+   * console can drop a response straight into its list. Three states:
+   * authored (from source), modified (an authored id replaced in the store)
+   * and created (written in the console, no authored original).
+   */
+  function toRow(c) {
     const overrides = store.getContentOverrides().challenges;
-    const stageId = req.query.stageId ? String(req.query.stageId) : null;
-
-    let list = snapshot?.challenges ?? [];
-    if (stageId) list = list.filter((c) => c.stageId === stageId);
-
-    const rows = list.map((c) => ({
+    // The admin view always shows the ORIGINAL authored values alongside the
+    // merged ones, so editing a field shows what it overrides - for a
+    // modified question that is the untouched authored version, not the edit.
+    const o = authoredChallenge(c.id) ?? c;
+    return {
       ...applyChallengeOverride(c, overrides),
       hidden: Boolean(overrides[c.id]?.hidden),
-      // The admin view always shows the ORIGINAL authored values alongside
-      // the merged ones, so editing a field shows what it overrides.
-      original: { title: c.title, prompt: c.prompt, explanation: c.explanation, xpReward: c.xpReward, difficulty: c.difficulty }
-    }));
-    res.json({ challenges: rows });
+      custom: isCustomChallenge(c.id),
+      modified: isModifiedChallenge(c.id),
+      original: { title: o.title, prompt: o.prompt, explanation: o.explanation, xpReward: o.xpReward, difficulty: o.difficulty }
+    };
+  }
+
+  router.get('/content/challenges', (req, res) => {
+    const stageId = req.query.stageId ? String(req.query.stageId) : null;
+    // Authored order with modified ones in place, created ones last - the order learners see.
+    let list = allChallenges();
+    if (stageId) list = list.filter((c) => c.stageId === stageId);
+    res.json({ challenges: list.map(toRow) });
+  });
+
+  /* ------------------------------------------------ admin-authored questions */
+
+  /**
+   * Check a question the admin is writing: tidy the form's body, run the
+   * friendly field checks, then the zod ChallengeSchema, then - for code -
+   * execute the reference solution against the test cases the way the
+   * content validator does (and, for 'debug', make sure the broken starter
+   * really fails). Nothing is saved. `preserve` is the authored original when
+   * an authored question is being modified (see PRESERVED_FIELDS).
+   */
+  async function checkQuestion(body, id, preserve) {
+    const snapshot = contentSnapshot();
+    const stageIds = (snapshot?.stages ?? []).map((s) => s.id);
+    const { candidate, issues: friendly } = normalizeChallengeInput(body, { stageIds, id, preserve });
+
+    if (!deps.validateChallenge) return { ok: false, challenge: null, issues: [{ path: '', message: 'The server is still starting - try again in a moment.' }], verification: null };
+    const schema = deps.validateChallenge(candidate);
+    // The friendly check already explained any field it flagged; the schema's
+    // terser wording is only added for fields it did not cover.
+    const covered = new Set(friendly.map((i) => i.path.split('.')[0]));
+    const issues = mergeIssues(friendly, schema.ok ? [] : schema.issues.filter((i) => !covered.has(i.path.split('.')[0])));
+    if (issues.length) return { ok: false, challenge: null, issues, verification: null };
+
+    const challenge = schema.challenge;
+    const verification = { solution: null, starter: null };
+    if ((challenge.type === 'code_runner' || challenge.type === 'debug') && deps.runSolution) {
+      verification.solution = await deps.runSolution(challenge, challenge.solutionCode);
+      const executable = EXECUTABLE_LANGUAGES.includes(challenge.language);
+      if (executable && verification.solution.status !== 'passed' && verification.solution.status !== 'skipped') {
+        const failed = (verification.solution.testResults ?? []).filter((t) => !t.passed).length;
+        issues.push({
+          path: 'solutionCode',
+          message:
+            verification.solution.status === 'error'
+              ? `The solution could not run: ${String(verification.solution.stderr ?? '').split('\n')[0] || 'unknown error'}`
+              : `The solution fails ${failed || 'some'} of the ${challenge.testCases.length} test cases - fix the solution or the expected values.`
+        });
+      }
+      if (challenge.type === 'debug' && executable && verification.solution.status === 'passed') {
+        verification.starter = await deps.runSolution(challenge, challenge.starterCode);
+        if (verification.starter.status === 'passed') {
+          issues.push({ path: 'starterCode', message: 'The starter code already passes every test - a debug question needs a real bug for the learner to find.' });
+        }
+      }
+    }
+    return { ok: issues.length === 0, challenge: issues.length ? null : challenge, issues, verification };
+  }
+
+  /** `?id=` names the question being edited, so an authored one is checked with its preserved fields. */
+  router.post(
+    '/content/challenges/validate',
+    asyncRoute(async (req, res) => {
+      const id = req.query.id ? String(req.query.id) : null;
+      let preserve;
+      if (id) {
+        if (!getChallenge(id)) return res.status(404).json({ error: 'No such challenge.' });
+        preserve = authoredChallenge(id) ?? undefined;
+      }
+      const result = await checkQuestion(req.body ?? {}, id ?? 'custom-preview', preserve);
+      res.json({ ok: result.ok, issues: result.issues, verification: result.verification });
+    })
+  );
+
+  router.post(
+    '/content/challenges',
+    asyncRoute(async (req, res) => {
+      const body = req.body ?? {};
+      const stageId = String(body.stageId ?? '');
+      const existing = new Set(allChallenges().map((c) => c.id));
+      const id = generateChallengeId(stageId || 'stage', String(body.title ?? ''), existing);
+      const result = await checkQuestion(body, id);
+      if (!result.ok) return res.status(422).json({ error: 'The question is not ready to save yet.', issues: result.issues, verification: result.verification });
+      const saved = store.putCustomChallenge(result.challenge);
+      audit(req, 'content.challenge.create', saved.id, { stageId: saved.stageId, type: saved.type, language: saved.language });
+      res.status(201).json({ challenge: toRow(getChallenge(saved.id)), verification: result.verification });
+    })
+  );
+
+  /**
+   * Replace a question in full. A created one is simply overwritten; an
+   * authored one becomes modified: the replacement is stored under the same
+   * id (server/content.js serves it in the original's place) with the
+   * authored concept/stage-test role carried over, and the presentational
+   * overrides are cleared so the edit is not shadowed by an older PATCH.
+   */
+  router.put(
+    '/content/challenges/:id',
+    asyncRoute(async (req, res) => {
+      const id = req.params.id;
+      const authored = authoredChallenge(id);
+      if (!authored && !isCustomChallenge(id)) return res.status(404).json({ error: 'No such challenge.' });
+
+      const result = await checkQuestion(req.body ?? {}, id, authored ?? undefined);
+      if (!result.ok) return res.status(422).json({ error: 'The question is not ready to save yet.', issues: result.issues, verification: result.verification });
+      const saved = store.putCustomChallenge(result.challenge);
+      // A full save supersedes any re-wording layered on top earlier (a PATCH
+      // override), or the admin's new title would be shadowed by the old one.
+      // setChallengeOverride merges, so `hidden` survives the clear.
+      store.setChallengeOverride(id, { title: undefined, prompt: undefined, explanation: undefined, hints: undefined, tags: undefined, xpReward: undefined, difficulty: undefined });
+      audit(req, 'content.challenge.replace', id, { stageId: saved.stageId, type: saved.type, language: saved.language, authored: Boolean(authored) });
+      res.json({ challenge: toRow(getChallenge(id)), verification: result.verification });
+    })
+  );
+
+  /** Put the authored original back: drops the stored replacement, keeps only `hidden`. */
+  router.post('/content/challenges/:id/revert', (req, res) => {
+    const id = req.params.id;
+    if (!getChallenge(id)) return res.status(404).json({ error: 'No such challenge.' });
+    if (!isModifiedChallenge(id)) {
+      return res.status(409).json({ error: 'This question has not been edited here, so there is nothing to revert.' });
+    }
+    // deleteCustomChallenge also drops the override record, so hidden is re-applied by hand.
+    const hidden = Boolean(store.getContentOverrides().challenges[id]?.hidden);
+    store.deleteCustomChallenge(id);
+    if (hidden) store.setChallengeOverride(id, { hidden: true });
+    audit(req, 'content.challenge.revert', id, { hidden });
+    res.json({ challenge: toRow(getChallenge(id)) });
+  });
+
+  router.delete('/content/challenges/:id', (req, res) => {
+    const id = req.params.id;
+    if (isCustomChallenge(id)) {
+      store.deleteCustomChallenge(id);
+      audit(req, 'content.challenge.delete', id, null);
+      return res.json({ ok: true, deleted: true });
+    }
+    if (!getChallenge(id)) return res.status(404).json({ error: 'No such challenge.' });
+    // Authored questions are TypeScript on disk; the server cannot delete a
+    // source file. Removing one from the stage is the honest equivalent, and
+    // it is reversible from the same screen.
+    const modified = isModifiedChallenge(id);
+    return res.status(409).json({
+      error:
+        'This question is authored in the source code, so it cannot be deleted from here. Remove it from the stage instead - learners will not see it, and you can restore it any time' +
+        (modified ? ' - or revert it to the original.' : '.'),
+      authored: true,
+      modified
+    });
   });
 
   router.patch('/content/challenges/:id', (req, res) => {
-    const snapshot = contentSnapshot();
-    const challenge = snapshot?.byId?.get(req.params.id);
+    // Authored or admin-authored - hide/unhide and the presentational fields work on both.
+    const challenge = getChallenge(req.params.id);
     if (!challenge) return res.status(404).json({ error: 'No such challenge.' });
 
-    // Only safe, presentational/operational fields are editable here. The
-    // question's logic (options, correct answers, test cases) stays in the
-    // authored TypeScript so it keeps going through validate-content.mjs's
-    // safety net (it actually EXECUTES every JS/Python solution) - see
-    // docs/CONTENT_AUTHORING.md. Faking a full editor for that here would
-    // let a typo silently break grading with nothing to catch it.
-    // `null` on any field clears that override back to the authored original
-    // rather than being ignored, so an edit made here can always be undone.
+    // Only safe, presentational/operational fields are patched here. The
+    // question's logic (options, correct answers, test cases) is changed
+    // through PUT above instead, which runs the schema and executes the
+    // solution the way validate-content.mjs does - a typo can never silently
+    // break grading. `null` on any field clears that override back to the
+    // authored original rather than being ignored, so an edit made here can
+    // always be undone.
     const patch = {};
     for (const field of ['title', 'prompt', 'explanation']) {
       if (req.body?.[field] === null) patch[field] = undefined;
@@ -382,6 +556,88 @@ export function createAdminRouter() {
     audit(req, 'content.challenge.update', req.params.id, patch);
     res.json({ override: result });
   });
+
+  /* --------------------------------------------------- ai question assistant */
+
+  /**
+   * Gemini helps the admin WRITE a question; it never saves one. Every draft
+   * it produces is handed back to the console, which sends it through
+   * /content/challenges/validate and /content/challenges like a hand-written
+   * question - the same field checks, schema and solution run apply.
+   *
+   * A Gemini failure is an answer, not a crash: GeminiError (server/ai.js)
+   * and AiInputError (server/ai-questions.js) carry the status to reply
+   * with and a message written for the admin, so none of them reaches the
+   * app-level 500 handler.
+   */
+  const aiRoute = (fn) =>
+    asyncRoute(async (req, res) => {
+      try {
+        await fn(req, res);
+      } catch (err) {
+        if (err instanceof GeminiError || err instanceof AiInputError) {
+          return res.status(err.status ?? 502).json({ error: err.message, notConfigured: err.status === 503 || undefined });
+        }
+        throw err;
+      }
+    });
+
+  const notConfigured = (res) =>
+    res.status(503).json({ error: 'Gemini is not configured - add GEMINI_API_KEY to .env at the project root and restart the API.', notConfigured: true });
+
+  router.get('/ai/status', (_req, res) => {
+    res.json({ configured: Boolean(deps.ai?.configured), model: deps.ai?.model ?? null });
+  });
+
+  router.post(
+    '/ai/draft',
+    aiRoute(async (req, res) => {
+      const body = req.body ?? {};
+      const kind = String(body.kind ?? '');
+      const text = typeof body.text === 'string' ? body.text : '';
+      if (!AI_KINDS.includes(kind)) return res.status(400).json({ error: `Pick a question type first (one of: ${AI_KINDS.join(', ')}).` });
+      if (text.trim().length < 10) return res.status(400).json({ error: 'Describe the question in at least 10 characters.' });
+      if (!deps.ai?.configured) return notConfigured(res);
+
+      const stages = contentSnapshot()?.stages ?? [];
+      const stageId = body.stageId ? String(body.stageId) : undefined;
+      const result = await draftQuestion({ ai: deps.ai, kind, text, stageId, stages, bank: allChallenges() });
+      // Only the kind, the stage and a size - never the admin's text itself.
+      audit(req, 'ai.draft', result.draft.stageId, { kind, stageId: result.draft.stageId, chars: text.length });
+      res.json(result);
+    })
+  );
+
+  router.post(
+    '/ai/duplicates',
+    aiRoute(async (req, res) => {
+      const body = req.body ?? {};
+      const draft = body.draft && typeof body.draft === 'object' ? body.draft : null;
+      if (!draft) return res.status(400).json({ error: 'Send the draft to check.' });
+      if (!deps.ai?.configured) return notConfigured(res);
+
+      const text = typeof body.text === 'string' ? body.text : '';
+      const result = await findDuplicates({ ai: deps.ai, draft, text, bank: allChallenges(), stages: contentSnapshot()?.stages ?? [] });
+      audit(req, 'ai.duplicates', null, { push: result.verdict.push, candidates: result.candidates.length });
+      res.json(result);
+    })
+  );
+
+  router.post(
+    '/ai/suggest',
+    aiRoute(async (req, res) => {
+      const body = req.body ?? {};
+      const stage = (contentSnapshot()?.stages ?? []).find((s) => s.id === String(body.stageId ?? ''));
+      if (!stage) return res.status(400).json({ error: 'No such stage.' });
+      const kind = body.kind ? String(body.kind) : null;
+      if (kind && !AI_KINDS.includes(kind)) return res.status(400).json({ error: `"${kind}" is not a question type.` });
+      if (!deps.ai?.configured) return notConfigured(res);
+
+      const result = await suggestQuestions({ ai: deps.ai, stage, kind, count: body.count, bank: allChallenges() });
+      audit(req, 'ai.suggest', stage.id, { stageId: stage.id, kind, count: result.suggestions.length });
+      res.json(result);
+    })
+  );
 
   /* ------------------------------------------------------------------ excel */
   router.get('/excel/status', (_req, res) => {

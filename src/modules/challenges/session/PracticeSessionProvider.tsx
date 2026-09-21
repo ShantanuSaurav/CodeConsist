@@ -14,6 +14,12 @@ export interface PracticeSessionType {
   /** The challenges the open session is walking through. */
   activeChallenges: Challenge[];
   activeChallengeIndex: number;
+  /**
+   * The furthest lesson the learner may open: the first unsolved one (every
+   * lesson before it is solved), or the last lesson once all are solved.
+   * Lessons are taken in order - a later one cannot be opened or skipped to.
+   */
+  reachableIndex: number;
   /** The learner's Learn/Practice preference (owned by the platform session; re-exposed for the modal). */
   learningMode: LearningMode | null;
   setLearningMode: (mode: LearningMode) => void;
@@ -21,7 +27,14 @@ export interface PracticeSessionType {
   /** Open a stage's mandatory test. Refuses (with a toast) until every lesson is solved. */
   openStageTest: (stageId: string) => void;
   closePractice: () => void;
+  /** Move within the open stage. An index past `reachableIndex` is refused with a toast. */
   goToChallenge: (index: number) => void;
+}
+
+/** Index of the first unsolved lesson, or the last index once every lesson is solved. */
+export function reachableLessonIndex(challenges: Challenge[], completed: string[]): number {
+  const first = challenges.findIndex((c) => !completed.includes(c.id));
+  return first >= 0 ? first : Math.max(0, challenges.length - 1);
 }
 
 const PracticeSessionContext = createContext<PracticeSessionType | undefined>(undefined);
@@ -77,14 +90,18 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
         return;
       }
 
-      let index = 0;
+      // Lessons are taken in order: the furthest anyone may open is the first
+      // unsolved one. With no explicit challenge that is where they land; an
+      // explicit one past it is pulled back to it.
+      const reachable = reachableLessonIndex(target.challenges, stats.completedChallenges);
+      let index = reachable;
       if (challengeId) {
         const found = target.challenges.findIndex((c) => c.id === challengeId);
-        if (found >= 0) index = found;
-      } else {
-        // Drop the player at the first thing they have not solved.
-        const firstUnsolved = target.challenges.findIndex((c) => !stats.completedChallenges.includes(c.id));
-        index = firstUnsolved >= 0 ? firstUnsolved : 0;
+        if (found > reachable) {
+          notify(`Solve lesson ${reachable + 1} first - lessons open in order.`, 'info');
+        } else if (found >= 0) {
+          index = found;
+        }
       }
 
       setActiveMode('lessons');
@@ -131,9 +148,22 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
     setActiveChallengeIndex(0);
   }, []);
 
-  const goToChallenge = useCallback((index: number) => {
-    setActiveChallengeIndex(Math.max(0, index));
-  }, []);
+  // The stage test is a single item, so the rule only applies to lessons.
+  const reachableIndex = useMemo(
+    () => (activeMode === 'test' ? 0 : reachableLessonIndex(activeChallenges, stats.completedChallenges)),
+    [activeMode, activeChallenges, stats.completedChallenges]
+  );
+
+  const goToChallenge = useCallback(
+    (index: number) => {
+      if (index > reachableIndex) {
+        notify(`Solve lesson ${reachableIndex + 1} first - lessons open in order.`, 'info');
+        return;
+      }
+      setActiveChallengeIndex(Math.max(0, index));
+    },
+    [reachableIndex, notify]
+  );
 
   // Intents from anywhere in the app.
   useAppEvent('practice:open', useCallback((p) => openPractice(p.stageId, p.challengeId, p.mode), [openPractice]));
@@ -149,6 +179,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       activeMode,
       activeChallenges,
       activeChallengeIndex,
+      reachableIndex,
       learningMode,
       setLearningMode,
       openPractice,
@@ -156,7 +187,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       closePractice,
       goToChallenge
     }),
-    [activeStage, activeMode, activeChallenges, activeChallengeIndex, learningMode, setLearningMode, openPractice, openStageTest, closePractice, goToChallenge]
+    [activeStage, activeMode, activeChallenges, activeChallengeIndex, reachableIndex, learningMode, setLearningMode, openPractice, openStageTest, closePractice, goToChallenge]
   );
 
   return <PracticeSessionContext.Provider value={value}>{children}</PracticeSessionContext.Provider>;
@@ -170,6 +201,7 @@ export function usePracticeSession(): PracticeSessionType {
       activeMode: 'lessons',
       activeChallenges: [],
       activeChallengeIndex: 0,
+      reachableIndex: 0,
       learningMode: null,
       setLearningMode: () => {},
       openPractice: (stageId, challengeId, mode) => intents.openPractice(stageId, challengeId, mode),

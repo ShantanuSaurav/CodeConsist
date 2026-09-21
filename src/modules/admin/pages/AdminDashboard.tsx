@@ -85,9 +85,16 @@ export const AdminDashboard: React.FC = () => {
               <span className="text-sm text-fg-secondary">Microsoft Excel sync</span>
               <Badge tone={data.excel.configured ? 'success' : 'default'}>{data.excel.configured ? 'Configured' : 'Not configured'}</Badge>
             </div>
+            <div className="row">
+              <span className="text-sm text-fg-secondary">Gemini (AI question assistant)</span>
+              <Badge tone={data.geminiConfigured ? 'success' : 'default'}>{data.geminiConfigured ? 'Configured' : 'Not configured'}</Badge>
+            </div>
           </div>
-          {!data.excel.configured && (
-            <p className="text-xs text-fg-muted mt-3">See Excel sync in the sidebar to check what's missing, or .env.example for setup steps.</p>
+          {(!data.excel.configured || !data.geminiConfigured) && (
+            <p className="text-xs text-fg-muted mt-3">
+              {!data.excel.configured && "See Excel sync in the sidebar to check what's missing, or .env.example for setup steps. "}
+              {!data.geminiConfigured && 'The AI question assistant on the Challenges page needs GEMINI_API_KEY in .env (see .env.example).'}
+            </p>
           )}
         </Card>
       </div>

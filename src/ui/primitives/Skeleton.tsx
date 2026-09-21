@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { DevlingoLogo } from './DevlingoLogo';
 
 /**
@@ -35,10 +35,37 @@ export const PageSkeleton: React.FC<{ label?: string }> = ({ label = 'Loading' }
   </div>
 );
 
-/** The whole-window fallback while the very first route chunk downloads. */
-export const AppSplash: React.FC = () => (
-  <div className="app-splash" role="status" aria-label="Loading Devlingo">
-    <DevlingoLogo size="lg" decorative />
-    <span className="app-splash-bar" aria-hidden="true" />
-  </div>
-);
+/** What the splash says it is doing, in the order it says it. Purely reassurance; nothing waits on it. */
+const SPLASH_STATUS = ['Loading Devlingo', 'Fetching the content bank', 'Preparing your workspace'];
+
+/**
+ * The whole-window fallback while the very first route chunk downloads.
+ * Mirrors the pre-mount splash in index.html (same mark, same bar, same
+ * place on the page) so the hand-over from static HTML to React is
+ * invisible. The status line rotates so a slow network still reads as
+ * progress rather than a hang.
+ */
+export const AppSplash: React.FC = () => {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setStep((s) => (s + 1) % SPLASH_STATUS.length), 1500);
+    return () => window.clearInterval(t);
+  }, []);
+
+  return (
+    <div className="app-splash" role="status" aria-live="polite" aria-label="Loading Devlingo">
+      <div className="app-splash-bg" aria-hidden="true" />
+      <div className="app-splash-mark">
+        <span className="app-splash-ring" aria-hidden="true" />
+        <DevlingoLogo size="xl" decorative />
+      </div>
+      <div className="app-splash-name">Devlingo</div>
+      <div className="app-splash-track" aria-hidden="true">
+        <span className="app-splash-fill" />
+      </div>
+      <div className="app-splash-status" key={step}>
+        {SPLASH_STATUS[step]}
+      </div>
+    </div>
+  );
+};

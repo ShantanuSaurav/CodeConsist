@@ -136,6 +136,19 @@ would need a compiler nobody has configured.
   15% pseudocode_order, 25% code_runner/debug per batch.
 - Spread difficulty: roughly 40% easy, 40% medium, 20% hard.
 
+## Edited in the admin console
+
+An administrator can open any authored question in the console's wizard and
+save a changed version - options, test cases, worked examples, all of it. That
+does not touch the `.ts` file: the replacement is stored in `customChallenges`
+in `server/data/db.json` under the **same id**, and `server/content.js` serves
+it in the original's place (the list shows it as "Edited here"). `npm run check`
+still validates the TypeScript original, not the replacement - the server
+validated that one (same zod schema, solution executed) when it was saved. To
+get the original back, revert it from the console; deleting the db.json entry
+by hand does the same. If you later change the `.ts` file, the console's
+replacement still wins until it is reverted.
+
 ## Checking your work
 
 ```bash
