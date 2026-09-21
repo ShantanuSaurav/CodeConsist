@@ -82,7 +82,7 @@ const stageLabel = (stages: AdminStageRow[], stageId: string) => {
 };
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : /(s|x|ch|sh)$/.test(word) ? 'es' : 's'}`;
 const messageOf = (err: unknown) => (err instanceof Error && err.message) || 'Something went wrong.';
 
 const TEXT_PLACEHOLDER: Record<Kind, string> = {
