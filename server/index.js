@@ -107,6 +107,40 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '256kb' }));
 
+// Request logging middleware for terminal visibility
+app.use((req, res, next) => {
+  const start = Date.now();
+  const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+  const ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+  const method = req.method;
+  const url = req.originalUrl || req.url;
+
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const status = res.statusCode;
+
+    let statusColor = '\x1b[32m'; // green 2xx
+    if (status >= 500) statusColor = '\x1b[31m'; // red 5xx
+    else if (status >= 400) statusColor = '\x1b[33m'; // yellow 4xx
+    else if (status >= 300) statusColor = '\x1b[36m'; // cyan 3xx
+
+    const reset = '\x1b[0m';
+    const dim = '\x1b[2m';
+    const bold = '\x1b[1m';
+
+    console.log(
+      `${dim}[${timestamp}]${reset} ` +
+      `${bold}${method.padEnd(7)}${reset} ` +
+      `${url.padEnd(30)} ` +
+      `${statusColor}${status}${reset} ` +
+      `${dim}${duration}ms${reset} ` +
+      `${dim}(${ip})${reset}`
+    );
+  });
+
+  next();
+});
+
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 function publicUser(user) {
@@ -214,6 +248,8 @@ app.post(
     // reasoning and server/db.js's `excelSync` for where failures land.
     excel.syncUser(store, user, store.getProgress(user.id), 'signup');
 
+    console.log(`\x1b[32m[AUTH]\x1b[0m New learner registered: "${username}" (${email})`);
+
     res.status(201).json({ token: signLearnerToken(user), user: publicUser(user), progress: store.getProgress(user.id) });
   })
 );
@@ -232,6 +268,8 @@ app.post(
     // Throttled so a chatty client logging in repeatedly does not hammer
     // Graph - a fresh sync on every login is not worth the API calls.
     if (!excel.shouldThrottle(store, user.id)) excel.syncUser(store, user, store.getProgress(user.id), 'login');
+
+    console.log(`\x1b[32m[AUTH]\x1b[0m Learner "${user.username}" logged in.`);
 
     res.json({ token: signLearnerToken(user), user: publicUser(user), progress: store.getProgress(user.id) });
   })
@@ -258,7 +296,11 @@ app.post(
     const userId = String(req.body?.userId ?? '');
     const password = String(req.body?.password ?? '');
     const result = await authenticateAdmin(userId, password);
-    if (!result.ok) return res.status(401).json({ error: result.error });
+    if (!result.ok) {
+      console.warn(`\x1b[33m[ADMIN AUTH]\x1b[0m Failed login attempt for user "${userId}": ${result.error}`);
+      return res.status(401).json({ error: result.error });
+    }
+    console.log(`\x1b[32m[ADMIN AUTH]\x1b[0m Administrator "${userId}" successfully authenticated.`);
     res.json({ token: signAdminToken(result.admin), admin: publicAdmin(result.admin) });
   })
 );
@@ -956,7 +998,7 @@ bootstrap()
       const snapshot = contentSnapshot();
       const bound = server.address();
       const actual = typeof bound === 'object' && bound ? bound.port : PORT;
-      console.log(`\n  CodeQuest API listening on http://localhost:${actual}`);
+      console.log(`\n  CodeConsist API listening on http://localhost:${actual}`);
       console.log(`  ${snapshot.challenges.length} challenges - ${store.db().users.length} accounts`);
       if (existsSync(DIST)) console.log('  serving the built app from dist/');
       console.log('');
