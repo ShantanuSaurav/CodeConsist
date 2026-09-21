@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ClipboardList, Trophy, X } from 'lucide-react';
+import { Check, ClipboardList, Trophy, X, Zap } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { Challenge, ExecutionResult } from '@/types';
 import { Answer, optionOrder } from '@/platform/grading-engine/answers';
 import { stageStatus } from '@/platform/progress';
+import { PASS_SCORE, isPassingSolve, rawScore } from '@/platform/xp-leveling/leveling';
 import { CodeBlock, LearningModeSwitch, useBodyScrollLock, useFocusTrap } from '@/ui';
 import { checkAnswer, definitionFor, emptyAnswer, isAnswerComplete, isCodeChallenge, typeLabel } from '../challenge-types';
 import { usePracticeSession } from '../session/PracticeSessionProvider';
@@ -28,6 +29,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     activeMode,
     activeChallenges,
     activeChallengeIndex,
+    reachableIndex,
     learningMode,
     setLearningMode,
     closePractice,
@@ -46,7 +48,11 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   // (`learningMode === null`) and then follow it; Learn mode is the only
   // place concept teaching, practice markers and immediate explanations show.
   const choosingMode = !isTestMode && learningMode === null;
-  const learnMode = !isTestMode && learningMode === 'learn';
+  // Learn mode only exists where there is something to learn: a lesson with
+  // no concept teaching is plain practice whatever the preference says, and
+  // the header shows "Practice" rather than a toggle that would do nothing.
+  const hasLearnContent = Boolean(challenge?.concept);
+  const learnMode = !isTestMode && learningMode === 'learn' && hasLearnContent;
 
   // "Review the concept" re-opens a teaching sequence that was already seen.
   // Reset per challenge, like every other piece of per-challenge state.
@@ -77,6 +83,8 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const [attempts, setAttempts] = useState(0);
   const [revealedHints, setRevealedHints] = useState(0);
   const [showSolution, setShowSolution] = useState(false);
+  /** Set when the answer was right but the score fell under the pass mark: the lesson is not recorded. */
+  const [failedPass, setFailedPass] = useState<number | null>(null);
 
   const [code, setCode] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -115,6 +123,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     setAttempts(0);
     setRevealedHints(0);
     setShowSolution(false);
+    setFailedPass(null);
     setExecResult(null);
     setIsRunning(false);
     setProgressMessage('');
@@ -159,6 +168,13 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const award = useCallback(
     async (target: Challenge, usedAttempts: number, submission: { answer?: unknown; code?: string }) => {
       const wasAlreadySolved = stats.completedChallenges.includes(target.id);
+      // Right answer, but too many retries or hints: the lesson is not
+      // completed (nothing is recorded) and the learner takes it again fresh.
+      // A lesson solved on an earlier visit keeps its credit regardless.
+      if (!wasAlreadySolved && !isPassingSolve(usedAttempts, revealedHints)) {
+        setFailedPass(rawScore(usedAttempts, revealedHints));
+        return;
+      }
       const xp = await completeChallenge(target, {
         attempts: usedAttempts,
         hintsUsed: revealedHints,
@@ -330,7 +346,8 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         if (finished) return;
-        if (checked && isCorrect) advance();
+        if (checked && isCorrect && failedPass !== null) resetForChallenge(challenge);
+        else if (checked && isCorrect) advance();
         else if (checked) handleTryAgain();
         else if (challenge && isCodeType(challenge)) handleRun();
         else if (challenge && isAnswerComplete(challenge, currentAnswer)) handleCheck();
@@ -347,8 +364,10 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     checked,
     isCorrect,
     finished,
+    failedPass,
     closePractice,
     advance,
+    resetForChallenge,
     handleCheck,
     handleRun,
     handleTryAgain
@@ -426,7 +445,12 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
               <div className="modal-meta">
                 <span className={`pill pill-${challenge.difficulty}`}>{challenge.difficulty}</span>
                 {alreadySolved && <span className="pill pill-done">solved before</span>}
-                {!isTestMode && <LearningModeSwitch size="sm" value={learningMode} onChange={setLearningMode} />}
+                {!isTestMode && hasLearnContent && <LearningModeSwitch size="sm" value={learningMode} onChange={setLearningMode} />}
+                {!isTestMode && !hasLearnContent && (
+                  <span className="pill pill-practice" title="This lesson has no teaching section - it is practice only">
+                    <Zap size={11} aria-hidden="true" /> Practice
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -444,14 +468,17 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
           <nav className="challenge-dots" aria-label="Challenges in this stage">
             {challenges.map((c, i) => {
               const done = stats.completedChallenges.includes(c.id);
+              // Lessons open in order: anything past the first unsolved one is locked.
+              const locked = i > reachableIndex;
               return (
                 <button
                   key={c.id}
                   type="button"
-                  className={`dot ${i === activeChallengeIndex ? 'is-active' : ''} ${done ? 'is-done' : ''}`.trim()}
+                  className={`dot ${i === activeChallengeIndex ? 'is-active' : ''} ${done ? 'is-done' : ''} ${locked ? 'is-locked' : ''}`.replace(/\s+/g, ' ').trim()}
                   onClick={() => goToChallenge(i)}
-                  title={`${i + 1}. ${c.title}${done ? ' (solved)' : ''}`}
-                  aria-label={`Go to challenge ${i + 1}: ${c.title}`}
+                  aria-disabled={locked || undefined}
+                  title={`${i + 1}. ${c.title}${done ? ' (solved)' : locked ? ` (solve lesson ${reachableIndex + 1} first)` : ''}`}
+                  aria-label={`${locked ? 'Locked' : 'Go to'} challenge ${i + 1}: ${c.title}`}
                   aria-current={i === activeChallengeIndex}
                 />
               );
@@ -698,12 +725,21 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                     <div className="feedback-heading-row">
                       <strong>
                         {isCorrect
-                          ? attempts === 1 && revealedHints === 0
-                            ? 'Correct, first try!'
-                            : 'Correct!'
+                          ? failedPass !== null
+                            ? 'Correct, but not passed.'
+                            : attempts === 1 && revealedHints === 0
+                              ? 'Correct, first try!'
+                              : 'Correct!'
                           : 'Not quite.'}
                       </strong>
-                      {isCorrect && (
+                      {isCorrect && failedPass !== null && (
+                        <div className="feedback-points-cluster">
+                          <span className="feedback-score-pill">
+                            Score: {failedPass}% · pass mark {PASS_SCORE}%
+                          </span>
+                        </div>
+                      )}
+                      {isCorrect && failedPass === null && (
                         <div className="feedback-points-cluster">
                           {lastAwarded?.challengeId === challenge.id && lastAwarded.xp > 0 ? (
                             <>
@@ -732,7 +768,11 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       Practice mode keeps the question a question: one more
                       look before the explanation is given away.
                     */}
-                    {learnMode ? (
+                    {failedPass !== null ? (
+                      <span>
+                        That took too many tries or hints to count. The lesson is not marked done - retry it for a fresh attempt.
+                      </span>
+                    ) : learnMode ? (
                       <>
                         {!isCorrect && selectedOptionText && <span>You answered "{selectedOptionText}". </span>}
                         <span>{challenge.explanation}</span>
@@ -779,13 +819,18 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                 </button>
               )}
 
-              {checked && isCorrect ? (
+              {checked && isCorrect && failedPass !== null ? (
+                <button type="button" className="btn btn-solid" onClick={() => resetForChallenge(challenge)}>
+                  Retry lesson
+                </button>
+              ) : checked && isCorrect ? (
                 <button type="button" className="btn btn-solid" onClick={advance}>
                   {activeChallengeIndex + 1 < challenges.length ? 'Next' : 'Finish stage'}
                 </button>
               ) : checked ? (
                 <>
-                  {!isTestMode && (
+                  {/* Skipping is only for a lesson already solved on an earlier visit; an unsolved one gates everything after it. */}
+                  {!isTestMode && stats.completedChallenges.includes(challenge.id) && (
                     <button type="button" className="btn btn-line" onClick={advance}>
                       Skip
                     </button>

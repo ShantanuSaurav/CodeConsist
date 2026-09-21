@@ -2,21 +2,19 @@
 /* ==========================================================================
    Welcome intro - the first thing a new visitor sees at "/".
 
-   The mark assembles itself from its own layers, in the order a book would
-   come together, then the cursor's click types the name. One timeline,
-   about 2.4 s to the call to action:
-
+   The mark assembles itself from its own layers in sequence:
      0.00  base bands draw outward from the spine
      0.30  the two pages open from the spine
      0.80  "<" then ">" land - keystrokes
      1.00  cursor slides in from the corner, clicks at ~1.40
      1.45  "Devlingo" types out behind a caret (8 × 55 ms, WelcomeIntro.tsx)
+     1.80  mark begins beating with an ambient accent glow
      1.85  tagline, one word at a time
      2.15  actions
 
-   Everything is opacity, transform and clip-path (compositor-friendly); no
-   glow, blur, bounce or loops except the caret blink, which ends. Reduced
-   motion shows the finished frame at once.
+   Choosing an action fades the whole thing out before the next screen
+   appears. With reduced motion the intro is simply visible and leaves at
+   once.
    ========================================================================== */
 
 .welcome {
@@ -30,6 +28,11 @@
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+  transition: opacity 320ms var(--ease);
+}
+.welcome.is-leaving {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .welcome-inner {
@@ -49,12 +52,39 @@
 
 /* ------------------------------------------------------------------ mark */
 
+.welcome-logo-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.welcome-logo-glow {
+  position: absolute;
+  width: 140%;
+  height: 140%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--accent-ring), transparent 70%);
+  filter: blur(14px);
+  opacity: 0;
+  animation: logoGlow 2.4s ease-in-out 1800ms infinite;
+  pointer-events: none;
+}
 .welcome-mark {
   position: relative;
   width: clamp(10rem, 28vw, 13.5rem);
   aspect-ratio: 640 / 512;
   user-select: none;
+  animation: logoBreathe 2.4s ease-in-out 1800ms infinite;
 }
+
+@keyframes logoGlow {
+  0%, 100% { opacity: 0;   transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.05); }
+}
+@keyframes logoBreathe {
+  0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 0 transparent); }
+  50%      { transform: scale(1.04); filter: drop-shadow(0 0 22px var(--accent-ring)); }
+}
+
 .welcome-layer {
   position: absolute;
   inset: 0;
@@ -213,10 +243,17 @@
   transition: color var(--fast) var(--ease);
 }
 .welcome-secondary:hover { color: var(--text); }
+.welcome-secondary:disabled { cursor: default; }
 
 /* ------------------------------------------------------- reduced motion */
 
 @media (prefers-reduced-motion: reduce) {
+  .welcome { transition: none; }
+  .welcome-mark,
+  .welcome-logo-glow {
+    animation: none;
+  }
+  .welcome-logo-glow { opacity: 0; }
   .welcome-layer,
   .welcome-word,
   .welcome-actions {

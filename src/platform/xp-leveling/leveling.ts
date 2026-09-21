@@ -90,6 +90,23 @@ export function scoreSolve(attempts: number, hintsUsed: number): number {
   return Math.max(50, 100 - penalty);
 }
 
+/**
+ * The pass mark. A correct answer only completes the lesson when the raw
+ * score (before the half-credit floor above) is still at or above this:
+ * up to four retries, or hints, in any mix that costs 40 points or fewer.
+ * Below it the lesson is not recorded - the learner retries it fresh.
+ */
+export const PASS_SCORE = 60;
+
+/** The score before the floor - what the pass mark is measured against. */
+export function rawScore(attempts: number, hintsUsed: number): number {
+  return Math.max(0, 100 - (Math.max(0, attempts - 1) * 10 + hintsUsed * 10));
+}
+
+export function isPassingSolve(attempts: number, hintsUsed: number): boolean {
+  return rawScore(attempts, hintsUsed) >= PASS_SCORE;
+}
+
 export function xpForSolve(xpReward: number, attempts: number, hintsUsed: number): number {
   return Math.max(1, Math.round((xpReward * scoreSolve(attempts, hintsUsed)) / 100));
 }

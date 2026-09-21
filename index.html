@@ -20,9 +20,46 @@
       document.documentElement.setAttribute('data-theme', 'dark');
     }
   </script>
+
+  <!-- The boot splash: painted by the browser before any script runs, and
+       replaced the moment React mounts. It is the same composition as the
+       app's own AppSplash (src/ui/primitives/Skeleton.tsx) so the hand-over
+       is invisible. Self-contained on purpose: the design tokens have not
+       loaded yet, so the two colours it needs are inlined here. -->
+  <style>
+    html, body { margin: 0; background: #F6F7F9; }
+    html.dark, html.dark body { background: #090B0D; }
+    .boot {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+      color: #0F172A;
+    }
+    html.dark .boot { color: #F3F4F6; }
+    .boot img { width: 140px; height: 112px; object-fit: contain; display: block; animation: bootBlink 2.4s ease-in-out infinite; }
+    .boot-name { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+    .boot-track { width: 160px; height: 3px; border-radius: 999px; background: #E8EBEF; overflow: hidden; }
+    html.dark .boot-track { background: #1A1F26; }
+    .boot-fill { display: block; width: 40%; height: 100%; border-radius: inherit; background: #15803D; animation: bootSweep 1.3s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+    html.dark .boot-fill { background: #7BE06E; }
+    .boot-status { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: #6B7280; }
+    html.dark .boot-status { color: #71717A; }
+    @keyframes bootSweep { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+    @keyframes bootBlink { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 transparent); } 50% { transform: scale(1.04); filter: drop-shadow(0 0 18px rgba(21, 128, 61, 0.35)); } }
+    html.dark .boot img { animation-name: bootBlinkDark; }
+    @keyframes bootBlinkDark { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 transparent); } 50% { transform: scale(1.04); filter: drop-shadow(0 0 18px rgba(123, 224, 110, 0.35)); } }
+    @media (prefers-reduced-motion: reduce) { .boot img { animation: none; } }
+  </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <div class="boot" role="status" aria-label="Loading Devlingo">
+      <img src="/apple-touch-icon.png" alt="" width="140" height="112" />
+      <div class="boot-name">Devlingo</div>
+      <div class="boot-track" aria-hidden="true"><span class="boot-fill"></span></div>
+      <div class="boot-status">Loading Devlingo</div>
+    </div>
+  </div>
   <script type="module" src="/src/app/main.tsx"></script>
 </body>
 </html>

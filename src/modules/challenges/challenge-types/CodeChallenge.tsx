@@ -87,8 +87,11 @@ function getTestCaseTitle(
   entryFunction?: string,
   isUi?: boolean
 ): string {
-  if (tc.hidden && !tc.result) {
-    return `Hidden Test ${tc.index + 1}`;
+  // A hidden case stays hidden: the learner sees that it exists and whether
+  // it passed, never its arguments or expected value - like an interview or a
+  // CI run. Its label, if the author wrote one, is fine to show.
+  if (tc.hidden) {
+    return tc.description ?? `Hidden test ${tc.index + 1}`;
   }
   if (tc.description) {
     return tc.description;
@@ -216,10 +219,14 @@ function getTestCaseTitle(
                   </div>
 
                   <div className="test-row-meta">
-                    <span className="test-expect">
-                      expected <code>{tc.expected}</code>
-                    </span>
-                    {tc.result && !tc.result.passed && (
+                    {tc.hidden ? (
+                      <span className="test-expect">hidden case</span>
+                    ) : (
+                      <span className="test-expect">
+                        expected <code>{tc.expected}</code>
+                      </span>
+                    )}
+                    {!tc.hidden && tc.result && !tc.result.passed && (
                       <span className="test-actual">
                         got <code>{tc.result.actual}</code>
                       </span>
@@ -228,7 +235,7 @@ function getTestCaseTitle(
                       <span className="test-time">{tc.result.timeMs}ms</span>
                     )}
                   </div>
-                  {tc.result?.logs && (
+                  {!tc.hidden && tc.result?.logs && (
                     <pre className="test-logs">{tc.result.logs}</pre>
                   )}
                 </li>

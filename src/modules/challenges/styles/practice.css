@@ -123,6 +123,8 @@
 .challenge-dots .dot:hover { background: var(--border-strong); }
 .challenge-dots .dot.is-done { background: var(--success); opacity: 0.7; }
 .challenge-dots .dot.is-active { background: var(--accent); opacity: 1; }
+.challenge-dots .dot.is-locked { opacity: 0.4; cursor: not-allowed; }
+.challenge-dots .dot.is-locked:hover { background: var(--surface-3); }
 
 /* --------------------------------------------------------------------- body */
 

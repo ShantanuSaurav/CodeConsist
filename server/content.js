@@ -10,6 +10,7 @@ import { readdir, stat, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as store from './db.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -98,12 +99,68 @@ function index(payload) {
   }
 }
 
-export function getChallenge(id) {
+/**
+ * Every question stored in server/db.js `customChallenges`, stripped of its
+ * bookkeeping so it looks exactly like an authored Challenge. A stored record
+ * is either a **created** question (an id the authored bank does not have) or
+ * a **modified** one (an authored id whose full replacement lives here under
+ * the same id) - the bank membership decides which, nothing on the record.
+ */
+export function customChallenges() {
+  return store.allCustomChallenges().map(stripCustom);
+}
+
+/** Only createdAt/updatedAt are bookkeeping; the rest must pass the strict schema as-is. */
+function stripCustom(record) {
+  if (!record) return null;
+  const { createdAt, updatedAt, ...challenge } = record;
+  return challenge;
+}
+
+/** The untouched authored challenge (src/modules/challenges/content), or null. */
+export function authoredChallenge(id) {
   return cached?.byId?.get(id) ?? null;
 }
 
+/**
+ * Authored, modified or created - the store wins for any id, so a modified
+ * question is served in place of its authored original.
+ */
+export function getChallenge(id) {
+  return stripCustom(store.getCustomChallenge(id)) ?? authoredChallenge(id);
+}
+
+/**
+ * The authored list in authored order with modified questions substituted in
+ * place, then the created ones appended in store (creation) order - so an
+ * edit never moves a lesson, and a new question lands at the end of its stage.
+ */
+function mergeBank(authored) {
+  const stored = new Map(customChallenges().map((c) => [c.id, c]));
+  const merged = authored.map((c) => stored.get(c.id) ?? c);
+  const authoredIds = new Set(authored.map((c) => c.id));
+  for (const c of stored.values()) if (!authoredIds.has(c.id)) merged.push(c);
+  return merged;
+}
+
+/** Every challenge in a stage, in the order learners see them. */
 export function stageChallenges(stageId) {
-  return cached?.byStage?.get(stageId) ?? [];
+  return allChallenges().filter((c) => c.stageId === stageId);
+}
+
+/** The whole bank, authored + modified + created, hidden ones included. */
+export function allChallenges() {
+  return mergeBank(cached?.challenges ?? []);
+}
+
+/** True only for a created question: written in the console, no authored original. */
+export function isCustomChallenge(id) {
+  return Boolean(store.getCustomChallenge(id)) && !cached?.byId?.has(id);
+}
+
+/** True for a modified question: an authored id whose replacement is in the store. */
+export function isModifiedChallenge(id) {
+  return Boolean(cached?.byId?.has(id) && store.getCustomChallenge(id));
 }
 
 export function contentSnapshot() {
@@ -134,7 +191,9 @@ export function applyLearnerOverrides(snapshot, overrides) {
     .map(({ stage }) => applyStageOverride(stage, stageOverrides));
 
   const visibleStageIds = new Set(stages.map((s) => s.id));
-  const challenges = snapshot.challenges
+  // The same merged bank as allChallenges(): modified questions replace their
+  // original in place, created ones follow the authored lessons of their stage.
+  const challenges = mergeBank(snapshot.challenges)
     .filter((c) => visibleStageIds.has(c.stageId) && !challengeOverrides[c.id]?.hidden)
     .map((c) => applyChallengeOverride(c, challengeOverrides));
 

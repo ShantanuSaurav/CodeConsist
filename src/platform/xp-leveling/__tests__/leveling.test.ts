@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentStreak, dayKey, levelFromXp, levelProgress, nextStreak, previousDayKey, scoreSolve, xpForLevel, xpForSolve } from '../leveling';
+import { PASS_SCORE, currentStreak, dayKey, isPassingSolve, levelFromXp, levelProgress, nextStreak, previousDayKey, rawScore, scoreSolve, xpForLevel, xpForSolve } from '../leveling';
 import { achievements, activityGrid, rankTitle, solvedOn } from '../insights';
 import type { Stage, UserStats } from '@/types';
 
@@ -79,5 +79,24 @@ describe('insights', () => {
   it('names ranks by level band', () => {
     expect(rankTitle(1)).toBe('Apprentice');
     expect(rankTitle(10)).toBe('Senior Developer');
+  });
+});
+
+describe('pass mark', () => {
+  it('measures the raw score, without the half-credit floor', () => {
+    expect(rawScore(1, 0)).toBe(100);
+    expect(rawScore(5, 0)).toBe(60);
+    expect(rawScore(6, 0)).toBe(50);
+    expect(rawScore(3, 3)).toBe(50);
+    expect(rawScore(20, 0)).toBe(0);
+  });
+
+  it('passes at or above PASS_SCORE and fails below it', () => {
+    expect(PASS_SCORE).toBe(60);
+    expect(isPassingSolve(1, 0)).toBe(true);
+    expect(isPassingSolve(5, 0)).toBe(true); // 60: exactly the mark
+    expect(isPassingSolve(3, 2)).toBe(true); // 60
+    expect(isPassingSolve(6, 0)).toBe(false); // 50
+    expect(isPassingSolve(2, 4)).toBe(false); // 50
   });
 });

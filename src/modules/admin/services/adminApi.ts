@@ -17,10 +17,13 @@ const BASE = '/api';
 
 export class AdminApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** The response body, when the server sent one - e.g. `issues` on a 422. */
+  payload: unknown;
+  constructor(message: string, status: number, payload: unknown = null) {
     super(message);
     this.name = 'AdminApiError';
     this.status = status;
+    this.payload = payload;
   }
 }
 
@@ -63,7 +66,7 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
   }
 
   if (!response.ok) {
-    throw new AdminApiError(payload?.error || `Request failed (${response.status})`, response.status);
+    throw new AdminApiError(payload?.error || `Request failed (${response.status})`, response.status, payload);
   }
   return payload as T;
 }
@@ -128,7 +131,83 @@ export interface AdminChallengeRow {
   xpReward: number;
   isStageTest?: boolean;
   hidden: boolean;
+  /** Written in the console (created): not in the authored bank, deletable. */
+  custom: boolean;
+  /** An authored question whose full replacement was saved here (modified) - it can be reverted. */
+  modified: boolean;
+  /** The AUTHORED version's presentational fields (the row's own, for a created question). */
   original: { title: string; prompt: string; explanation: string; xpReward: number; difficulty: string };
+  /** Present only when the authored original carries Learn-mode teaching steps; the console never edits them. */
+  concept?: unknown;
+  /* The question's own fields, returned in full so any question can be re-opened for editing. */
+  codeSnippet?: string;
+  options?: string[];
+  correctIndex?: number;
+  correctIndices?: number[];
+  blanks?: { answer: string; alternatives?: string[]; choices?: string[] }[];
+  pseudocodeLines?: string[];
+  starterCode?: string;
+  entryFunction?: string;
+  solutionCode?: string;
+  testCases?: { input: string; expected: string; hidden?: boolean; description?: string }[];
+  uiPreview?: boolean;
+  /* Stage tests show these instead of hints. */
+  examples?: { input: string; output: string; explanation?: string }[];
+  constraints?: string[];
+}
+
+/** What the question wizard sends. The server tidies it and validates it against the content schema. */
+export interface QuestionInput {
+  stageId: string;
+  type: 'quiz' | 'multi_select' | 'output_prediction' | 'fill_blank' | 'pseudocode_order' | 'debug' | 'code_runner';
+  title: string;
+  prompt: string;
+  explanation: string;
+  language: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  xpReward: number;
+  hints: string[];
+  tags: string[];
+  codeSnippet?: string;
+  options?: string[];
+  correctIndex?: number;
+  correctIndices?: number[];
+  blanks?: { answer: string; alternatives: string[]; choices: string[] }[];
+  pseudocodeLines?: string[];
+  starterCode?: string;
+  entryFunction?: string;
+  solutionCode?: string;
+  testCases?: { input: string; expected: string; hidden: boolean; description: string }[];
+  uiPreview?: boolean;
+  /* Code questions only; the server ignores them on other types. */
+  examples?: { input: string; output: string; explanation: string }[];
+  constraints?: string[];
+}
+
+/** One problem with a question, tied to the form field it is about (`path` like `options.2` or `testCases.0.expected`). */
+export interface QuestionIssue {
+  path: string;
+  message: string;
+}
+
+/** The result of running a coding question's solution on the server. */
+export interface SolutionRun {
+  status: 'passed' | 'failed' | 'error' | 'skipped';
+  reason?: string;
+  stderr?: string;
+  testResults?: { input: string; expected: string; actual?: string; passed: boolean; error?: string }[];
+}
+
+export interface QuestionVerification {
+  solution: SolutionRun | null;
+  /** For debug questions: the broken starter, which must NOT pass. */
+  starter: SolutionRun | null;
+}
+
+export interface QuestionCheck {
+  ok: boolean;
+  issues: QuestionIssue[];
+  verification: QuestionVerification | null;
 }
 
 export interface AdminLanguageRow {
@@ -155,7 +234,56 @@ export interface DashboardSummary {
   };
   signupsByDay: { day: string; signups: number }[];
   judge0Configured: boolean;
+  geminiConfigured: boolean;
   excel: ExcelStatus;
+}
+
+/* --------------------------------------------- Gemini question assistant */
+
+/** The wizard's question kinds, as the AI routes name them (`frontend` is a code question in HTML). */
+export type AiKind = QuestionInput['type'] | 'frontend';
+
+export interface AiStatus {
+  configured: boolean;
+  model: string;
+}
+
+/** Where Gemini thinks a draft belongs. `confidence` is 0-1. */
+export interface AiFit {
+  stageId: string;
+  confidence: number;
+  reason: string;
+  alternatives: { stageId: string; reason: string }[];
+}
+
+/** An existing question that overlaps with the draft, with Gemini's label for the overlap. */
+export interface AiCandidate {
+  id: string;
+  title: string;
+  stageId: string;
+  stageName: string;
+  type: string;
+  /** Word overlap 0-1, before Gemini looked. */
+  score: number;
+  verdict: 'duplicate' | 'similar' | 'distinct';
+  reason: string;
+}
+
+/** Computed server-side from the candidates' labels - never by Gemini itself. */
+export interface AiVerdict {
+  push: 'yes' | 'caution' | 'no';
+  reason: string;
+}
+
+export interface AiSuggestion {
+  title: string;
+  prompt: string;
+  kind: AiKind;
+  difficulty: 'easy' | 'medium' | 'hard';
+  why: string;
+  /** False when an existing question already covers most of it (see `overlaps`). */
+  novel: boolean;
+  overlaps: { id: string; title: string; score: number }[];
 }
 
 export interface ExcelStatus {
@@ -268,6 +396,41 @@ export const adminApi = {
     return request(`/admin/content/challenges${stageId ? `?stageId=${encodeURIComponent(stageId)}` : ''}`);
   },
 
+  /**
+   * Check a question without saving it - field problems plus, for code, the
+   * solution's test run. `existingId` names the question being edited, so an
+   * authored stage test is held to its extra rules (must stay a code question
+   * with a worked example).
+   */
+  async validateQuestion(input: QuestionInput, existingId?: string): Promise<QuestionCheck> {
+    return request(`/admin/content/challenges/validate${existingId ? `?id=${encodeURIComponent(existingId)}` : ''}`, { method: 'POST', body: input });
+  },
+
+  /** Save a new question. A 422 carries `issues` in the error payload. The returned row is complete (`custom`, `hidden`, `modified`, `original`). */
+  async createQuestion(input: QuestionInput): Promise<{ challenge: AdminChallengeRow; verification: QuestionVerification | null }> {
+    return request('/admin/content/challenges', { method: 'POST', body: input });
+  },
+
+  /**
+   * Replace a question in full. For a created one this overwrites it; for an
+   * authored one the server stores the replacement under the same id (the
+   * row comes back `modified: true`) and learners see it in the original's
+   * place. The returned row is complete, like `createQuestion`'s.
+   */
+  async replaceQuestion(id: string, input: QuestionInput): Promise<{ challenge: AdminChallengeRow; verification: QuestionVerification | null }> {
+    return request(`/admin/content/challenges/${id}`, { method: 'PUT', body: input });
+  },
+
+  /** Put the authored original back: drops the modified replacement (409 when there is none). `hidden` is kept. */
+  async revertQuestion(id: string): Promise<{ challenge: AdminChallengeRow }> {
+    return request(`/admin/content/challenges/${id}/revert`, { method: 'POST' });
+  },
+
+  /** Delete a created question. Authored ones answer 409 (`{ authored: true, modified }`) - hide or revert those instead. */
+  async deleteQuestion(id: string): Promise<{ ok: true; deleted: true }> {
+    return request(`/admin/content/challenges/${id}`, { method: 'DELETE' });
+  },
+
   async updateChallenge(
     id: string,
     patch: Partial<{
@@ -282,6 +445,27 @@ export const adminApi = {
     }>
   ): Promise<{ override: unknown }> {
     return request(`/admin/content/challenges/${id}`, { method: 'PATCH', body: patch });
+  },
+
+  /* Gemini question assistant. The key lives only in the API server's .env; a 503 with `notConfigured` in the payload means it is unset. */
+
+  async aiStatus(): Promise<AiStatus> {
+    return request('/admin/ai/status');
+  },
+
+  /** Gemini writes the whole question from the admin's words and names the stage it fits best. Nothing is saved. */
+  async aiDraft(input: { kind: AiKind; text: string; stageId?: string }): Promise<{ draft: QuestionInput; fit: AiFit }> {
+    return request('/admin/ai/draft', { method: 'POST', body: input });
+  },
+
+  /** Which existing questions overlap with a draft, and whether it should be pushed. `text` is the admin's original wording, if any. */
+  async aiDuplicates(input: { draft: QuestionInput; text?: string }): Promise<{ candidates: AiCandidate[]; verdict: AiVerdict }> {
+    return request('/admin/ai/duplicates', { method: 'POST', body: input });
+  },
+
+  /** Ideas for questions a stage does not have yet. `count` is 1-10 (default 5). */
+  async aiSuggest(input: { stageId: string; kind?: AiKind; count?: number }): Promise<{ suggestions: AiSuggestion[] }> {
+    return request('/admin/ai/suggest', { method: 'POST', body: input });
   },
 
   async excelStatus(): Promise<ExcelStatus & { sync: { rowIndexByUserId: Record<string, number>; lastSyncedAtByUser: Record<string, string>; lastFullSyncAt: string | null; failures: { id: string; userId: string; username: string; reason: string; error: string; at: string }[] } }> {

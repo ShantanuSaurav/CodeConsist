@@ -24,7 +24,7 @@ export default defineConfig(({ mode }) => {
     test: {
       globals: true,
       environment: 'node',
-      include: ['src/**/__tests__/**/*.test.ts', 'src/**/*.test.ts']
+      include: ['src/**/__tests__/**/*.test.ts', 'src/**/*.test.ts', 'server/__tests__/**/*.test.mjs']
     },
     server: {
       port: 3000,

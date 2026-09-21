@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Badge as UiBadge, Button as UiButton, Switch } from '@/ui';
 import type { BadgeTone } from '@/ui';
@@ -11,11 +11,30 @@ import type { BadgeTone } from '@/ui';
  * exposed here are exactly the ones the backend accepts.
  */
 
-export const Field: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({ label, hint, children }) => (
+export const Field: React.FC<{ label: string; hint?: string; error?: string; required?: boolean; children: React.ReactNode }> = ({
+  label,
+  hint,
+  error,
+  required,
+  children
+}) => (
   <label className="block mb-4">
-    <span className="field-label">{label}</span>
+    <span className="field-label">
+      {label}
+      {required && (
+        <span className="text-error ml-0.5" aria-hidden="true">
+          *
+        </span>
+      )}
+    </span>
     {children}
-    {hint && <span className="field-hint">{hint}</span>}
+    {error ? (
+      <span className="field-hint text-error" role="alert">
+        {error}
+      </span>
+    ) : (
+      hint && <span className="field-hint">{hint}</span>
+    )}
   </label>
 );
 
@@ -27,17 +46,21 @@ export const TextField: React.FC<{
   onChange: (value: string) => void;
   placeholder?: string;
   hint?: string;
+  error?: string;
+  required?: boolean;
   maxLength?: number;
   disabled?: boolean;
-}> = ({ label, value, onChange, placeholder, hint, maxLength, disabled }) => (
-  <Field label={label} hint={hint}>
+  mono?: boolean;
+}> = ({ label, value, onChange, placeholder, hint, error, required, maxLength, disabled, mono }) => (
+  <Field label={label} hint={hint} error={error} required={required}>
     <input
       type="text"
-      className={inputClass}
+      className={`${inputClass} ${mono ? 'font-mono' : ''} ${error ? 'is-invalid' : ''}`.trim()}
       value={value}
       placeholder={placeholder}
       maxLength={maxLength}
       disabled={disabled}
+      aria-invalid={error ? true : undefined}
       onChange={(e) => onChange(e.target.value)}
     />
   </Field>
@@ -49,17 +72,57 @@ export const TextArea: React.FC<{
   onChange: (value: string) => void;
   placeholder?: string;
   hint?: string;
+  error?: string;
+  required?: boolean;
   rows?: number;
   maxLength?: number;
-}> = ({ label, value, onChange, placeholder, hint, rows = 3, maxLength }) => (
-  <Field label={label} hint={hint}>
+}> = ({ label, value, onChange, placeholder, hint, error, required, rows = 3, maxLength }) => (
+  <Field label={label} hint={hint} error={error} required={required}>
     <textarea
-      className={inputClass}
+      className={`${inputClass} ${error ? 'is-invalid' : ''}`.trim()}
       value={value}
       placeholder={placeholder}
       rows={rows}
       maxLength={maxLength}
+      aria-invalid={error ? true : undefined}
       onChange={(e) => onChange(e.target.value)}
+    />
+  </Field>
+);
+
+/** A monospace, tab-friendly textarea for code: snippets, starter code, solutions. */
+export const CodeArea: React.FC<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  hint?: string;
+  error?: string;
+  required?: boolean;
+  rows?: number;
+}> = ({ label, value, onChange, placeholder, hint, error, required, rows = 6 }) => (
+  <Field label={label} hint={hint} error={error} required={required}>
+    <textarea
+      className={`${inputClass} font-mono text-[13px] leading-relaxed whitespace-pre ${error ? 'is-invalid' : ''}`.trim()}
+      value={value}
+      placeholder={placeholder}
+      rows={rows}
+      spellCheck={false}
+      autoCapitalize="off"
+      autoCorrect="off"
+      wrap="off"
+      aria-invalid={error ? true : undefined}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        // Tab indents instead of leaving the field, like an editor.
+        if (e.key !== 'Tab') return;
+        e.preventDefault();
+        const el = e.currentTarget;
+        const { selectionStart, selectionEnd } = el;
+        const next = `${value.slice(0, selectionStart)}  ${value.slice(selectionEnd)}`;
+        onChange(next);
+        requestAnimationFrame(() => el.setSelectionRange(selectionStart + 2, selectionStart + 2));
+      }}
     />
   </Field>
 );
@@ -71,14 +134,17 @@ export const NumberField: React.FC<{
   min?: number;
   max?: number;
   hint?: string;
-}> = ({ label, value, onChange, min, max, hint }) => (
-  <Field label={label} hint={hint}>
+  error?: string;
+  required?: boolean;
+}> = ({ label, value, onChange, min, max, hint, error, required }) => (
+  <Field label={label} hint={hint} error={error} required={required}>
     <input
       type="number"
-      className={inputClass}
+      className={`${inputClass} ${error ? 'is-invalid' : ''}`.trim()}
       value={Number.isFinite(value) ? value : 0}
       min={min}
       max={max}
+      aria-invalid={error ? true : undefined}
       onChange={(e) => onChange(Number(e.target.value))}
     />
   </Field>
@@ -90,9 +156,11 @@ export const SelectField: React.FC<{
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
   hint?: string;
-}> = ({ label, value, onChange, options, hint }) => (
-  <Field label={label} hint={hint}>
-    <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value)}>
+  error?: string;
+  required?: boolean;
+}> = ({ label, value, onChange, options, hint, error, required }) => (
+  <Field label={label} hint={hint} error={error} required={required}>
+    <select className={`${inputClass} ${error ? 'is-invalid' : ''}`.trim()} value={value} aria-invalid={error ? true : undefined} onChange={(e) => onChange(e.target.value)}>
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>
           {opt.label}
@@ -102,34 +170,46 @@ export const SelectField: React.FC<{
   </Field>
 );
 
-export const TagsField: React.FC<{ label: string; value: string[]; onChange: (value: string[]) => void; hint?: string }> = ({
+/**
+ * Comma-separated tags. The raw text is local state: deriving it from the
+ * parsed list on every keystroke would swallow the comma being typed
+ * ("a," -> ["a"] -> "a"), so a second tag could never be entered.
+ */
+export const TagsField: React.FC<{ label: string; value: string[]; onChange: (value: string[]) => void; hint?: string; placeholder?: string }> = ({
   label,
   value,
   onChange,
-  hint
-}) => (
-  <Field label={label} hint={hint ?? 'Comma-separated'}>
-    <input
-      type="text"
-      className={inputClass}
-      value={value.join(', ')}
-      onChange={(e) =>
-        onChange(
-          e.target.value
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-        )
-      }
-    />
-  </Field>
-);
+  hint,
+  placeholder
+}) => {
+  const [text, setText] = useState(value.join(', '));
+  return (
+    <Field label={label} hint={hint ?? 'Comma-separated'}>
+      <input
+        type="text"
+        className={inputClass}
+        value={text}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setText(e.target.value);
+          onChange(
+            e.target.value
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          );
+        }}
+      />
+    </Field>
+  );
+};
 
-export const Toggle: React.FC<{ label: string; checked: boolean; onChange: (checked: boolean) => void; hint?: string }> = ({
+export const Toggle: React.FC<{ label: string; checked: boolean; onChange: (checked: boolean) => void; hint?: string; ariaLabel?: string }> = ({
   label,
   checked,
   onChange,
-  hint
+  hint,
+  ariaLabel
 }) => (
   <div className={`flex items-center justify-between gap-3 ${label ? 'py-2' : ''}`}>
     {label && (
@@ -138,7 +218,7 @@ export const Toggle: React.FC<{ label: string; checked: boolean; onChange: (chec
         {hint && <span className="block text-xs text-fg-muted">{hint}</span>}
       </span>
     )}
-    <Switch checked={checked} onChange={onChange} ariaLabel={label || undefined} />
+    <Switch checked={checked} onChange={onChange} ariaLabel={ariaLabel ?? (label || undefined)} />
   </div>
 );
 
@@ -184,29 +264,47 @@ export const Table: React.FC<{ children: React.ReactNode; className?: string }> 
   </div>
 );
 
-/** Side drawer used for editing one record - stages, challenges, etc. */
-export const Drawer: React.FC<{ open: boolean; title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }> = ({
-  open,
-  title,
-  onClose,
-  children,
-  footer
-}) => {
+/** Side drawer used for editing one record - stages, challenges, etc. `size="lg"` for multi-column forms. */
+export const Drawer: React.FC<{
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  size?: 'md' | 'lg';
+  /** False while a save is in flight: Escape, the backdrop and the X then do nothing. */
+  closable?: boolean;
+}> = ({ open, title, onClose, children, footer, size = 'md', closable = true }) => {
+  const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!open) return;
+    if (!open || !closable) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, closable, onClose]);
+
+  // Focus moves into the drawer on open (Tab would otherwise walk the page
+  // behind the overlay) and back to whatever opened it on close.
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    panel.current?.focus();
+    return () => opener?.focus?.();
+  }, [open]);
 
   if (!open) return null;
+  const close = () => closable && onClose();
   return (
-    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="absolute right-0 top-0 h-full w-full max-w-md bg-surface border-l border-border shadow-dialog flex flex-col">
+    <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label={title} aria-busy={!closable || undefined}>
+      <div className="absolute inset-0 bg-black/50" onClick={close} />
+      <div
+        ref={panel}
+        tabIndex={-1}
+        className={`absolute right-0 top-0 h-full w-full ${size === 'lg' ? 'max-w-3xl' : 'max-w-md'} bg-surface border-l border-border shadow-dialog flex flex-col outline-none`}
+      >
         <div className="flex items-center justify-between px-5 h-14 border-b border-border">
           <h2 className="text-base font-semibold text-fg truncate">{title}</h2>
-          <UiButton variant="ghost" size="sm" icon onClick={onClose} aria-label="Close">
+          <UiButton variant="ghost" size="sm" icon onClick={close} disabled={!closable} aria-label="Close">
             <X size={16} />
           </UiButton>
         </div>
@@ -227,16 +325,27 @@ export const ConfirmDialog: React.FC<{
   onCancel: () => void;
 }> = ({ open, title, message, confirmLabel = 'Confirm', onConfirm, onCancel }) => {
   const ref = useRef<HTMLDivElement>(null);
+  const id = useId();
   useEffect(() => {
     if (open) ref.current?.focus();
   }, [open]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="alertdialog" aria-modal="true">
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-message`}
+    >
       <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
       <div ref={ref} tabIndex={-1} className="relative bg-surface border border-border rounded-lg shadow-dialog max-w-sm w-full p-5 outline-none">
-        <h3 className="text-base font-semibold text-fg mb-1.5">{title}</h3>
-        <p className="text-sm text-fg-secondary mb-5">{message}</p>
+        <h3 id={`${id}-title`} className="text-base font-semibold text-fg mb-1.5">
+          {title}
+        </h3>
+        <p id={`${id}-message`} className="text-sm text-fg-secondary mb-5">
+          {message}
+        </p>
         <div className="flex justify-end gap-2">
           <UiButton variant="secondary" onClick={onCancel}>
             Cancel
