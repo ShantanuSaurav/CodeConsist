@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/config/routes';
-import { STORAGE_KEYS, readString, writeString } from '@/platform/storage/storage';
+import { STORAGE_KEYS, remove } from '@/platform/storage/storage';
 import { Navbar } from '../components/Navbar';
 import { Hero } from '../components/Hero';
 import { SocialProof } from '../components/SocialProof';
@@ -12,22 +12,43 @@ import { FinalCTA } from '../components/FinalCTA';
 import { Footer } from '../components/Footer';
 import { WelcomeIntro } from '../components/WelcomeIntro';
 
+/** Session-only memory - the intro should greet every visit, not just the first one ever. */
+const introSeen = () => {
+  try {
+    return window.sessionStorage.getItem(STORAGE_KEYS.intro) === '1';
+  } catch {
+    return false;
+  }
+};
+const rememberIntro = () => {
+  try {
+    window.sessionStorage.setItem(STORAGE_KEYS.intro, '1');
+  } catch {
+    /* private mode or blocked storage: the intro simply plays again */
+  }
+};
 /**
  * "/" - the public entry point.
  *
- * The first visit in a browser opens on the welcome intro (the mark, the
- * name, the tagline, "Enter Devlingo"). Entering goes to the existing
- * /dashboard route - signed-in learners land on their dashboard, guests on
- * the guest flow with its sign-in prompt - so no second home page exists.
- * The intro is remembered in localStorage and never replays; after that "/"
- * is the landing page it always was, and the intro's quiet second action
- * ("learn more first") reveals that same page in place.
+ * Opening the site shows the welcome intro (the mark, the name, the tagline,
+ * "Enter Devlingo"). Entering goes to the existing /dashboard route -
+ * signed-in learners land on their dashboard, guests on the guest flow with
+ * its sign-in prompt - so no second home page exists. The intro's quiet
+ * second action ("learn more first") reveals the landing page in place.
+ *
+ * It is remembered per visit (sessionStorage): coming back to "/" inside the
+ * same tab does not replay it, but the next time the site is opened it plays
+ * again. An earlier build stored it in localStorage for good, which meant a
+ * returning visitor never saw it; that key is cleared here.
  */
 export const Landing: React.FC = () => {
   const navigate = useNavigate();
-  const [intro, setIntro] = useState(() => readString(STORAGE_KEYS.intro) !== '1');
+  const [intro, setIntro] = useState(() => {
+    remove(STORAGE_KEYS.intro); // the old, permanent flag from a previous build
+    return !introSeen();
+  });
 
-  const markSeen = useCallback(() => writeString(STORAGE_KEYS.intro, '1'), []);
+  const markSeen = useCallback(() => rememberIntro(), []);
 
   const enter = useCallback(() => {
     markSeen();

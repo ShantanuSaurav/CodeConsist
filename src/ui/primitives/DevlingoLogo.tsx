@@ -1,5 +1,13 @@
 import React from 'react';
 import logoUrl from '../brand/devlingo-logo.png';
+import layerFrame from '../brand/layers/frame.png';
+import layerBandYellow from '../brand/layers/band-yellow.png';
+import layerBandOrange from '../brand/layers/band-orange.png';
+import layerPageLeft from '../brand/layers/page-left.png';
+import layerPageRight from '../brand/layers/page-right.png';
+import layerSymbolLeft from '../brand/layers/symbol-left.png';
+import layerSymbolRight from '../brand/layers/symbol-right.png';
+import layerCursor from '../brand/layers/cursor.png';
 
 /**
  * The Devlingo brand mark - the one place the logo asset is referenced.
@@ -31,8 +39,24 @@ interface DevlingoLogoProps {
   decorative?: boolean;
 }
 
-/** The URL of the mark, for the rare case that needs the raw asset (the welcome intro). */
+/** The URL of the mark, for the rare case that needs the raw asset. */
 export const DEVLINGO_LOGO_URL = logoUrl;
+
+/**
+ * The same mark split into its parts (the supplied animation layers, cropped
+ * and scaled exactly like the mark), in paint order. Stacked, they are the
+ * logo; the welcome intro assembles them one at a time.
+ */
+export const DEVLINGO_LOGO_LAYERS = [
+  { id: 'frame', src: layerFrame },
+  { id: 'band-yellow', src: layerBandYellow },
+  { id: 'band-orange', src: layerBandOrange },
+  { id: 'page-left', src: layerPageLeft },
+  { id: 'page-right', src: layerPageRight },
+  { id: 'symbol-left', src: layerSymbolLeft },
+  { id: 'symbol-right', src: layerSymbolRight },
+  { id: 'cursor', src: layerCursor }
+] as const;
 
 export const DevlingoLogo: React.FC<DevlingoLogoProps> = ({ size = 'sm', wordmark = false, suffix, className = '', decorative }) => {
   const h = HEIGHT[size];

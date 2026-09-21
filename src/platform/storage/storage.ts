@@ -78,6 +78,6 @@ export const STORAGE_KEYS = {
   learningMode: 'cq-learning-mode',
   /** Separate from the learner's own token - the admin app is a distinct session. */
   adminToken: 'cq-admin-token',
-  /** '1' once the welcome intro at "/" has been seen in this browser; it then stays out of the way. */
+  /** '1' once the welcome intro at "/" has played this visit (sessionStorage, not localStorage). */
   intro: 'cq-intro-seen'
 } as const;

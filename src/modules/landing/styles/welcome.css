@@ -2,13 +2,25 @@
 /* ==========================================================================
    Welcome intro - the first thing a new visitor sees at "/".
 
-   One sequence, about 1.7 s end to end: the mark settles, then the wordmark,
-   the tagline and the actions each follow with a short fade-and-rise. No
-   scaling zooms, no glow, no looping motion. With reduced motion the whole
-   thing is simply visible.
+   The mark assembles itself from its own layers, in the order a book would
+   come together, then the cursor's click types the name. One timeline,
+   about 2.4 s to the call to action:
+
+     0.00  base bands draw outward from the spine
+     0.30  the two pages open from the spine
+     0.80  "<" then ">" land - keystrokes
+     1.00  cursor slides in from the corner, clicks at ~1.40
+     1.45  "Devlingo" types out behind a caret (8 × 55 ms, WelcomeIntro.tsx)
+     1.85  tagline, one word at a time
+     2.15  actions
+
+   Everything is opacity, transform and clip-path (compositor-friendly); no
+   glow, blur, bounce or loops except the caret blink, which ends. Reduced
+   motion shows the finished frame at once.
    ========================================================================== */
 
 .welcome {
+  position: relative;
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
@@ -17,6 +29,7 @@
   padding: var(--space-8) var(--space-4) calc(var(--space-8) + env(safe-area-inset-bottom, 0px));
   background: var(--bg);
   color: var(--text);
+  overflow: hidden;
 }
 
 .welcome-inner {
@@ -28,29 +41,93 @@
   max-width: 28rem;
 }
 
-.welcome-logo,
-.welcome-name,
-.welcome-tagline,
-.welcome-actions {
-  opacity: 0;
-  transform: translateY(6px);
-  animation: welcomeIn 520ms var(--ease) forwards;
-}
-.welcome-logo    { animation-delay: 80ms; animation-duration: 620ms; }
-.welcome-name    { animation-delay: 640ms; }
-.welcome-tagline { animation-delay: 920ms; }
-.welcome-actions { animation-delay: 1200ms; }
-
-@keyframes welcomeIn {
-  to { opacity: 1; transform: translateY(0); }
+.welcome-corner {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
 }
 
-.welcome-logo {
-  width: clamp(9rem, 26vw, 12.5rem);
-  height: auto;
-  display: block;
+/* ------------------------------------------------------------------ mark */
+
+.welcome-mark {
+  position: relative;
+  width: clamp(10rem, 28vw, 13.5rem);
+  aspect-ratio: 640 / 512;
   user-select: none;
 }
+.welcome-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0;
+  animation-fill-mode: forwards;
+  animation-timing-function: var(--ease);
+  will-change: transform, opacity;
+}
+
+/* The base: drawn outward from the spine, like a line being laid down. */
+.welcome-layer--frame,
+.welcome-layer--band-yellow,
+.welcome-layer--band-orange {
+  clip-path: inset(0 50% 0 50%);
+  animation-name: welcomeDraw;
+  animation-duration: 520ms;
+}
+.welcome-layer--frame       { animation-delay: 0ms; }
+.welcome-layer--band-yellow { animation-delay: 60ms; }
+.welcome-layer--band-orange { animation-delay: 140ms; }
+@keyframes welcomeDraw {
+  from { opacity: 1; clip-path: inset(0 50% 0 50%); }
+  to   { opacity: 1; clip-path: inset(0 0 0 0); }
+}
+
+/* The pages open from the spine, which sits at the horizontal centre of the asset. */
+.welcome-layer--page-left,
+.welcome-layer--page-right {
+  transform-origin: 50% 50%;
+  transform: scaleX(0.04);
+  animation-name: welcomeOpen;
+  animation-duration: 560ms;
+  animation-delay: 300ms;
+}
+@keyframes welcomeOpen {
+  from { opacity: 0.6; transform: scaleX(0.04); }
+  40%  { opacity: 1; }
+  to   { opacity: 1; transform: scaleX(1); }
+}
+
+/* The code symbols land like keystrokes: a small, quick settle - no bounce. */
+.welcome-layer--symbol-left,
+.welcome-layer--symbol-right {
+  transform-origin: 50% 50%;
+  animation-name: welcomeKey;
+  animation-duration: 240ms;
+}
+.welcome-layer--symbol-left  { animation-delay: 800ms; }
+.welcome-layer--symbol-right { animation-delay: 920ms; }
+@keyframes welcomeKey {
+  from { opacity: 0; transform: scale(1.06); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* The cursor comes in from its corner, pauses, and clicks. */
+.welcome-layer--cursor {
+  transform-origin: 78% 78%;
+  animation-name: welcomeCursor;
+  animation-duration: 640ms;
+  animation-delay: 1000ms;
+}
+@keyframes welcomeCursor {
+  0%   { opacity: 0; transform: translate(9%, 9%); }
+  55%  { opacity: 1; transform: translate(0, 0) scale(1); }
+  74%  { transform: translate(0, 0) scale(1); }
+  84%  { transform: translate(0, 0) scale(0.93); }
+  100% { opacity: 1; transform: translate(0, 0) scale(1); }
+}
+
+/* ------------------------------------------------------------ wordmark */
 
 .welcome-name {
   margin-top: var(--space-6);
@@ -59,13 +136,52 @@
   letter-spacing: -0.02em;
   line-height: 1.1;
   color: var(--text);
+  white-space: nowrap;
 }
+.welcome-name-box { display: inline-grid; }
+.welcome-name-box > * { grid-area: 1 / 1; }
+.welcome-name-ghost { visibility: hidden; }
+.welcome-name-typed { justify-self: start; white-space: nowrap; }
+.welcome-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.9em;
+  margin-left: 0.06em;
+  transform: translateY(0.08em);
+  background: var(--accent);
+  opacity: 0;
+  animation: welcomeCaret 1900ms steps(1, end) 1400ms forwards;
+}
+/* On, blinking while the letters type, three more blinks, then gone. */
+@keyframes welcomeCaret {
+  0%, 21% { opacity: 1; }
+  27%     { opacity: 0; }
+  33%     { opacity: 1; }
+  48%     { opacity: 0; }
+  60%     { opacity: 1; }
+  74%     { opacity: 0; }
+  86%     { opacity: 1; }
+  100%    { opacity: 0; }
+}
+
+/* ------------------------------------------------------------- tagline */
 
 .welcome-tagline {
   margin-top: var(--space-2);
   font-size: var(--text-md);
   color: var(--text-secondary);
+  display: flex;
+  gap: 0.4em;
+  justify-content: center;
 }
+.welcome-word {
+  opacity: 0;
+  transform: translateY(4px);
+  animation: welcomeRise 360ms var(--ease) forwards;
+  animation-delay: calc(1850ms + var(--i) * 140ms);
+}
+
+/* ------------------------------------------------------------- actions */
 
 .welcome-actions {
   margin-top: var(--space-8);
@@ -74,10 +190,16 @@
   align-items: center;
   gap: var(--space-3);
   width: 100%;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: welcomeRise 480ms var(--ease) 2150ms forwards;
 }
 .welcome-actions .btn-primary { min-width: 12rem; }
 @media (max-width: 480px) {
   .welcome-actions .btn-primary { width: 100%; }
+}
+@keyframes welcomeRise {
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .welcome-secondary {
@@ -92,20 +214,17 @@
 }
 .welcome-secondary:hover { color: var(--text); }
 
-.welcome-corner {
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
-}
+/* ------------------------------------------------------- reduced motion */
 
 @media (prefers-reduced-motion: reduce) {
-  .welcome-logo,
-  .welcome-name,
-  .welcome-tagline,
+  .welcome-layer,
+  .welcome-word,
   .welcome-actions {
     animation: none;
     opacity: 1;
     transform: none;
+    clip-path: none;
   }
+  .welcome-caret { display: none; }
 }
 }
