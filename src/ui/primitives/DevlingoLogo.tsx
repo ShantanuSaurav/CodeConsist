@@ -39,7 +39,7 @@ interface DevlingoLogoProps {
   decorative?: boolean;
 }
 
-/** The URL of the mark, for the rare case that needs the raw asset (the welcome intro). */
+/** The URL of the mark, for the rare case that needs the raw asset. */
 export const DEVLINGO_LOGO_URL = logoUrl;
 
 /**

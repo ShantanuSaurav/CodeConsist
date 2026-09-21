@@ -24,11 +24,11 @@ const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.
 /**
  * The introduction shown once at "/".
  *
- * The mark is assembled from its layers in sequence: the base draws from the
- * spine, the pages open, code symbols land like keystrokes, and the cursor
- * slides in to click. That click types the wordmark letter-by-letter behind
- * a caret, followed by the tagline and actions. Once loaded, the mark beats
- * with an accent glow. Choosing either action fades the intro out.
+ * The mark is assembled from its layers in sequence: the base draws outward
+ * from the spine, the pages open, code symbols land like keystrokes, and the
+ * cursor slides in to click. That click types the wordmark letter-by-letter
+ * behind a caret, followed by the tagline and actions. Once loaded, the mark
+ * beats with an accent glow. Choosing either action fades the intro out.
  */
 export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onEnter, onExplore }) => {
   const { theme, toggleTheme } = useTheme();
