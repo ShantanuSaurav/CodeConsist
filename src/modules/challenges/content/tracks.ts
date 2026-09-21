@@ -12,7 +12,7 @@ import { STAGE_META } from './stages';
  * C track's first stage never sits behind Stage 10 of the core path, and the
  * core path never waits on C.
  *
- * The core path is the full ten-stage Devlingo journey exactly as it always
+ * The core path is the full ten-stage CodeConsist journey exactly as it always
  * was - Programming Basics through Python, data structures, the web, backend,
  * SQL, tooling, system design and shipping, each stage gated by its test.
  */

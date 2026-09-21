@@ -1,9 +1,9 @@
 /**
- * Roadmaps - roadmap.sh-style skill maps, authored for Devlingo.
+ * Roadmaps - roadmap.sh-style skill maps, authored for CodeConsist.
  *
  * Each file under this directory is one roadmap (`export const roadmap`),
  * discovered by the glob below; the pattern must match `roadmapsSpec`. The
- * descriptions and structure here are Devlingo's own. roadmap.sh's content is
+ * descriptions and structure here are CodeConsist's own. roadmap.sh's content is
  * copyrighted and may not be republished, so we link to it rather than copy it.
  */
 import type { Roadmap, RoadmapNode } from '@/types';

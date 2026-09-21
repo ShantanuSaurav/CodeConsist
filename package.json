@@ -1,5 +1,5 @@
 {
-  "name": "devlingo",
+  "name": "codeconsist",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -47,7 +47,7 @@
     "vite": "^6.2.0",
     "vitest": "^3.2.7"
   },
-  "description": "Devlingo - the developer training environment. 232 lessons and 12 stage tests across three tracks, guided Learn mode, articles, roadmaps, real code execution and an admin console. Runs end to end on localhost.",
+  "description": "CodeConsist - the developer training environment. 232 lessons and 12 stage tests across three tracks, guided Learn mode, articles, roadmaps, real code execution and an admin console. Runs end to end on localhost.",
   "engines": {
     "node": ">=22.9"
   }

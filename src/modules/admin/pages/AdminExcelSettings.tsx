@@ -6,7 +6,7 @@ import { AdminPageHeader, Badge, Button, Card, EmptyState, ErrorText, Spinner, T
 type Status = Awaited<ReturnType<typeof adminApi.excelStatus>>;
 
 /**
- * /admin/excel. Devlingo's own database is always the source of truth -
+ * /admin/excel. CodeConsist's own database is always the source of truth -
  * this page only reports on and controls the optional, best-effort mirror
  * into a Microsoft Excel table (see server/excel.js). Signup, login and
  * progress never depend on anything here succeeding.
@@ -74,7 +74,7 @@ export const AdminExcelSettings: React.FC = () => {
     <div>
       <AdminPageHeader
         title="Microsoft Excel sync"
-        description="An optional, best-effort mirror of user records into an Excel table. Devlingo's own database is always the source of truth."
+        description="An optional, best-effort mirror of user records into an Excel table. CodeConsist's own database is always the source of truth."
       />
 
       <Card className="mb-6">

@@ -53,7 +53,7 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
     });
     text = await response.text();
   } catch {
-    throw new AdminApiError('The Devlingo API is not reachable. Is the server running?', 0);
+    throw new AdminApiError('The CodeConsist API is not reachable. Is the server running?', 0);
   }
 
   let payload: any = null;

@@ -233,7 +233,7 @@ export interface Stage {
  * A track is an ordered slice of the stage list that forms one self-contained
  * learning path with its own lock chain ("stage 2 opens once stage 1 is
  * cleared" is evaluated per track). It is NOT a second content system: the
- * same Stage/Challenge records are grouped, never copied. The core Devlingo
+ * same Stage/Challenge records are grouped, never copied. The core CodeConsist
  * path (Programming Basics → Shipping) is one track; C and C++ are others.
  */
 export interface LanguageTrack {

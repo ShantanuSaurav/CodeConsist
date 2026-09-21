@@ -164,7 +164,7 @@ export const roadmap: Roadmap = {
           id: 'git-more',
           title: 'Keep going',
           description: 'Submodules, worktrees, hooks, signing commits - and the full community roadmap.',
-          resources: [roadmapSh('git-github'), book('Pro Git (full book)', `${GIT}/book/en/v2`), practice('Devlingo Stage 08 - Git, Tooling & Testing', '/dashboard/learn')]
+          resources: [roadmapSh('git-github'), book('Pro Git (full book)', `${GIT}/book/en/v2`), practice('CodeConsist Stage 08 - Git, Tooling & Testing', '/dashboard/learn')]
         }
       ]
     }

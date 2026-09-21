@@ -28,7 +28,7 @@ export const roadmap: Roadmap = {
           description: 'The language: types, functions, closures, arrays and objects, async.',
           stageId: 'stage-1',
           tags: ['functions', 'closures', 'arrays'],
-          resources: [link('The Modern JavaScript Tutorial', 'https://javascript.info/'), link('javascript roadmap on roadmap.sh', 'https://roadmap.sh/javascript', 'roadmap'), practice('Devlingo Stage 01', '/dashboard/learn')]
+          resources: [link('The Modern JavaScript Tutorial', 'https://javascript.info/'), link('javascript roadmap on roadmap.sh', 'https://roadmap.sh/javascript', 'roadmap'), practice('CodeConsist Stage 01', '/dashboard/learn')]
         },
         {
           id: 'dom-browser',

@@ -141,7 +141,7 @@ const TITLE_MAX = 120;
  * wording is deliberately concrete - a vague convention here turns into a
  * draft the admin has to repair by hand.
  */
-const KIND_CONVENTIONS = `You write practice questions for Devlingo, an app that teaches programming through short interactive lessons. The bank is organised in stages (one topic each, e.g. "Programming Basics" in JavaScript or "Python Fundamentals"); every stage is a list of small questions a learner answers in the browser, and code questions are graded by actually running the learner's code against test cases.
+const KIND_CONVENTIONS = `You write practice questions for CodeConsist, an app that teaches programming through short interactive lessons. The bank is organised in stages (one topic each, e.g. "Programming Basics" in JavaScript or "Python Fundamentals"); every stage is a list of small questions a learner answers in the browser, and code questions are graded by actually running the learner's code against test cases.
 
 There are exactly eight question kinds. Their fields, and the conventions the app checks before anything is saved:
 
@@ -402,7 +402,7 @@ const DUPLICATES_SCHEMA = {
   required: ['items']
 };
 
-const DUPLICATES_SYSTEM = `You review a proposed practice question for Devlingo, an app that teaches programming through short interactive lessons, against existing questions from its bank that share some wording with it. For EACH candidate, decide what the overlap means for a learner:
+const DUPLICATES_SYSTEM = `You review a proposed practice question for CodeConsist, an app that teaches programming through short interactive lessons, against existing questions from its bank that share some wording with it. For EACH candidate, decide what the overlap means for a learner:
 
 - "duplicate": it tests the same knowledge, so a learner who solved one gains nothing from the other - even if the wording, the variable names, the option order or the kind of question differ. Two questions that both ask which keyword declares a constant are duplicates; so are two "sum an array" coding tasks in the same language.
 - "similar": the same topic from a different angle or at a different level - for example one asks what let does and the other asks what happens when you reassign a const, or the same task in a different language. Worth keeping both, but the author should know.

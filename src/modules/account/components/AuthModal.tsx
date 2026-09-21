@@ -74,7 +74,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           <div className="modal-header-main flex items-center gap-3">
             <DevlingoLogo size="md" decorative />
             <div>
-              <div className="modal-stage-badge">Devlingo account</div>
+              <div className="modal-stage-badge">CodeConsist account</div>
               <h3 className="modal-title">{isSignUp ? 'Create an account' : 'Sign in'}</h3>
             </div>
           </div>

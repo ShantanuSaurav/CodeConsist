@@ -5,13 +5,13 @@ import { useTheme } from '@/platform/theme';
 import '../styles/welcome.css';
 
 interface WelcomeIntroProps {
-  /** "Enter Devlingo" - continue into the application. */
+  /** "Enter CodeConsist" - continue into the application. */
   onEnter: () => void;
   /** The quiet alternative: skip into the landing page instead. */
   onExplore: () => void;
 }
 
-const NAME = 'Devlingo';
+const NAME = 'CodeConsist';
 const TAGLINE = ['Learn.', 'Practice.', 'Build.'];
 /* When the cursor's click lands (welcome.css) and how fast the name types. */
 const TYPE_START_MS = 1450;
@@ -72,7 +72,7 @@ export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onEnter, onExplore }
         {/* The official mark, assembled from its own layers and beating after loading */}
         <div className="welcome-logo-wrap">
           <span className="welcome-logo-glow" aria-hidden="true" />
-          <div className="welcome-mark" role="img" aria-label="Devlingo logo">
+          <div className="welcome-mark" role="img" aria-label="CodeConsist logo">
             {DEVLINGO_LOGO_LAYERS.map((layer) => (
               <img
                 key={layer.id}
@@ -116,10 +116,10 @@ export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onEnter, onExplore }
           }}
         >
           <Button ref={enterRef} variant="primary" size="lg" disabled={leaving} onClick={() => leave(onEnter)}>
-            Enter Devlingo
+            Enter CodeConsist
           </Button>
           <button type="button" className="welcome-secondary" disabled={leaving} onClick={() => leave(onExplore)}>
-            Learn more about Devlingo first
+            Learn more about CodeConsist first
           </button>
         </div>
       </div>

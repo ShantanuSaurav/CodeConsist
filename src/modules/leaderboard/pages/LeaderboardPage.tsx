@@ -13,7 +13,7 @@ export const LeaderboardPage: React.FC = () => {
       <PageHeader
         eyebrow="Community"
         title="Leaderboard"
-        description="Every account on this Devlingo, ranked by XP. Solves are verified by the server before they count."
+        description="Every account on this CodeConsist, ranked by XP. Solves are verified by the server before they count."
         aside={
           !signedIn && serverStatus === 'online' ? (
             <Button variant="primary" onClick={intents.openAuth}>

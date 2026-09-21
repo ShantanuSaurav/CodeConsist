@@ -10,7 +10,7 @@ import layerSymbolRight from '../brand/layers/symbol-right.png';
 import layerCursor from '../brand/layers/cursor.png';
 
 /**
- * The Devlingo brand mark - the one place the logo asset is referenced.
+ * The CodeConsist brand mark - the one place the logo asset is referenced.
  *
  * Every surface that shows the brand (sidebar, mobile bar, landing nav and
  * footer, admin, sign-in, loading screen, welcome) renders this, so the
@@ -28,9 +28,9 @@ export type LogoSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 const HEIGHT: Record<LogoSize, number> = { xs: 18, sm: 22, md: 32, lg: 56, xl: 112 };
 const RATIO = 640 / 512;
 
-interface DevlingoLogoProps {
+export interface CodeConsistLogoProps {
   size?: LogoSize;
-  /** Show the "Devlingo" wordmark next to the mark. */
+  /** Show the "CodeConsist" wordmark next to the mark. */
   wordmark?: boolean;
   /** Text to the right of the wordmark, e.g. a small "admin" badge. */
   suffix?: React.ReactNode;
@@ -39,7 +39,10 @@ interface DevlingoLogoProps {
   decorative?: boolean;
 }
 
+export type DevlingoLogoProps = CodeConsistLogoProps;
+
 /** The URL of the mark, for the rare case that needs the raw asset. */
+export const CODECONSIST_LOGO_URL = logoUrl;
 export const DEVLINGO_LOGO_URL = logoUrl;
 
 /**
@@ -47,7 +50,7 @@ export const DEVLINGO_LOGO_URL = logoUrl;
  * and scaled exactly like the mark), in paint order. Stacked, they are the
  * logo; the welcome intro assembles them one at a time.
  */
-export const DEVLINGO_LOGO_LAYERS = [
+export const CODECONSIST_LOGO_LAYERS = [
   { id: 'frame', src: layerFrame },
   { id: 'band-yellow', src: layerBandYellow },
   { id: 'band-orange', src: layerBandOrange },
@@ -58,7 +61,9 @@ export const DEVLINGO_LOGO_LAYERS = [
   { id: 'cursor', src: layerCursor }
 ] as const;
 
-export const DevlingoLogo: React.FC<DevlingoLogoProps> = ({ size = 'sm', wordmark = false, suffix, className = '', decorative }) => {
+export const DEVLINGO_LOGO_LAYERS = CODECONSIST_LOGO_LAYERS;
+
+export const CodeConsistLogo: React.FC<CodeConsistLogoProps> = ({ size = 'sm', wordmark = false, suffix, className = '', decorative }) => {
   const h = HEIGHT[size];
   const w = Math.round(h * RATIO);
   const hidden = decorative ?? wordmark;
@@ -67,7 +72,7 @@ export const DevlingoLogo: React.FC<DevlingoLogoProps> = ({ size = 'sm', wordmar
       src={logoUrl}
       width={w}
       height={h}
-      alt={hidden ? '' : 'Devlingo'}
+      alt={hidden ? '' : 'CodeConsist'}
       aria-hidden={hidden || undefined}
       decoding="async"
       draggable={false}
@@ -87,8 +92,10 @@ export const DevlingoLogo: React.FC<DevlingoLogoProps> = ({ size = 'sm', wordmar
   return (
     <span className={`inline-flex items-center gap-2 min-w-0 ${className}`.trim()}>
       {img}
-      <span className={`font-semibold tracking-tight text-fg leading-none truncate ${text[size]}`}>Devlingo</span>
+      <span className={`font-semibold tracking-tight text-fg leading-none truncate ${text[size]}`}>CodeConsist</span>
       {suffix}
     </span>
   );
 };
+
+export const DevlingoLogo = CodeConsistLogo;

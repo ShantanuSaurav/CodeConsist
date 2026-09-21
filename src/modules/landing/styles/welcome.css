@@ -7,10 +7,10 @@
      0.30  the two pages open from the spine
      0.80  "<" then ">" land - keystrokes
      1.00  cursor slides in from the corner, clicks at ~1.40
-     1.45  "Devlingo" types out behind a caret (8 × 55 ms, WelcomeIntro.tsx)
-     1.80  mark begins beating with an ambient accent glow
-     1.85  tagline, one word at a time
-     2.15  actions
+     1.45  "CodeConsist" types out behind a caret (11 × 55 ms, WelcomeIntro.tsx)
+     2.10  mark begins beating with an ambient accent glow
+     2.10  tagline, one word at a time
+     2.40  actions
 
    Choosing an action fades the whole thing out before the next screen
    appears. With reduced motion the intro is simply visible and leaves at
@@ -65,7 +65,7 @@
   background: radial-gradient(closest-side, var(--accent-ring), transparent 70%);
   filter: blur(14px);
   opacity: 0;
-  animation: logoGlow 2.4s ease-in-out 1800ms infinite;
+  animation: logoGlow 2.4s ease-in-out 2100ms infinite;
   pointer-events: none;
 }
 .welcome-mark {
@@ -73,7 +73,7 @@
   width: clamp(10rem, 28vw, 13.5rem);
   aspect-ratio: 640 / 512;
   user-select: none;
-  animation: logoBreathe 2.4s ease-in-out 1800ms infinite;
+  animation: logoBreathe 2.4s ease-in-out 2100ms infinite;
 }
 
 @keyframes logoGlow {
@@ -180,7 +180,7 @@
   transform: translateY(0.08em);
   background: var(--accent);
   opacity: 0;
-  animation: welcomeCaret 1900ms steps(1, end) 1400ms forwards;
+  animation: welcomeCaret 2100ms steps(1, end) 1400ms forwards;
 }
 /* On, blinking while the letters type, three more blinks, then gone. */
 @keyframes welcomeCaret {
@@ -208,7 +208,7 @@
   opacity: 0;
   transform: translateY(4px);
   animation: welcomeRise 360ms var(--ease) forwards;
-  animation-delay: calc(1850ms + var(--i) * 140ms);
+  animation-delay: calc(2100ms + var(--i) * 140ms);
 }
 
 /* ------------------------------------------------------------- actions */
@@ -222,7 +222,7 @@
   width: 100%;
   opacity: 0;
   transform: translateY(6px);
-  animation: welcomeRise 480ms var(--ease) 2150ms forwards;
+  animation: welcomeRise 480ms var(--ease) 2400ms forwards;
 }
 .welcome-actions .btn-primary { min-width: 12rem; }
 @media (max-width: 480px) {

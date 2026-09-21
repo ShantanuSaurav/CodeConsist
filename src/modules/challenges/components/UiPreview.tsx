@@ -101,7 +101,7 @@ export const UiPreview: React.FC<UiPreviewProps> = ({
 
         <div className="ui-preview-url-bar">
           <Globe size={13} className="ui-preview-url-icon" />
-          <span className="ui-preview-url-text">preview.devlingo.local</span>
+          <span className="ui-preview-url-text">preview.codeconsist.local</span>
           <span className="ui-preview-pill">
             <Sparkles size={11} />
             <span>{badgeText}</span>

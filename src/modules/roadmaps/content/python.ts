@@ -189,7 +189,7 @@ export const roadmap: Roadmap = {
           id: 'py-more',
           title: 'Keep going',
           description: 'Decorators, context managers, metaclasses, performance profiling - and the full community roadmap.',
-          resources: [roadmapSh('python'), course('Real Python tutorials', 'https://realpython.com/'), book('Automate the Boring Stuff (free)', 'https://automatetheboringstuff.com/'), practice('Devlingo Stage 02 - Python Fundamentals', '/dashboard/learn')]
+          resources: [roadmapSh('python'), course('Real Python tutorials', 'https://realpython.com/'), book('Automate the Boring Stuff (free)', 'https://automatetheboringstuff.com/'), practice('CodeConsist Stage 02 - Python Fundamentals', '/dashboard/learn')]
         }
       ]
     }

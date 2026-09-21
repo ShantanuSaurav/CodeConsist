@@ -64,7 +64,7 @@ export const KINDS: KindMeta[] = [
     kind: 'pseudocode_order',
     type: 'pseudocode_order',
     title: 'Put the steps in order',
-    blurb: 'You write 3-20 steps in the right order; Devlingo shuffles them and the learner reorders them.',
+    blurb: 'You write 3-20 steps in the right order; CodeConsist shuffles them and the learner reorders them.',
     example: 'SET total TO 0 / FOR EACH n IN numbers / ADD n TO total / RETURN total',
     icon: <ListOrdered size={18} />,
     preset: { language: 'pseudocode' }
@@ -465,7 +465,7 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({ stages, stageId,
           <div>
             {authored && (
               <div className="notice notice-info mb-4" role="note">
-                This question comes from Devlingo's built-in bank. Saving keeps your edited version here - learners see it straight away, and
+                This question comes from CodeConsist's built-in bank. Saving keeps your edited version here - learners see it straight away, and
                 you can put the original back from the list at any time.
                 {existing?.concept != null && ' Its Learn-mode teaching steps are kept exactly as they are.'}
                 {stageTest &&
@@ -915,7 +915,7 @@ const StepsEditor: React.FC<{ q: QuestionInput; patch: Patch; errorAt: ErrorAt }
   return (
     <Section title="The steps, in the CORRECT order">
       <p className="text-xs text-fg-muted mb-3">
-        Write them in the right order - Devlingo shuffles them for the learner. Start a line with spaces to show it is nested (inside a loop or an
+        Write them in the right order - CodeConsist shuffles them for the learner. Start a line with spaces to show it is nested (inside a loop or an
         if). Between 3 and 20 steps.
       </p>
       {errorAt('pseudocodeLines') && <ErrorText>{errorAt('pseudocodeLines')}</ErrorText>}

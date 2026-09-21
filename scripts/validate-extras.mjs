@@ -158,7 +158,7 @@ if (CHECK_LINKS) {
           method,
           redirect: 'follow',
           signal: ctl.signal,
-          headers: { 'user-agent': 'Mozilla/5.0 (compatible; devlingo-linkcheck/1.0)' }
+          headers: { 'user-agent': 'Mozilla/5.0 (compatible; codeconsist-linkcheck/1.0)' }
         });
         return res.status;
       } finally {

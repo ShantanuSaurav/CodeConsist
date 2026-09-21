@@ -32,7 +32,7 @@ const rememberIntro = () => {
  * "/" - the public entry point.
  *
  * Opening the site shows the welcome intro (the mark, the name, the tagline,
- * "Enter Devlingo"). Entering goes to the existing /dashboard route -
+ * "Enter CodeConsist"). Entering goes to the existing /dashboard route -
  * signed-in learners land on their dashboard, guests on the guest flow with
  * its sign-in prompt - so no second home page exists. The intro's quiet
  * second action ("learn more first") reveals the landing page in place.

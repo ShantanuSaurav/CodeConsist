@@ -1,4 +1,4 @@
-# Devlingo challenge authoring guide
+# CodeConsist challenge authoring guide
 
 Every challenge file lives at `src/modules/challenges/content/<topic>/<batch>.ts`
 (one folder per topic, `a.ts`, `b.ts`, … inside it) and looks like:

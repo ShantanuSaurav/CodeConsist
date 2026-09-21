@@ -182,7 +182,7 @@ export const roadmap: Roadmap = {
           id: 'sql-more',
           title: 'Keep going',
           description: 'Sharding, replication and consistency continue in the System Design roadmap.',
-          resources: [roadmapSh('sql'), practice('Devlingo Stage 07 - Databases & SQL', '/dashboard/learn'), link('SQLite documentation', 'https://www.sqlite.org/docs.html', 'docs')]
+          resources: [roadmapSh('sql'), practice('CodeConsist Stage 07 - Databases & SQL', '/dashboard/learn'), link('SQLite documentation', 'https://www.sqlite.org/docs.html', 'docs')]
         }
       ]
     }

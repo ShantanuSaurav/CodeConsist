@@ -9,7 +9,7 @@ import { Challenge } from '@/types';
  * server-side through an optional Judge0 endpoint, not in every browser by
  * default, so this stage's lessons and its test are answer-graded rather
  * than run-graded. That keeps the C track fully usable even when nobody has
- * configured a remote compiler, exactly like the rest of Devlingo degrades
+ * configured a remote compiler, exactly like the rest of CodeConsist degrades
  * gracefully without one.
  */
 export const challenges: Challenge[] = [

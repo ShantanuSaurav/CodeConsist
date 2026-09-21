@@ -50,14 +50,14 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Devlingo Pro"
+        aria-label="CodeConsist Pro"
         ref={dialogRef}
         tabIndex={-1}
       >
         <div className="modal-header">
           <div>
             <div className="modal-stage-badge">Membership</div>
-            <h3 className="modal-title">Devlingo Pro</h3>
+            <h3 className="modal-title">CodeConsist Pro</h3>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close">
             <X size={16} />

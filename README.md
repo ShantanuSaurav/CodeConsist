@@ -1,4 +1,4 @@
-# Devlingo
+# CodeConsist
 
 The developer training environment. 232 hand-checked lessons across 12 stages
 on three tracks - the ten-stage developer path plus C and C++ - each stage
@@ -114,9 +114,9 @@ walk-throughs instead); the check reports it and their cards offer no "Read firs
 JavaScript, Python, SQL, Computer Science, System Design, Git & GitHub - with 200+
 topics. Each topic has a short explanation, curated free resources (official docs,
 MDN, free courses and books), a link to the community version on roadmap.sh, and,
-where Devlingo covers it, a jump into the stage's lessons and article. Topics can
+where CodeConsist covers it, a jump into the stage's lessons and article. Topics can
 be marked done / learning / skipped; that lives in the browser and earns no XP,
-because nothing verifies it. The roadmaps' structure and text are Devlingo's own:
+because nothing verifies it. The roadmaps' structure and text are CodeConsist's own:
 roadmap.sh's content is copyrighted and is linked to, never copied.
 `npm run content:links` HEAD-requests every external URL.
 

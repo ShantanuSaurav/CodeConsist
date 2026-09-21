@@ -48,7 +48,7 @@ export const RoadmapPage: React.FC = () => {
     <div className="page max-w-4xl">
       <PageHeader
         title="Roadmaps"
-        description="Step-by-step maps of what to learn and in which order. Each topic has a short explanation, curated free resources and - where Devlingo covers it - a jump into the lessons. Mark topics done, learning or skipped; progress is saved in this browser."
+        description="Step-by-step maps of what to learn and in which order. Each topic has a short explanation, curated free resources and - where CodeConsist covers it - a jump into the lessons. Mark topics done, learning or skipped; progress is saved in this browser."
       />
 
       <div className="grid gap-10 md:grid-cols-2 md:gap-12 pb-10 mb-10 border-b border-border-subtle">
@@ -73,7 +73,7 @@ export const RoadmapPage: React.FC = () => {
 
       <section aria-labelledby="skill-map-heading" className="max-w-2xl">
         <SectionHeader
-          title={<span id="skill-map-heading">{core ? 'Your Devlingo path' : `Your path: ${activeTrack.track.label}`}</span>}
+          title={<span id="skill-map-heading">{core ? 'Your CodeConsist path' : `Your path: ${activeTrack.track.label}`}</span>}
           description={tracks.length > 1 ? 'Switch tracks from the sidebar to see that path instead.' : undefined}
           aside={
             <div className="sm:text-right">

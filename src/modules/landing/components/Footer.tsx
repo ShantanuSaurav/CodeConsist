@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { DevlingoLogo } from '@/ui';
 
-const REPO = 'https://github.com/ShantanuSaurav/Devlingo';
+const REPO = 'https://github.com/CodeConsist/CodeConsist';
 
 const COLUMNS: Array<{ title: string; links: Array<{ label: string; to?: string; href?: string }> }> = [
   {
@@ -62,7 +62,7 @@ export const Footer: React.FC = () => (
       ))}
     </div>
     <div className="max-w-6xl mx-auto px-6 py-5 border-t border-border-subtle flex flex-col md:flex-row justify-between gap-2 text-xs text-fg-muted">
-      <p>© {new Date().getFullYear()} Devlingo</p>
+      <p>© {new Date().getFullYear()} CodeConsist</p>
       <p>Built for curious developers.</p>
     </div>
   </footer>

@@ -210,7 +210,7 @@ export const roadmap: Roadmap = {
           id: 'sd-more',
           title: 'Keep going',
           description: 'Worked examples - URL shortener, feed, chat, search - and the full community roadmap.',
-          resources: [roadmapSh('system-design'), link('System design interview questions (Primer)', `${PRIMER}#system-design-interview-questions-with-solutions`), practice('Devlingo Stage 09 - System Design', '/dashboard/learn')]
+          resources: [roadmapSh('system-design'), link('System design interview questions (Primer)', `${PRIMER}#system-design-interview-questions-with-solutions`), practice('CodeConsist Stage 09 - System Design', '/dashboard/learn')]
         }
       ]
     }

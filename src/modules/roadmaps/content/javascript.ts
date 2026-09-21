@@ -195,7 +195,7 @@ export const roadmap: Roadmap = {
           id: 'js-more',
           title: 'Keep going',
           description: 'Regular expressions, the Intl API, Web Workers, memory and performance - and the full community roadmap.',
-          resources: [roadmapSh('javascript'), book('Eloquent JavaScript (free book)', 'https://eloquentjavascript.net/'), book('You Don\'t Know JS Yet (free)', 'https://github.com/getify/You-Dont-Know-JS'), practice('Devlingo Stage 01 - Programming Basics', '/dashboard/learn')]
+          resources: [roadmapSh('javascript'), book('Eloquent JavaScript (free book)', 'https://eloquentjavascript.net/'), book('You Don\'t Know JS Yet (free)', 'https://github.com/getify/You-Dont-Know-JS'), practice('CodeConsist Stage 01 - Programming Basics', '/dashboard/learn')]
         }
       ]
     }

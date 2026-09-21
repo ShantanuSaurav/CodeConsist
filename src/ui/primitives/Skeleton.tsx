@@ -36,7 +36,7 @@ export const PageSkeleton: React.FC<{ label?: string }> = ({ label = 'Loading' }
 );
 
 /** What the splash says it is doing, in the order it says it. Purely reassurance; nothing waits on it. */
-const SPLASH_STATUS = ['Loading Devlingo', 'Fetching the content bank', 'Preparing your workspace'];
+const SPLASH_STATUS = ['Loading CodeConsist', 'Fetching the content bank', 'Preparing your workspace'];
 
 /**
  * The whole-window fallback while the very first route chunk downloads.
@@ -53,13 +53,13 @@ export const AppSplash: React.FC = () => {
   }, []);
 
   return (
-    <div className="app-splash" role="status" aria-live="polite" aria-label="Loading Devlingo">
+    <div className="app-splash" role="status" aria-live="polite" aria-label="Loading CodeConsist">
       <div className="app-splash-bg" aria-hidden="true" />
       <div className="app-splash-mark">
         <span className="app-splash-ring" aria-hidden="true" />
         <DevlingoLogo size="xl" decorative />
       </div>
-      <div className="app-splash-name">Devlingo</div>
+      <div className="app-splash-name">CodeConsist</div>
       <div className="app-splash-track" aria-hidden="true">
         <span className="app-splash-fill" />
       </div>

@@ -6,7 +6,7 @@ import { Button } from '../components/ui';
 import { DevlingoLogo } from '@/ui';
 
 /**
- * /admin/login - Devlingo's administrator console sign-in.
+ * /admin/login - CodeConsist's administrator console sign-in.
  *
  * Deliberately NOT the learner login screen wearing different colors: there
  * is no email field, no "Sign up" link (there is no public admin
@@ -69,7 +69,7 @@ export const AdminLogin: React.FC = () => {
                 autoComplete="username"
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
-                placeholder="e.g. devlingo-admin"
+                placeholder="e.g. codeconsist-admin"
                 className="w-full"
               />
             </label>

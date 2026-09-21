@@ -38,7 +38,7 @@ export const Navbar: React.FC = () => {
       }`}
     >
       <div className="max-w-6xl mx-auto px-6 h-full flex items-center justify-between">
-        <Link to="/" className="flex items-center" aria-label="Devlingo home">
+        <Link to="/" className="flex items-center" aria-label="CodeConsist home">
           <DevlingoLogo size="sm" wordmark />
         </Link>
 

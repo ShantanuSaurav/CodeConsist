@@ -28,7 +28,7 @@ export const roadmap: Roadmap = {
           description: 'Base cases, the call stack, trusting the recursive call, and converting to iteration.',
           stageId: 'stage-1',
           tags: ['recursion', 'base-case'],
-          resources: [link('Recursion (javascript.info)', 'https://javascript.info/recursion'), practice('Devlingo Stage 04 - Algorithms', '/dashboard/learn')]
+          resources: [link('Recursion (javascript.info)', 'https://javascript.info/recursion'), practice('CodeConsist Stage 04 - Algorithms', '/dashboard/learn')]
         }
       ]
     },

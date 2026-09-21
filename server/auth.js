@@ -166,6 +166,7 @@ const WEAK_BASE_WORDS = [
   'changeme',
   'iloveyou',
   'devlingo',
+  'codeconsist',
   'codequest'
 ];
 

@@ -65,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
   return (
     <div className="w-64 h-full border-r border-border bg-surface flex flex-col">
       <div className="px-3 pt-4 pb-3 flex-1 overflow-y-auto scroll-thin">
-        <Link to="/" className="flex items-center px-3 h-8 mb-4" onClick={onNavigate} aria-label="Devlingo home">
+        <Link to="/" className="flex items-center px-3 h-8 mb-4" onClick={onNavigate} aria-label="CodeConsist home">
           <DevlingoLogo size="sm" wordmark />
         </Link>
 

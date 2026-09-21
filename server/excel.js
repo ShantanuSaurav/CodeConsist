@@ -1,10 +1,10 @@
 /**
  * Optional Microsoft Excel sync, via the Microsoft Graph API.
  *
- *   Devlingo's own database (server/db.js) --> Microsoft Graph --> an Excel
+ *   CodeConsist's own database (server/db.js) --> Microsoft Graph --> an Excel
  *   table, in a workbook that already lives in OneDrive/SharePoint.
  *
- * Devlingo's local JSON database is ALWAYS the source of truth. Excel is a
+ * CodeConsist's local JSON database is ALWAYS the source of truth. Excel is a
  * downstream, best-effort mirror an admin can look at - never something the
  * app reads from, and never a replacement for signing in or for progress.
  * Every function here is written to make that true even when Microsoft is
