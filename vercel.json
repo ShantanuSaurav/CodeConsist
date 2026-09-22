@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://comedy-subscriber-locking-installation.trycloudflare.com/api/:path*"
+      "destination": "https://botany-subtext-chevron.ngrok-free.dev/api/:path*"
     },
     {
       "source": "/((?!api/).*)",
