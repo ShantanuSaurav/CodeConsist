@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Challenge, LanguageTrack, Stage, UserStats } from '@/types';
-import { applyProgress, applyProgressByTrack, stagesForTrack, stageStatus } from '../stages';
+import { applyProgress, applyProgressByTrack, isPremiumLocked, stagesForTrack, stageStatus } from '../stages';
 
 const lesson = (id: string, stageId: string): Challenge =>
   ({ id, stageId, title: id, type: 'quiz', difficulty: 'easy', language: 'javascript', prompt: '?', explanation: '.', xpReward: 10 }) as Challenge;
@@ -17,7 +17,7 @@ const stage = (n: number, opts: Partial<Stage> = {}): Stage => ({
   ...opts
 });
 
-const statsWith = (solved: string[], isPremium = false): UserStats => ({
+const statsWith = (solved: string[], isPremium = false, unlockedStages: string[] = []): UserStats => ({
   xp: 0,
   level: 1,
   streak: 0,
@@ -27,7 +27,8 @@ const statsWith = (solved: string[], isPremium = false): UserStats => ({
   completedStages: [],
   seenConcepts: [],
   attempts: {},
-  isPremium
+  isPremium,
+  unlockedStages
 });
 
 describe('stage unlocking', () => {
@@ -52,6 +53,30 @@ describe('stage unlocking', () => {
       statsWith(['s1-a', 's1-b', 's1-test'])
     ).map((s) => s.state);
     expect(states).toEqual(['Completed', 'Locked', 'In progress']);
+  });
+
+  it('a premium stage bought on its own opens while another premium stage stays locked', () => {
+    const bank = [stage(1), stage(2, { isPremium: true }), stage(3, { isPremium: true })];
+    const cleared = ['s1-a', 's1-b', 's1-test'];
+    const states = applyProgress(bank, statsWith(cleared, false, ['stage-2'])).map((s) => s.state);
+    // Stage 2 is open (In progress), stage 3 is still behind the paywall.
+    expect(states).toEqual(['Completed', 'In progress', 'Locked']);
+    expect(isPremiumLocked(bank[1], statsWith([], false, ['stage-2']))).toBe(false);
+    expect(isPremiumLocked(bank[2], statsWith([], false, ['stage-2']))).toBe(true);
+  });
+
+  it('a lifetime licence opens every premium stage', () => {
+    const bank = [stage(1), stage(2, { isPremium: true }), stage(3, { isPremium: true })];
+    const lifetime = statsWith(['s1-a', 's1-b', 's1-test'], true);
+    expect(isPremiumLocked(bank[1], lifetime)).toBe(false);
+    expect(isPremiumLocked(bank[2], lifetime)).toBe(false);
+    // Stage 3 still waits on stage 2's test - a licence buys access, not progress.
+    expect(applyProgress(bank, lifetime).map((s) => s.state)).toEqual(['Completed', 'In progress', 'Locked']);
+  });
+
+  it('isPremiumLocked never locks a free stage and tolerates a missing unlockedStages list', () => {
+    expect(isPremiumLocked(stage(1), { isPremium: false })).toBe(false);
+    expect(isPremiumLocked(stage(2, { isPremium: true }), { isPremium: false })).toBe(true);
   });
 
   it('stageStatus reports lessons, test and unlock state', () => {

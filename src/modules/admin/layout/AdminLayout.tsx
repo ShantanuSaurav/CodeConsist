@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   BarChart3,
   BookOpen,
+  CreditCard,
   FileSpreadsheet,
   Languages,
   LayoutDashboard,
@@ -41,6 +42,7 @@ const GROUPS: Array<{ label: string; items: Array<{ icon: React.ReactNode; label
     label: 'Operations',
     items: [
       { icon: <Users size={ICON} />, label: 'Users', path: '/admin/users' },
+      { icon: <CreditCard size={ICON} />, label: 'Billing', path: '/admin/billing' },
       { icon: <FileSpreadsheet size={ICON} />, label: 'Excel sync', path: '/admin/excel' },
       { icon: <ShieldCheck size={ICON} />, label: 'Security', path: '/admin/settings/security' }
     ]

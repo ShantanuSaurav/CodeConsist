@@ -25,7 +25,9 @@ vi.mock('../db.js', () => {
       return entry;
     },
     listAudit: () => [...auditLog].reverse(),
-    getExcelSync: () => ({})
+    getExcelSync: () => ({}),
+    // The dashboard sums revenue from orders (server/billing.js); none here.
+    allOrders: () => []
   };
 });
 

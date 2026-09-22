@@ -1,0 +1,5 @@
+# Runtime output - never committed.
+logs/
+backups/
+power-backup.txt
+ngrok-path.txt

@@ -1,0 +1,168 @@
+@layer components {
+/* ==========================================================================
+   Certificate of Completion - a full page that prints as one sheet.
+
+   Reads the theme tokens like everything else, so it matches the app on
+   screen; the print rules below drop the chrome and force a light sheet so
+   a dark-mode learner still gets a printable certificate.
+   ========================================================================== */
+
+.certificate-page {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-8) var(--space-4);
+  gap: var(--space-6);
+}
+
+/* Buttons and links around the sheet: never printed. */
+.certificate-chrome {
+  width: min(52rem, 100%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.certificate-sheet {
+  width: min(52rem, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: clamp(var(--space-6), 6vw, var(--space-16));
+  position: relative;
+  box-shadow: var(--shadow-menu);
+}
+/* A second, inset rule gives the sheet its "certificate" frame without images. */
+.certificate-sheet::before {
+  content: '';
+  position: absolute;
+  inset: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+
+.certificate-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-10);
+}
+.certificate-kicker {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+.certificate-title {
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: var(--space-2) 0 var(--space-8);
+}
+.certificate-lead {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+}
+.certificate-name {
+  font-size: clamp(1.75rem, 5vw, 2.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: var(--space-3) 0;
+  padding-bottom: var(--space-3);
+  border-bottom: 2px solid var(--accent);
+  display: inline-block;
+}
+.certificate-track {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  margin-top: var(--space-2);
+}
+.certificate-body {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  max-width: 40rem;
+  margin-top: var(--space-2);
+}
+
+.certificate-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-10);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+.certificate-meta dt {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.certificate-meta dd {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text);
+  word-break: break-all;
+}
+.certificate-meta dd.is-mono { font-family: var(--font-mono); }
+
+.certificate-revoked {
+  position: absolute;
+  top: var(--space-6);
+  right: var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--error);
+  border: 1px solid var(--error);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-xs);
+  transform: rotate(-6deg);
+}
+
+/* ------------------------------------------------------------------- print */
+
+@media print {
+  /* The certificate is the only thing on the sheet. */
+  .certificate-chrome,
+  .certificate-page .no-print { display: none !important; }
+  .certificate-page {
+    min-height: 0;
+    padding: 0;
+    background: #fff;
+    color: #0f172a;
+  }
+  .certificate-sheet {
+    width: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    border-color: #cbd5e1;
+    background: #fff;
+    color: #0f172a;
+    page-break-inside: avoid;
+  }
+  .certificate-sheet::before { border-color: #94a3b8; }
+  .certificate-lead, .certificate-body { color: #334155; }
+  .certificate-kicker, .certificate-meta dt { color: #64748b; }
+  .certificate-meta dd { color: #0f172a; }
+  .certificate-name { border-bottom-color: #15803d; }
+  .certificate-track, .certificate-title { color: #0f172a; }
+  /* The wordmark is coloured by a Tailwind utility, which sits in a later layer
+     than this one - so it needs !important, or it prints white on white in dark mode. */
+  .certificate-page .certificate-wordmark span { color: #0f172a !important; }
+}
+}
+
+@page { margin: 12mm; }

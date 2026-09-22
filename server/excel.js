@@ -38,6 +38,7 @@
  * one-time, human step, and guessing at ranges to auto-create a table is a
  * good way to silently corrupt a workbook someone is also looking at.
  */
+import { entitlementsFor } from './billing.js';
 
 const TENANT_ID = process.env.MICROSOFT_TENANT_ID;
 const CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
@@ -146,7 +147,8 @@ const COLUMNS = [
   'Is Premium'
 ];
 
-function rowValues(user, progress) {
+/** One learner's row, in COLUMNS order. Exported so the mirror can be checked without Graph. */
+export function rowValues(user, progress) {
   return [
     [
       user.id,
@@ -159,7 +161,10 @@ function rowValues(user, progress) {
       progress?.streak ?? 0,
       (progress?.completedStages ?? []).length,
       (progress?.completedChallenges ?? []).length,
-      Boolean(user.isPremium)
+      // Derived, never the raw legacy flag: a lifetime licence is a paid
+      // order now, so `user.isPremium` alone would export a paying learner
+      // as not premium. Same source as publicUser and the admin user list.
+      entitlementsFor(user.id, user).lifetime
     ]
   ];
 }

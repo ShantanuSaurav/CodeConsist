@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { Challenge, LearningMode, Stage } from '@/types';
 import { useSession } from '@/platform/session';
-import { stageStatus } from '@/platform/progress';
+import { isPremiumLocked, stageStatus } from '@/platform/progress';
 import { eventBus, intents, useAppEvent } from '@/platform/events';
 import { useToast } from '@/ui';
 
@@ -81,8 +81,8 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
         notify(contentReady ? 'No challenges are available yet.' : 'Still loading the lessons - one moment.', 'error');
         return;
       }
-      if (target.isPremium && !stats.isPremium) {
-        eventBus.emit('account:openPro', {});
+      if (isPremiumLocked(target, stats)) {
+        eventBus.emit('account:openPro', { stageId: target.id });
         return;
       }
       if (target.challenges.length === 0) {
@@ -108,7 +108,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       setActiveStageId(target.id);
       setActiveChallengeIndex(index);
     },
-    [stages, learnerStages, stats.isPremium, stats.completedChallenges, notify, contentReady, setLearningMode]
+    [stages, learnerStages, stats.isPremium, stats.unlockedStages, stats.completedChallenges, notify, contentReady, setLearningMode]
   );
 
   /**
@@ -122,8 +122,8 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
         notify('This stage has no test.', 'error');
         return;
       }
-      if (target.isPremium && !stats.isPremium) {
-        eventBus.emit('account:openPro', {});
+      if (isPremiumLocked(target, stats)) {
+        eventBus.emit('account:openPro', { stageId: target.id });
         return;
       }
       if (target.state === 'Locked') {

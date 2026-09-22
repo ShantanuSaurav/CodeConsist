@@ -1,12 +1,23 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Search, Trash2 } from 'lucide-react';
 import { AdminUserRow, adminApi } from '../services/adminApi';
-import { AdminPageHeader, Button, Card, ConfirmDialog, EmptyState, ErrorText, Spinner, Table, Toggle } from '../components/ui';
+import { AdminPageHeader, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorText, Spinner, Table, Toggle } from '../components/ui';
+
+const PROVIDER_LABEL: Record<string, string> = { google: 'Google', github: 'GitHub' };
+
+/** yyyy-mm-dd of an ISO timestamp, or an em dash. Times are noise in a list. */
+function shortDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? '—' : at.toISOString().slice(0, 10);
+}
 
 /**
  * /admin/users. Every row comes from adminUserRow() in server/admin.js,
  * which never includes a password, a password hash, a JWT or any other
- * secret - see that function's doc comment. This list is learner accounts
+ * secret - see that function's doc comment. The Sign-in column is the
+ * closest this page gets: WHICH methods exist (a password, Google, GitHub),
+ * never anything derived from one. This list is learner accounts
  * ONLY: the administrator lives in a completely separate record (see
  * server/db.js's `admin` field) and can never appear here, so there is no
  * "role" column and nothing to promote/demote - deleting a row here only
@@ -88,6 +99,12 @@ export const AdminUsers: React.FC = () => {
 
       {error && <ErrorText>{error}</ErrorText>}
 
+      <p className="text-xs text-fg-muted mb-3 max-w-3xl">
+        The Sign-in column shows how each learner gets in. Passwords are stored only as a bcrypt hash — a one-way
+        scramble — so no page, route or export can show you one, and nobody, including an administrator, can read a
+        learner's password.
+      </p>
+
       <Card className="p-0 overflow-hidden">
         {!users ? (
           <Spinner />
@@ -98,11 +115,13 @@ export const AdminUsers: React.FC = () => {
             <thead>
               <tr>
                 <th>User</th>
+                <th>Sign-in</th>
                 <th>Premium</th>
                 <th>XP</th>
                 <th>Level</th>
                 <th>Solved</th>
                 <th>Stages</th>
+                <th>Last login</th>
                 <th>Last active</th>
                 <th />
               </tr>
@@ -115,12 +134,27 @@ export const AdminUsers: React.FC = () => {
                     <div className="text-xs text-fg-muted">{u.email}</div>
                   </td>
                   <td>
+                    {/* What they can sign in WITH - never anything derived from it. */}
+                    <div className="flex flex-wrap items-center gap-1">
+                      {u.hasPassword !== false && <Badge>Password</Badge>}
+                      {(u.identities ?? []).map((id) => (
+                        <Badge key={id} tone="success">
+                          {PROVIDER_LABEL[id] ?? id}
+                        </Badge>
+                      ))}
+                      {u.hasPassword === false && (u.identities ?? []).length === 0 && (
+                        <span className="text-xs text-fg-muted">—</span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
                     <Toggle label="" checked={u.isPremium} onChange={() => togglePremium(u)} />
                   </td>
                   <td className="cell-num">{u.xp.toLocaleString()}</td>
                   <td className="cell-num">{u.level}</td>
                   <td className="cell-num">{u.completedChallenges}</td>
                   <td className="cell-num">{u.completedStages}</td>
+                  <td className="cell-mono text-fg-muted">{shortDate(u.lastLoginAt)}</td>
                   <td className="cell-mono text-fg-muted">{u.lastActiveDay ?? '—'}</td>
                   <td className="text-right">
                     <Button

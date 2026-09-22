@@ -23,7 +23,18 @@ export interface PracticeModalProps {
 }
 
 export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => {
-  const { learnerStages, completeChallenge, markConceptSeen, executeCode, stats } = useSession();
+  const {
+    learnerStages,
+    completeChallenge,
+    markConceptSeen,
+    executeCode,
+    stats,
+    draftFor,
+    saveDraft,
+    flushDraft,
+    clearDraft,
+    draftStatus
+  } = useSession();
   const {
     activeStage,
     activeMode,
@@ -87,6 +98,8 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const [failedPass, setFailedPass] = useState<number | null>(null);
 
   const [code, setCode] = useState('');
+  /** True when this challenge opened on saved code rather than its starter. */
+  const [restoredDraft, setRestoredDraft] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
   const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
@@ -113,6 +126,17 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
    */
   const runOwner = useRef<string | null>(null);
 
+  /**
+   * Read through a ref, so restoring a challenge does not depend on the draft
+   * store. `draftFor` changes identity on every save, and taking it as a
+   * dependency would re-run the reset effect mid-typing and throw away the
+   * attempt count.
+   */
+  const draftForRef = useRef(draftFor);
+  useEffect(() => {
+    draftForRef.current = draftFor;
+  }, [draftFor]);
+
   /** Wipe everything that belongs to a single challenge. */
   const resetForChallenge = useCallback((next: Challenge | undefined) => {
     runOwner.current = null;
@@ -129,7 +153,11 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     setProgressMessage('');
     setReviewingConcept(false);
     setLastAwarded(null);
-    setCode(next && isCodeType(next) ? next.starterCode ?? '' : '');
+    // Saved code wins over the starter: the learner picks up exactly where
+    // they stopped, whether that was a minute or a month ago.
+    const saved = next && isCodeType(next) ? draftForRef.current(next.id) : null;
+    setRestoredDraft(saved !== null);
+    setCode(next && isCodeType(next) ? saved ?? next.starterCode ?? '' : '');
   }, []);
 
   // Keyed on the id, not the object: a new stage array must not wipe answers.
@@ -139,6 +167,50 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     bodyRef.current?.scrollTo({ top: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [challengeId, resetForChallenge]);
+
+  /**
+   * Leaving this challenge - for the next one, or by closing the modal -
+   * writes whatever is still queued immediately, instead of losing the last
+   * second and a half of typing to the debounce.
+   */
+  useEffect(() => {
+    if (!challengeId) return;
+    return () => flushDraft(challengeId);
+  }, [challengeId, flushDraft]);
+
+  /**
+   * A draft can arrive after the modal is already open (a slow session
+   * restore, a sign-in from the auth modal). Adopt it only while the editor
+   * is untouched - never over something the learner has started typing.
+   */
+  useEffect(() => {
+    if (!challenge || !isCodeType(challenge) || restoredDraft || attempts > 0 || checked) return;
+    const saved = draftFor(challenge.id);
+    if (saved === null || saved === code || code !== (challenge.starterCode ?? '')) return;
+    setCode(saved);
+    setRestoredDraft(true);
+  }, [challenge, draftFor, restoredDraft, attempts, checked, code]);
+
+  /** Every keystroke in a code editor, debounced into a save by the session. */
+  const handleCodeChange = useCallback(
+    (next: string) => {
+      setCode(next);
+      if (!challenge || !isCodeType(challenge)) return;
+      // Untouched starter code with nothing saved yet is not worth a draft.
+      if (next === (challenge.starterCode ?? '') && draftForRef.current(challenge.id) === null) return;
+      saveDraft(challenge.id, next, challenge.language);
+    },
+    [challenge, saveDraft]
+  );
+
+  /** Back to the starter code, and the saved copy goes with it. */
+  const startFromScratch = useCallback(() => {
+    if (!challenge) return;
+    setCode(challenge.starterCode ?? '');
+    setExecResult(null);
+    setRestoredDraft(false);
+    clearDraft(challenge.id);
+  }, [challenge, clearDraft]);
 
   /**
    * The answer to actually render and grade. Falls back to a correctly shaped
@@ -190,8 +262,15 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
       });
       setSessionXp((prev) => prev + xp);
       setSessionSolved((prev) => (prev.includes(target.id) ? prev : [...prev, target.id]));
+      // Solved: the saved copy has done its job. A cleared lesson reopens at
+      // its starter code, not at the learner's last keystroke. (The server
+      // drops its own copy on the same solve.)
+      if (isCodeType(target)) {
+        setRestoredDraft(false);
+        clearDraft(target.id);
+      }
     },
-    [completeChallenge, revealedHints, stats.completedChallenges]
+    [completeChallenge, revealedHints, stats.completedChallenges, clearDraft]
   );
 
   const handleCheck = useCallback(async () => {
@@ -417,6 +496,16 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const nextStage = trackStages[trackStages.findIndex((s) => s.id === activeStage.id) + 1];
   const canCheck = isAnswerComplete(challenge, currentAnswer);
   const alreadySolved = stats.completedChallenges.includes(challenge.id);
+
+  // One quiet line under the editor, so nobody has to wonder whether their
+  // work is safe. Empty until there is something true to say.
+  const draftLine = (() => {
+    const status = draftStatus(challenge.id);
+    if (status === 'saving') return 'Saving…';
+    if (status === 'local') return 'Saved on this device - the server could not be reached.';
+    if (status === 'saved' || draftFor(challenge.id) !== null) return 'Draft saved';
+    return '';
+  })();
   const percent = Math.round(((activeChallengeIndex + (checked && isCorrect ? 1 : 0)) / challenges.length) * 100);
 
   return (
@@ -670,21 +759,35 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                 }
                 const CodeRenderer = def.Renderer;
                 return (
-                  <CodeRenderer
-                    challenge={challenge}
-                    code={code}
-                    onCodeChange={setCode}
-                    onRun={handleRun}
-                    isRunning={isRunning}
-                    progressMessage={progressMessage}
-                    result={execResult}
-                    locked={checked && isCorrect}
-                    showSolution={showSolution}
-                    onReset={() => {
-                      setCode(challenge.starterCode ?? '');
-                      setExecResult(null);
-                    }}
-                  />
+                  <>
+                    {/* Kept mounted, so the save status is a live region that
+                        actually announces rather than appearing from nowhere. */}
+                    <div className={`draft-bar ${restoredDraft ? 'is-restored' : ''}`.trim()}>
+                      {restoredDraft && (
+                        <>
+                          <span>Your saved code was restored.</span>
+                          <button type="button" className="link-btn" onClick={startFromScratch}>
+                            Start from scratch
+                          </button>
+                        </>
+                      )}
+                      <span className="draft-status" role="status">
+                        {draftLine}
+                      </span>
+                    </div>
+                    <CodeRenderer
+                      challenge={challenge}
+                      code={code}
+                      onCodeChange={handleCodeChange}
+                      onRun={handleRun}
+                      isRunning={isRunning}
+                      progressMessage={progressMessage}
+                      result={execResult}
+                      locked={checked && isCorrect}
+                      showSolution={showSolution}
+                      onReset={startFromScratch}
+                    />
+                  </>
                 );
               })()}
 

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { BookOpen, Check, Lock, Search } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { Challenge, Difficulty, ReadingResolver } from '@/types';
-import { stageStatus } from '@/platform/progress';
+import { isPremiumLocked, stageStatus } from '@/platform/progress';
 import { intents } from '@/platform/events';
 import { Badge, Button, Dropdown, EmptyState, Segmented } from '@/ui';
 
@@ -66,10 +66,12 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
   const stageOptions = useMemo(() => (trackStageIds ? stages.filter((s) => trackStageIds.has(s.id)) : stages), [stages, trackStageIds]);
   const lockedStages = useMemo(() => new Set(stages.filter((s) => s.state === 'Locked').map((s) => s.id)), [stages]);
   // Premium locks are a different thing from progression locks: one is solved by
-  // upgrading, the other by working through the path.
+  // buying the stage (or its track, or a lifetime licence), the other by
+  // working through the path.
+  const { isPremium, unlockedStages } = stats;
   const premiumStages = useMemo(
-    () => new Set(stages.filter((s) => s.isPremium && !stats.isPremium).map((s) => s.id)),
-    [stages, stats.isPremium]
+    () => new Set(stages.filter((s) => isPremiumLocked(s, { isPremium, unlockedStages })).map((s) => s.id)),
+    [stages, isPremium, unlockedStages]
   );
 
   const filtered = useMemo(() => {
@@ -194,16 +196,16 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
           <ul className="mt-6 border-t border-border">
             {visible.map((c) => {
               const solved = stats.completedChallenges.includes(c.id);
-              const needsPro = premiumStages.has(c.stageId);
+              const needsUnlock = premiumStages.has(c.stageId);
               const stage = stages.find((s) => s.id === c.stageId);
               // A stage test is gated on its lessons, not on the previous stage.
               const testLocked = Boolean(c.isStageTest) && stage ? !stageStatus(stage, stats).testUnlocked : false;
-              const locked = (lockedStages.has(c.stageId) && !needsPro && !c.uiPreview) || (testLocked && !solved);
+              const locked = (lockedStages.has(c.stageId) && !needsUnlock && !c.uiPreview) || (testLocked && !solved);
               const best = stats.attempts[c.id];
               const reading = readingFor?.(c.stageId, c.tags) ?? null;
 
               const open = () =>
-                needsPro ? intents.openPro() : c.isStageTest ? intents.openStageTest(c.stageId) : intents.openPractice(c.stageId, c.id);
+                needsUnlock ? intents.openPro({ stageId: c.stageId }) : c.isStageTest ? intents.openStageTest(c.stageId) : intents.openPractice(c.stageId, c.id);
 
               return (
                 <li key={c.id} className="border-b border-border-subtle">
@@ -265,7 +267,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                       <span className="font-mono text-xs text-fg-muted">+{c.xpReward} XP</span>
                       <Button
                         size="sm"
-                        variant={needsPro ? 'secondary' : solved ? 'secondary' : 'primary'}
+                        variant={needsUnlock ? 'secondary' : solved ? 'secondary' : 'primary'}
                         onClick={open}
                         disabled={locked}
                         title={
@@ -280,8 +282,8 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                           ? testLocked
                             ? 'Lessons first'
                             : 'Locked'
-                          : needsPro
-                            ? 'Unlock with Pro'
+                          : needsUnlock
+                            ? 'Unlock'
                             : solved
                               ? 'Practise again'
                               : c.isStageTest

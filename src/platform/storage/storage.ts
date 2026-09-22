@@ -72,6 +72,13 @@ export const STORAGE_KEYS = {
   user: 'cq-user-profile-v2',
   token: 'cq-auth-token',
   editor: 'cq-playground-draft',
+  /**
+   * Saved challenge code for a learner with no account yet, keyed by challenge
+   * id. A signed-in learner's drafts live on their account instead; these are
+   * pushed up on sign-in and cleared on sign-out, so one person's code is
+   * never left behind for the next person on a shared browser.
+   */
+  drafts: 'cq-code-drafts-v1',
   /** Which language track (modules/challenges/content/tracks.ts) the learner last picked. */
   track: 'cq-selected-track',
   /** 'learn' | 'practice' - how the learner wants to reach a stage's challenges; unset until chosen. */

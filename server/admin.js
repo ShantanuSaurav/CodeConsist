@@ -37,17 +37,41 @@ import { requireAdminAuth, publicAdmin, updateAdminCredentials } from './admin-a
 import * as excel from './excel.js';
 import { GeminiError } from './ai.js';
 import { AiInputError, KINDS as AI_KINDS, draftQuestion, findDuplicates, suggestQuestions } from './ai-questions.js';
+import {
+  BillingError,
+  CURRENCY,
+  DEFAULT_PRICES,
+  MAX_PRICE,
+  MIN_PRICE,
+  certificateNameFrom,
+  entitlementsFor,
+  grant,
+  priceFor,
+  revenueSummary,
+  revokeOrder,
+  trackLabel
+} from './billing.js';
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-/** Never the passwordHash. Adds the small progress summary the Users page needs. */
+/**
+ * Never the passwordHash. Adds the small progress summary the Users page
+ * needs, plus HOW the account signs in - `identities` is provider ids only
+ * ('google', 'github') and `hasPassword` is a boolean. A password exists in
+ * this database exclusively as a bcrypt hash, which no route returns and no
+ * administrator can read or recover; the Users page says so in as many words.
+ */
 function adminUserRow(user) {
   const progress = store.getProgress(user.id);
   return {
     id: user.id,
     email: user.email,
     username: user.username,
-    isPremium: Boolean(user.isPremium),
+    // The effective licence: the legacy flag OR a paid lifetime order.
+    isPremium: entitlementsFor(user.id, user).lifetime,
+    identities: store.identityProviders(user),
+    hasPassword: Boolean(user.passwordHash),
+    lastLoginAt: user.lastLoginAt ?? null,
     createdAt: user.createdAt ?? null,
     xp: progress.xp,
     level: progress.level,
@@ -63,7 +87,8 @@ function adminUserRow(user) {
  *   content schema and runners (a direct import would be a cycle):
  *   validateChallenge(candidate) -> { ok, challenge, issues[] } via the zod ChallengeSchema;
  *   runSolution(challenge, code) -> { status, testResults, stderr, reason };
- *   ai -> the Gemini client from server/ai.js ({ configured, model, generateJson }).
+ *   ai -> the Gemini client from server/ai.js ({ configured, model, generateJson });
+ *   billing -> { provider } from server/payments.js, the same instance the learner routes use.
  */
 export function createAdminRouter(deps = {}) {
   const router = express.Router();
@@ -133,7 +158,7 @@ export function createAdminRouter(deps = {}) {
           // Learner accounts only - the administrator is never a row in
           // `users` (see server/db.js), so there is nothing to exclude here.
           users: users.length,
-          premium: users.filter((u) => u.isPremium).length,
+          premium: users.filter((u) => entitlementsFor(u.id, u).lifetime).length,
           challenges: allChallenges().length,
           stages: snapshot?.stages.length ?? 0,
           totalXpAwarded: totalXp,
@@ -143,7 +168,9 @@ export function createAdminRouter(deps = {}) {
         signupsByDay: last14Days,
         judge0Configured: process.env.JUDGE0_API_URL ? true : false,
         geminiConfigured: Boolean(deps.ai?.configured),
-        excel: excel.excelSettingsSummary()
+        excel: excel.excelSettingsSummary(),
+        revenue: revenueSummary(store.allOrders()),
+        razorpayMode: deps.billing?.provider?.mode ?? 'test'
       });
     })
   );
@@ -670,6 +697,184 @@ export function createAdminRouter(deps = {}) {
       res.json(result);
     })
   );
+
+  /* ---------------------------------------------------------------- billing */
+
+  /**
+   * Prices, grants and revokes. A BillingError (server/billing.js) carries
+   * the status to reply with and a message written for the admin - "You
+   * already have access to this." on a duplicate grant, say - so none of
+   * them reaches the app-level 500 handler.
+   */
+  const billingRoute = (fn) =>
+    asyncRoute(async (req, res) => {
+      try {
+        await fn(req, res);
+      } catch (err) {
+        if (err instanceof BillingError) return res.status(err.status ?? 400).json({ error: err.message });
+        throw err;
+      }
+    });
+
+  const billingMode = () => deps.billing?.provider?.mode ?? 'test';
+
+  /** Every price the console can set, resolved to its effective value, plus the ids it can price. */
+  function pricingView() {
+    const snapshot = contentSnapshot();
+    const overrides = store.getContentOverrides();
+    const stageOverrides = overrides.stages;
+    const languageOverrides = overrides.languages;
+    const pricing = store.getPricing();
+    // `hidden` rides along because a grant goes through the learner-visible
+    // catalog: a hidden track or stage can be priced but not granted, and the
+    // console says so rather than letting the admin hit "Unknown product."
+    const tracks = (snapshot?.languageTracks ?? []).map((t) => ({ id: t.id, label: t.label, hidden: Boolean(languageOverrides?.[t.id]?.hidden) }));
+    // Premium after admin overrides, hidden ones included - a price can be
+    // set before a stage is shown to learners.
+    const premiumStages = (snapshot?.stages ?? [])
+      .map((s) => applyStageOverride(s, stageOverrides))
+      .filter((s) => s.isPremium)
+      .map((s) => ({ id: s.id, name: s.name, index: s.index, hidden: Boolean(stageOverrides?.[s.id]?.hidden) }));
+    return {
+      pricing: {
+        lifetime: priceFor({ kind: 'lifetime' }, pricing),
+        tracks: Object.fromEntries(tracks.map((t) => [t.id, priceFor({ kind: 'track', trackId: t.id }, pricing)])),
+        stages: Object.fromEntries(premiumStages.map((s) => [s.id, priceFor({ kind: 'stage', stageId: s.id }, pricing)])),
+        certificates: Object.fromEntries(tracks.map((t) => [t.id, priceFor({ kind: 'certificate', trackId: t.id }, pricing)]))
+      },
+      // The sparse record as stored, so the console can tell a set price from a default.
+      custom: pricing,
+      defaults: DEFAULT_PRICES,
+      currency: CURRENCY,
+      mode: billingMode(),
+      catalogKeys: { tracks, premiumStages }
+    };
+  }
+
+  router.get('/billing/pricing', (_req, res) => {
+    res.json(pricingView());
+  });
+
+  /**
+   * Set prices in paise. `null` on any key puts it back to the default.
+   * Whole numbers within [MIN_PRICE, MAX_PRICE] only, and only for ids
+   * that exist - a typo cannot price a stage nobody has.
+   */
+  router.put('/billing/pricing', (req, res) => {
+    const body = req.body ?? {};
+    const snapshot = contentSnapshot();
+    const trackIds = new Set((snapshot?.languageTracks ?? []).map((t) => t.id));
+    const stageIds = new Set((snapshot?.stages ?? []).map((s) => s.id));
+    const patch = {};
+    const problems = [];
+    const price = (value, label) => {
+      if (value === null) return null;
+      if (!Number.isInteger(value) || value < MIN_PRICE || value > MAX_PRICE) {
+        problems.push(`${label}: enter a whole number of paise between ${MIN_PRICE} and ${MAX_PRICE.toLocaleString('en-IN')}.`);
+        return undefined;
+      }
+      return value;
+    };
+
+    if (body.lifetime !== undefined) {
+      const v = price(body.lifetime, 'Lifetime licence');
+      if (v !== undefined) patch.lifetime = v;
+    }
+    for (const [kind, known, label] of [
+      ['tracks', trackIds, 'Track'],
+      ['stages', stageIds, 'Stage'],
+      ['certificates', trackIds, 'Certificate for track']
+    ]) {
+      if (body[kind] === undefined) continue;
+      if (!body[kind] || typeof body[kind] !== 'object' || Array.isArray(body[kind])) {
+        problems.push(`${kind}: expected an object of id to paise.`);
+        continue;
+      }
+      patch[kind] = {};
+      for (const [id, value] of Object.entries(body[kind])) {
+        if (!known.has(id)) {
+          problems.push(`${label} "${id}" does not exist.`);
+          continue;
+        }
+        const v = price(value, `${label} "${id}"`);
+        if (v !== undefined) patch[kind][id] = v;
+      }
+    }
+    if (problems.length) return res.status(400).json({ error: problems[0], issues: problems });
+
+    store.setPricing(patch);
+    audit(req, 'billing.pricing.update', null, patch);
+    res.json(pricingView());
+  });
+
+  /** Newest first, capped. `q` matches the order id, product, learner or gateway ids. */
+  router.get('/billing/orders', (req, res) => {
+    const status = String(req.query.status ?? '').trim();
+    const userId = String(req.query.userId ?? '').trim();
+    const q = String(req.query.q ?? '').trim().toLowerCase();
+    const users = new Map(store.allUsers().map((u) => [u.id, u]));
+
+    let rows = store.allOrders();
+    if (status) rows = rows.filter((o) => o.status === status);
+    if (userId) rows = rows.filter((o) => o.userId === userId);
+    rows = rows.map((o) => {
+      const user = users.get(o.userId);
+      return { ...o, username: user?.username ?? null, email: user?.email ?? null };
+    });
+    if (q) {
+      rows = rows.filter((r) =>
+        [r.id, r.productKey, r.username, r.email, r.providerOrderId, r.providerPaymentId].some((v) => String(v ?? '').toLowerCase().includes(q))
+      );
+    }
+    res.json({ orders: rows.slice(0, 500) });
+  });
+
+  /** Give a product away (paid offline, goodwill). Same rules as a purchase, no gateway. */
+  router.post(
+    '/billing/grant',
+    billingRoute(async (req, res) => {
+      const body = req.body ?? {};
+      const target = store.findUserById(String(body.userId ?? ''));
+      if (!target) return res.status(404).json({ error: 'No such user.' });
+
+      const name = certificateNameFrom(body.certificateName);
+      if (name.error) return res.status(400).json({ error: name.error });
+
+      const result = grant({
+        adminUserId: req.admin.id,
+        userId: target.id,
+        product: body.product,
+        note: body.note,
+        certificateName: name.name,
+        snapshot: contentSnapshot(),
+        overrides: store.getContentOverrides()
+      });
+      audit(req, 'billing.grant', target.id, { userId: target.id, productKey: result.order.productKey });
+      res.status(201).json(result);
+    })
+  );
+
+  router.post(
+    '/billing/orders/:id/revoke',
+    billingRoute(async (req, res) => {
+      const { order } = revokeOrder(req.params.id, req.admin.id);
+      audit(req, 'billing.revoke', order.id, { userId: order.userId, productKey: order.productKey });
+      res.json({ order });
+    })
+  );
+
+  router.get('/billing/certificates', (_req, res) => {
+    const users = new Map(store.allUsers().map((u) => [u.id, u]));
+    const snapshot = contentSnapshot();
+    res.json({
+      certificates: store.allCertificates().map((c) => ({
+        ...c,
+        trackLabel: trackLabel(c.trackId, snapshot),
+        revoked: Boolean(c.revokedAt),
+        username: users.get(c.userId)?.username ?? null
+      }))
+    });
+  });
 
   /* -------------------------------------------------------- settings: creds */
 

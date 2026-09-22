@@ -17,9 +17,20 @@ export const ROUTES = {
   leaderboard: '/dashboard/leaderboard',
   achievements: '/dashboard/achievements',
   settings: '/dashboard/settings',
+  /**
+   * Where a Google / GitHub sign-in comes back to. The server redirects here
+   * with the token in the URL fragment, which this page reads and clears.
+   */
+  authCallback: '/auth/callback',
+  /** A learner's own printable certificate (owner only; outside the dashboard frame so it prints clean). */
+  certificate: (id: string) => `/certificates/${id}`,
+  /** Public check of a certificate code - no sign-in needed. */
+  verify: (code: string) => `/verify/${code}`,
   /** The administrator console - its own sign-in, its own session (modules/admin). */
   admin: '/admin',
-  adminLogin: '/admin/login'
+  adminLogin: '/admin/login',
+  /** Prices, grants, orders and certificates. */
+  adminBilling: '/admin/billing'
 } as const;
 
 /** Static paths (no parameters), for validators that check internal links. */
@@ -33,6 +44,8 @@ export const STATIC_ROUTES: readonly string[] = [
   ROUTES.leaderboard,
   ROUTES.achievements,
   ROUTES.settings,
+  ROUTES.authCallback,
   ROUTES.admin,
-  ROUTES.adminLogin
+  ROUTES.adminLogin,
+  ROUTES.adminBilling
 ];

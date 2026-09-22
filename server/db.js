@@ -12,7 +12,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(HERE, 'data');
+/**
+ * Where the database lives. `DATA_DIR` in the environment moves it, which is
+ * how a development server runs beside the live one without the two writing
+ * over each other: each holds the whole state in memory and rewrites the
+ * file, so sharing one would mean the last writer silently wins.
+ * Unset - which is every normal case - keeps it at server/data.
+ */
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(path.join(HERE, '..'), process.env.DATA_DIR)
+  : path.join(HERE, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 const EMPTY = {
@@ -48,7 +57,35 @@ const EMPTY = {
    */
   customChallenges: {},
   /** State for the optional Microsoft Excel sync - see server/excel.js. */
-  excelSync: { rowIndexByUserId: {}, lastSyncedAtByUser: {}, lastFullSyncAt: null, failures: [] }
+  excelSync: { rowIndexByUserId: {}, lastSyncedAtByUser: {}, lastFullSyncAt: null, failures: [] },
+  /**
+   * One-time purchases (lifetime licence, a track, a stage, a certificate),
+   * keyed by order id - see server/billing.js for the record shape. What a
+   * learner may open is derived from the PAID rows here on every request,
+   * never cached on the user; the legacy `user.isPremium` flag still counts
+   * as a lifetime licence so nobody loses access they had before this.
+   */
+  orders: {},
+  /**
+   * Issued certificates keyed by id. The id doubles as the public
+   * verification code (/api/verify/:code), so it is random, not sequential.
+   */
+  certificates: {},
+  /**
+   * Admin-set prices in paise, sparse: a missing entry means "the default
+   * for that kind" (server/billing.js DEFAULT_PRICES). Shape:
+   * { lifetime?, tracks: { [trackId] }, stages: { [stageId] }, certificates: { [trackId] } }.
+   */
+  pricing: {},
+  /**
+   * Work in progress: the code a learner has typed but not yet solved, keyed
+   * by user id then challenge id -> { code, language, updatedAt }. This is
+   * what makes closing the lesson, refreshing, or signing in on another
+   * machine stop being the same thing as throwing the work away. Bounded per
+   * user (see DRAFT_CODE_MAX / DRAFTS_PER_USER_MAX) so it cannot grow db.json
+   * without limit, and dropped entirely when the account is deleted.
+   */
+  drafts: {}
 };
 
 let state = null;
@@ -57,6 +94,30 @@ let writing = Promise.resolve();
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+/** The value if it is a plain object (a keyed map), else a fresh `{}` - arrays and nulls are not maps. */
+function plainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+/**
+ * Write one entry into a keyed map, safely for ANY key.
+ *
+ * `map[key] = value` looks equivalent but is not: for the key '__proto__' it
+ * runs Object.prototype's setter instead of creating an own property, so the
+ * entry silently vanishes and the object's prototype changes. defineProperty
+ * always makes a real own property, which is also exactly what JSON.parse
+ * produces when the file is read back.
+ */
+function defineEntry(map, key, value) {
+  Object.defineProperty(map, key, { value, writable: true, enumerable: true, configurable: true });
+  return value;
+}
+
+/** Own-property read from a keyed map - the companion to defineEntry above. */
+function ownEntry(map, key) {
+  return typeof key === 'string' && map && Object.hasOwn(map, key) ? map[key] : null;
 }
 
 /** Fill in fields added to the schema after some rows already existed. */
@@ -91,6 +152,10 @@ function migrate(loaded) {
     lastFullSyncAt: loaded.excelSync?.lastFullSyncAt ?? null,
     failures: Array.isArray(loaded.excelSync?.failures) ? loaded.excelSync.failures : []
   };
+  next.orders = plainObject(loaded.orders);
+  next.certificates = plainObject(loaded.certificates);
+  next.pricing = plainObject(loaded.pricing);
+  next.drafts = plainObject(loaded.drafts);
   next.users = (loaded.users ?? []).map((u) => {
     // `role` was a field from the old, retired admin-via-user-account
     // system. It is no longer read anywhere - administrators now live
@@ -98,7 +163,14 @@ function migrate(loaded) {
     // sitting in the database where a stale 'admin' value could confuse a
     // future reader of this file.
     const { role, ...rest } = u;
-    return rest;
+    return {
+      ...rest,
+      // Every row predating Google/GitHub sign-in has neither field. `null`
+      // rather than `undefined` so "this account has no password" is a state
+      // the login route can check, not a missing key it has to guess at.
+      passwordHash: rest.passwordHash ?? null,
+      identities: plainObject(rest.identities)
+    };
   });
   return next;
 }
@@ -210,8 +282,141 @@ export function deleteUser(id) {
   db().users = db().users.filter((u) => u.id !== id);
   delete db().progress[id];
   delete db().excelSync.rowIndexByUserId[id];
+  // Their unsolved work in progress goes too - it is their code, and nothing
+  // else in the database refers to it.
+  deleteDraftsForUser(id);
+
+  forgetBillingIdentity(db(), id);
+
   persist();
   return db().users.length < before;
+}
+
+/* ------------------------------------------------------------- identities */
+
+/**
+ * A linked provider account: `identities` maps a provider id ('google',
+ * 'github') to { providerUserId, email, linkedAt, avatarUrl?, name? }. Rows
+ * written before provider sign-in existed have no such field at all, so every
+ * read here treats a missing one as `{}`.
+ */
+function identitiesOf(user) {
+  if (!user) return {};
+  if (!user.identities || typeof user.identities !== 'object' || Array.isArray(user.identities)) user.identities = {};
+  return user.identities;
+}
+
+/** The provider ids linked to an account, e.g. ['google'] - never the records themselves. */
+export function identityProviders(user) {
+  return Object.keys(identitiesOf(user));
+}
+
+/**
+ * The account a provider identity belongs to, matched on the provider's own
+ * immutable user id - never on the email, which people change.
+ */
+export function findUserByIdentity(provider, providerUserId) {
+  const id = String(providerUserId ?? '');
+  if (!provider || !id) return null;
+  return (
+    db().users.find((u) => {
+      const identity = ownEntry(identitiesOf(u), String(provider));
+      return identity ? String(identity.providerUserId) === id : false;
+    }) ?? null
+  );
+}
+
+/** Attach (or refresh) one provider identity on an account. `linkedAt` keeps its original value. */
+export function linkIdentity(userId, provider, identity) {
+  const user = findUserById(userId);
+  if (!user) return null;
+  const identities = identitiesOf(user);
+  const existing = ownEntry(identities, String(provider));
+  const record = {
+    ...identity,
+    providerUserId: String(identity?.providerUserId ?? ''),
+    linkedAt: existing?.linkedAt ?? identity?.linkedAt ?? new Date().toISOString()
+  };
+  defineEntry(identities, String(provider), record);
+  persist();
+  return record;
+}
+
+/**
+ * Remove one provider identity - but never the last way into an account. An
+ * OAuth-only learner who disconnects their only provider would be locked out
+ * of their own progress with no route back, so that is refused with a reason
+ * the UI can show instead.
+ */
+export function unlinkIdentity(userId, provider) {
+  const user = findUserById(userId);
+  if (!user) return { ok: false, reason: 'No such account.' };
+  const identities = identitiesOf(user);
+  const key = String(provider);
+  if (!ownEntry(identities, key)) return { ok: false, reason: 'That account is not connected.' };
+
+  const others = Object.keys(identities).filter((id) => id !== key);
+  if (!user.passwordHash && others.length === 0) {
+    return {
+      ok: false,
+      reason: 'This is the only way you can sign in. Set a password first, then disconnect it.'
+    };
+  }
+
+  delete identities[key];
+  persist();
+  return { ok: true, user };
+}
+
+/* ------------------------------------------------------- sign-in bookkeeping */
+
+/** How often `lastSeenAt` may be rewritten - a chatty client must not rewrite db.json on every poll. */
+const LAST_SEEN_THROTTLE_MS = 5 * 60_000;
+
+/** Stamp a successful sign-in - password or provider, they count the same. */
+export function recordLogin(userId, at = new Date().toISOString()) {
+  const user = findUserById(userId);
+  if (!user) return null;
+  user.lastLoginAt = at;
+  user.lastSeenAt = at;
+  persist();
+  return user;
+}
+
+/** Stamp "this account was active", at most once every five minutes. */
+export function touchLastSeen(userId, now = Date.now()) {
+  const user = findUserById(userId);
+  if (!user) return null;
+  const last = Date.parse(user.lastSeenAt ?? '');
+  if (Number.isFinite(last) && now - last < LAST_SEEN_THROTTLE_MS) return user;
+  user.lastSeenAt = new Date(now).toISOString();
+  persist();
+  return user;
+}
+
+/**
+ * What a deleted account leaves behind in the billing records.
+ *
+ * Certificates go with the account: the code is public, so keeping one would
+ * keep serving a name for someone who is no longer here. The ORDERS stay -
+ * they are the money record, and revenue does not un-happen - but the name
+ * that was to be printed on a certificate is personal, so that field does not.
+ * Pure over the state object, so it is testable without touching db.json.
+ */
+export function forgetBillingIdentity(state, userId) {
+  const removed = [];
+  for (const [certificateId, certificate] of Object.entries(state.certificates ?? {})) {
+    if (certificate?.userId === userId) {
+      delete state.certificates[certificateId];
+      removed.push(certificateId);
+    }
+  }
+  for (const order of Object.values(state.orders ?? {})) {
+    if (order?.userId !== userId) continue;
+    order.certificateName = null;
+    order.certificateId = null;
+  }
+  return removed;
 }
 
 /* ------------------------------------------------------------------ admin */
@@ -271,6 +476,78 @@ export function setProgress(userId, progress) {
 
 export function allProgress() {
   return db().progress;
+}
+
+/* ----------------------------------------------------------------- drafts */
+
+/**
+ * Unsolved work in progress - the code a learner typed into a lesson and has
+ * not solved yet. Two caps keep this from being a way to write unbounded data
+ * into db.json: one draft is at most DRAFT_CODE_MAX characters (the route
+ * rejects anything longer by name), and one account keeps at most
+ * DRAFTS_PER_USER_MAX of them, the least recently updated being dropped first.
+ */
+export const DRAFT_CODE_MAX = 20_000;
+export const DRAFTS_PER_USER_MAX = 200;
+
+/** A user's drafts bucket, created on demand. Own-property lookups only - see defineEntry/ownEntry. */
+function draftsBucket(userId, create = false) {
+  const all = db().drafts;
+  const existing = ownEntry(all, String(userId ?? ''));
+  if (existing) return existing;
+  if (!create) return null;
+  return defineEntry(all, String(userId), {});
+}
+
+/** Every draft this learner has, keyed by challenge id - one call restores a whole session. */
+export function getDrafts(userId) {
+  return draftsBucket(userId) ?? {};
+}
+
+export function getDraft(userId, challengeId) {
+  return ownEntry(getDrafts(userId), String(challengeId ?? ''));
+}
+
+/** Insert or replace one draft, evicting this learner's stalest ones past the cap. */
+export function putDraft(userId, challengeId, { code, language } = {}) {
+  const bucket = draftsBucket(userId, true);
+  const id = String(challengeId);
+  const draft = {
+    code: String(code ?? ''),
+    language: language ? String(language) : null,
+    updatedAt: new Date().toISOString()
+  };
+  defineEntry(bucket, id, draft);
+
+  const ids = Object.keys(bucket);
+  if (ids.length > DRAFTS_PER_USER_MAX) {
+    const stalest = ids
+      .sort((a, b) => String(bucket[a]?.updatedAt ?? '').localeCompare(String(bucket[b]?.updatedAt ?? '')))
+      .slice(0, ids.length - DRAFTS_PER_USER_MAX);
+    for (const stale of stalest) delete bucket[stale];
+  }
+
+  persist();
+  return draft;
+}
+
+export function deleteDraft(userId, challengeId) {
+  const bucket = draftsBucket(userId);
+  const id = String(challengeId ?? '');
+  if (!bucket || !Object.hasOwn(bucket, id)) return false;
+  delete bucket[id];
+  // An emptied bucket is dropped rather than left as `{}` forever.
+  if (Object.keys(bucket).length === 0) delete db().drafts[String(userId)];
+  persist();
+  return true;
+}
+
+export function deleteDraftsForUser(userId) {
+  const id = String(userId ?? '');
+  if (!Object.hasOwn(db().drafts, id)) return false;
+  delete db().drafts[id];
+  persist();
+  return true;
 }
 
 /* ---------------------------------------------------------------- content */
@@ -350,6 +627,89 @@ export function deleteCustomChallenge(id) {
   if (Object.hasOwn(db().contentOverrides.challenges, id)) delete db().contentOverrides.challenges[id];
   persist();
   return true;
+}
+
+/* ---------------------------------------------------------------- billing */
+
+const PRICE_KINDS = ['tracks', 'stages', 'certificates'];
+
+/** Own-property lookup in a keyed map - see getCustomChallenge for why a bare bracket lookup is not enough. */
+function lookup(map, id) {
+  return typeof id === 'string' && Object.hasOwn(map, id) ? map[id] : null;
+}
+
+/** Sparse admin prices in paise; resolve defaults with server/billing.js's priceFor(). */
+export function getPricing() {
+  return db().pricing;
+}
+
+/**
+ * Merge a price patch per kind. A number sets a price, `null` clears that
+ * key back to the default, anything else is ignored - the range and
+ * integer checks live in server/admin.js so the admin gets a message
+ * naming the field, not a silently dropped value.
+ */
+export function setPricing(patch = {}) {
+  const pricing = db().pricing;
+  if (patch.lifetime === null) delete pricing.lifetime;
+  else if (typeof patch.lifetime === 'number') pricing.lifetime = patch.lifetime;
+
+  for (const kind of PRICE_KINDS) {
+    const entries = patch[kind];
+    if (!entries || typeof entries !== 'object' || Array.isArray(entries)) continue;
+    const bucket = pricing[kind] && typeof pricing[kind] === 'object' ? pricing[kind] : {};
+    for (const [id, value] of Object.entries(entries)) {
+      if (value === null) delete bucket[id];
+      else if (typeof value === 'number') bucket[id] = value;
+    }
+    // An emptied bucket is dropped rather than left as `{}` forever.
+    if (Object.keys(bucket).length) pricing[kind] = bucket;
+    else delete pricing[kind];
+  }
+  persist();
+  return pricing;
+}
+
+export function getOrder(id) {
+  return lookup(db().orders, id);
+}
+
+/** Insert or replace one order (built and validated by server/billing.js). */
+export function putOrder(order) {
+  db().orders[order.id] = order;
+  persist();
+  return order;
+}
+
+/** A learner's orders, newest first. */
+export function ordersForUser(userId) {
+  return allOrders().filter((o) => o.userId === userId);
+}
+
+/** Every order, newest first. */
+export function allOrders() {
+  return Object.values(db().orders).sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+}
+
+export function getCertificate(id) {
+  return lookup(db().certificates, id);
+}
+
+/** Insert or replace one certificate (issued by server/billing.js). */
+export function putCertificate(certificate) {
+  db().certificates[certificate.id] = certificate;
+  persist();
+  return certificate;
+}
+
+/** A learner's certificates, newest first, revoked ones included. */
+export function certificatesForUser(userId) {
+  return allCertificates().filter((c) => c.userId === userId);
+}
+
+/** Every certificate, newest first. */
+export function allCertificates() {
+  return Object.values(db().certificates).sort((a, b) => String(b.issuedAt ?? '').localeCompare(String(a.issuedAt ?? '')));
 }
 
 /* ------------------------------------------------------------------ audit */

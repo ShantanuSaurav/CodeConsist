@@ -154,7 +154,7 @@ export const SelectField: React.FC<{
   label: string;
   value: string;
   onChange: (value: string) => void;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; disabled?: boolean }[];
   hint?: string;
   error?: string;
   required?: boolean;
@@ -162,7 +162,7 @@ export const SelectField: React.FC<{
   <Field label={label} hint={hint} error={error} required={required}>
     <select className={`${inputClass} ${error ? 'is-invalid' : ''}`.trim()} value={value} aria-invalid={error ? true : undefined} onChange={(e) => onChange(e.target.value)}>
       {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>
+        <option key={opt.value} value={opt.value} disabled={opt.disabled}>
           {opt.label}
         </option>
       ))}
@@ -321,9 +321,11 @@ export const ConfirmDialog: React.FC<{
   title: string;
   message: string;
   confirmLabel?: string;
+  /** The action is in flight: the dialog stays put but nothing can fire twice. */
+  busy?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
-}> = ({ open, title, message, confirmLabel = 'Confirm', onConfirm, onCancel }) => {
+}> = ({ open, title, message, confirmLabel = 'Confirm', busy = false, onConfirm, onCancel }) => {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   useEffect(() => {
@@ -338,8 +340,8 @@ export const ConfirmDialog: React.FC<{
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-message`}
     >
-      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
-      <div ref={ref} tabIndex={-1} className="relative bg-surface border border-border rounded-lg shadow-dialog max-w-sm w-full p-5 outline-none">
+      <div className="absolute inset-0 bg-black/50" onClick={busy ? undefined : onCancel} />
+      <div ref={ref} tabIndex={-1} className="relative bg-surface border border-border rounded-lg shadow-dialog max-w-sm w-full p-5 outline-none" aria-busy={busy || undefined}>
         <h3 id={`${id}-title`} className="text-base font-semibold text-fg mb-1.5">
           {title}
         </h3>
@@ -347,11 +349,12 @@ export const ConfirmDialog: React.FC<{
           {message}
         </p>
         <div className="flex justify-end gap-2">
-          <UiButton variant="secondary" onClick={onCancel}>
+          <UiButton variant="secondary" onClick={onCancel} disabled={busy}>
             Cancel
           </UiButton>
-          <UiButton variant="danger" onClick={onConfirm}>
-            {confirmLabel}
+          {/* A second click on a destructive action is never a second action. */}
+          <UiButton variant="danger" onClick={() => !busy && onConfirm()} disabled={busy}>
+            {busy ? 'Working…' : confirmLabel}
           </UiButton>
         </div>
       </div>

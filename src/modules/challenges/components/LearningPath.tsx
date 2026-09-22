@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { BookOpen, Check, ChevronDown, Lock, Minus } from 'lucide-react';
 import type { ReadingResolver, Stage } from '@/types';
 import { useSession } from '@/platform/session';
-import { stageStatus } from '@/platform/progress';
+import { isPremiumLocked, stageStatus } from '@/platform/progress';
 import { intents } from '@/platform/events';
 import { Badge, Button, ProgressBar } from '@/ui';
 
@@ -50,7 +50,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
 
       {stages.map((stage) => {
         const status = stageStatus(stage, stats);
-        const premiumLocked = Boolean(stage.isPremium) && !stats.isPremium;
+        const premiumLocked = isPremiumLocked(stage, stats);
         const locked = stage.state === 'Locked' && !premiumLocked;
         const visual: Visual = premiumLocked ? 'pro' : stage.state === 'Completed' ? 'completed' : locked ? 'locked' : 'current';
         const expanded = open.has(stage.id) && !locked;
@@ -72,7 +72,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
               >
                 <div className="flex items-center gap-2 font-mono text-xs text-fg-muted">
                   <span>Stage {String(stage.index).padStart(2, '0')}</span>
-                  {stage.isPremium && <Badge tone="warning">Pro</Badge>}
+                  {stage.isPremium && <Badge tone="warning">{premiumLocked ? 'Premium' : 'Unlocked'}</Badge>}
                   {stage.state === 'Test pending' && <Badge tone="info">Test ready</Badge>}
                 </div>
                 <h3 className={`mt-0.5 text-[1.0625rem] font-semibold tracking-tight ${locked ? 'text-fg-muted' : 'text-fg'}`}>
@@ -149,7 +149,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                     <li key={c.id} className="border-b border-border-subtle">
                       <button
                         type="button"
-                        onClick={() => (premiumLocked ? intents.openPro() : intents.openPractice(stage.id, c.id))}
+                        onClick={() => (premiumLocked ? intents.openPro({ stageId: stage.id }) : intents.openPractice(stage.id, c.id))}
                         className="w-full flex items-center gap-3 py-2 px-1 -mx-1 rounded-xs text-left hover:bg-surface-2 transition-colors"
                       >
                         <LessonMark state={isDone ? 'done' : isNext ? 'next' : 'todo'} />
@@ -166,7 +166,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                   <li>
                     <button
                       type="button"
-                      onClick={() => (premiumLocked ? intents.openPro() : status.testUnlocked || status.testPassed ? intents.openStageTest(stage.id) : undefined)}
+                      onClick={() => (premiumLocked ? intents.openPro({ stageId: stage.id }) : status.testUnlocked || status.testPassed ? intents.openStageTest(stage.id) : undefined)}
                       disabled={!premiumLocked && !status.testUnlocked && !status.testPassed}
                       className="w-full flex items-center gap-3 py-2.5 px-1 -mx-1 rounded-xs text-left hover:bg-surface-2 transition-colors disabled:hover:bg-transparent disabled:cursor-not-allowed"
                       title={!status.testUnlocked && !status.testPassed ? `Unlocks after ${status.total} lessons` : undefined}
@@ -242,11 +242,11 @@ const StageAction: React.FC<{ stage: Stage; premiumLocked: boolean; testPending:
 }) => {
   const completed = stage.state === 'Completed';
   const onClick = () => {
-    if (premiumLocked) intents.openPro();
+    if (premiumLocked) intents.openPro({ stageId: stage.id });
     else if (testPending) intents.openStageTest(stage.id);
     else intents.openPractice(stage.id);
   };
-  const label = premiumLocked ? 'Unlock with Pro' : testPending ? 'Take the test' : completed ? 'Review' : done > 0 ? 'Continue' : 'Start';
+  const label = premiumLocked ? 'Unlock this stage' : testPending ? 'Take the test' : completed ? 'Review' : done > 0 ? 'Continue' : 'Start';
   return (
     <>
       <Button size="sm" variant={completed || premiumLocked ? 'secondary' : 'primary'} onClick={onClick}>
