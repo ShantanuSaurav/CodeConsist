@@ -38,9 +38,7 @@ export function setAdminToken(token: string | null): void {
 
 async function request<T>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const { method = 'GET', body } = options;
-  const headers: Record<string, string> = {
-    'ngrok-skip-browser-warning': 'true'
-  };
+  const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const token = getAdminToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -99,15 +97,6 @@ export interface AdminUserRow {
   completedChallenges: number;
   completedStages: number;
   lastActiveDay: string | null;
-  /**
-   * How this learner can sign in: the third-party providers linked to the
-   * account (provider ids only) and whether a password exists at all. The
-   * password itself is stored as a bcrypt hash and is never sent here - no
-   * route returns it, to an administrator or to anyone else.
-   */
-  identities?: string[];
-  hasPassword?: boolean;
-  lastLoginAt?: string | null;
 }
 
 export interface AdminStageRow {
@@ -247,81 +236,6 @@ export interface DashboardSummary {
   judge0Configured: boolean;
   geminiConfigured: boolean;
   excel: ExcelStatus;
-  /** Paid orders only; amounts in paise. */
-  revenue: { paidOrders: number; totalPaise: number; last30DaysPaise: number };
-  /** 'test' means no Razorpay keys are set - checkouts are simulated, clearly labelled. */
-  razorpayMode: 'razorpay' | 'test';
-}
-
-/* ------------------------------------------------------------------ billing */
-
-/** Prices in paise, per product key kind. A missing entry means "the default". */
-export interface PricingRecord {
-  lifetime: number;
-  tracks: Record<string, number>;
-  stages: Record<string, number>;
-  certificates: Record<string, number>;
-}
-
-export interface PricingResponse {
-  /** Effective prices, defaults already resolved. */
-  pricing: PricingRecord;
-  defaults: { lifetime: number; track: number; stage: number; certificate: number };
-  currency: 'INR';
-  mode: 'razorpay' | 'test';
-  /** `hidden` ids can still be priced, but a grant goes through the learner-visible catalog and would be refused. */
-  catalogKeys: {
-    tracks: { id: string; label: string; hidden: boolean }[];
-    premiumStages: { id: string; name: string; index: string; hidden: boolean }[];
-  };
-}
-
-/** `null` for a key puts that price back to its default. */
-export interface PricingPatch {
-  lifetime?: number | null;
-  tracks?: Record<string, number | null>;
-  stages?: Record<string, number | null>;
-  certificates?: Record<string, number | null>;
-}
-
-export type AdminBillingProduct =
-  | { kind: 'lifetime' }
-  | { kind: 'track'; trackId: string }
-  | { kind: 'stage'; stageId: string }
-  | { kind: 'certificate'; trackId: string };
-
-export interface AdminOrderRow {
-  id: string;
-  userId: string;
-  username: string | null;
-  email: string | null;
-  product: AdminBillingProduct;
-  productKey: string;
-  amount: number;
-  currency: 'INR';
-  provider: 'razorpay' | 'test' | 'admin' | 'free';
-  status: 'created' | 'paid' | 'failed' | 'revoked';
-  providerOrderId: string | null;
-  providerPaymentId: string | null;
-  note: string | null;
-  certificateName: string | null;
-  createdAt: string;
-  paidAt: string | null;
-  revokedAt: string | null;
-  revokedBy: string | null;
-  certificateId?: string;
-}
-
-export interface AdminCertificateRow {
-  id: string;
-  userId: string;
-  username: string | null;
-  trackId: string;
-  trackLabel?: string;
-  learnerName: string;
-  issuedAt: string;
-  orderId: string;
-  revokedAt: string | null;
 }
 
 /* --------------------------------------------- Gemini question assistant */
@@ -552,40 +466,6 @@ export const adminApi = {
   /** Ideas for questions a stage does not have yet. `count` is 1-10 (default 5). */
   async aiSuggest(input: { stageId: string; kind?: AiKind; count?: number }): Promise<{ suggestions: AiSuggestion[] }> {
     return request('/admin/ai/suggest', { method: 'POST', body: input });
-  },
-
-  /* Billing: prices, grants, orders, certificates. Every amount is paise; the page converts for display. */
-
-  async billingPricing(): Promise<PricingResponse> {
-    return request('/admin/billing/pricing');
-  },
-
-  /** Integers in paise within the server's [MIN, MAX]; `null` resets a key to its default. Audited. */
-  async updateBillingPricing(patch: PricingPatch): Promise<PricingResponse> {
-    return request('/admin/billing/pricing', { method: 'PUT', body: patch });
-  },
-
-  async billingOrders(filter: { status?: string; userId?: string; q?: string } = {}): Promise<{ orders: AdminOrderRow[] }> {
-    const params = new URLSearchParams();
-    if (filter.status) params.set('status', filter.status);
-    if (filter.userId) params.set('userId', filter.userId);
-    if (filter.q) params.set('q', filter.q);
-    const qs = params.toString();
-    return request(`/admin/billing/orders${qs ? `?${qs}` : ''}`);
-  },
-
-  /** Give a user a product without a payment (offline/UPI). Creates a paid order with provider 'admin'. 409 when they already have it. */
-  async grantAccess(input: { userId: string; product: AdminBillingProduct; note: string; certificateName?: string }): Promise<{ order: AdminOrderRow; certificate?: AdminCertificateRow }> {
-    return request('/admin/billing/grant', { method: 'POST', body: input });
-  },
-
-  /** Take a paid order back: access goes away, a certificate it issued is flagged revoked. */
-  async revokeOrder(id: string): Promise<{ order: AdminOrderRow }> {
-    return request(`/admin/billing/orders/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
-  },
-
-  async billingCertificates(): Promise<{ certificates: AdminCertificateRow[] }> {
-    return request('/admin/billing/certificates');
   },
 
   async excelStatus(): Promise<ExcelStatus & { sync: { rowIndexByUserId: Record<string, number>; lastSyncedAtByUser: Record<string, string>; lastFullSyncAt: string | null; failures: { id: string; userId: string; username: string; reason: string; error: string; at: string }[] } }> {
