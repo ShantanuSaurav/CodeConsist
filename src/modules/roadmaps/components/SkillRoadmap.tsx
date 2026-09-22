@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { ArrowRight, Check, Crown, Lock } from 'lucide-react';
 import type { Stage } from '@/types';
 import { useSession } from '@/platform/session';
-import { stageStatus } from '@/platform/progress';
+import { isPremiumLocked, stageStatus } from '@/platform/progress';
 import { intents } from '@/platform/events';
 import '../styles/roadmap.css';
 
@@ -82,7 +82,7 @@ export const SkillRoadmap: React.FC = () => {
               if (!stage) return null;
               const i = stages.indexOf(stage);
               const { done, total, percent, hasTest, testPassed } = stageStatus(stage, stats);
-              const premiumLocked = Boolean(stage.isPremium) && !stats.isPremium;
+              const premiumLocked = isPremiumLocked(stage, stats);
               const completed = stage.state === 'Completed';
               const isCurrent = i === currentIndex;
               const locked = !completed && !isCurrent;
@@ -91,7 +91,7 @@ export const SkillRoadmap: React.FC = () => {
               const overall = hasTest ? Math.round(((done + (testPassed ? 1 : 0)) / (total + 1)) * 100) : percent;
 
               const open = () => {
-                if (premiumLocked) intents.openPro();
+                if (premiumLocked) intents.openPro({ stageId: stage.id });
                 else if (stage.state === 'Test pending') intents.openStageTest(stage.id);
                 else if (!locked) intents.openPractice(stage.id);
               };
@@ -104,7 +104,7 @@ export const SkillRoadmap: React.FC = () => {
                     disabled={!canOpen}
                     className={`roadmap-node roadmap-node-${state} ${canOpen ? 'is-clickable' : ''}`}
                     aria-label={`Stage ${stage.index}: ${stage.name} - ${
-                      premiumLocked ? 'Pro only' : state === 'completed' ? 'completed' : state === 'current' ? `in progress, ${overall}%` : 'locked'
+                      premiumLocked ? 'premium, not unlocked yet' : state === 'completed' ? 'completed' : state === 'current' ? `in progress, ${overall}%` : 'locked'
                     }`}
                   >
                     <span className="roadmap-node-marker">
@@ -124,7 +124,7 @@ export const SkillRoadmap: React.FC = () => {
                     <span className="roadmap-node-body">
                       <span className="roadmap-node-head">
                         <span className="roadmap-node-index">Stage {String(stage.index).padStart(2, '0')}</span>
-                        {premiumLocked && <span className="roadmap-node-pro">PRO</span>}
+                        {premiumLocked && <span className="roadmap-node-pro">PREMIUM</span>}
                         {!premiumLocked && hasTest && testPassed && (
                           <span className="roadmap-node-tag is-done">Test passed</span>
                         )}
@@ -159,7 +159,7 @@ export const SkillRoadmap: React.FC = () => {
                           <ArrowRight size={13} />
                         </span>
                       )}
-                      {premiumLocked && <span className="roadmap-node-cta is-muted">Unlock with Pro</span>}
+                      {premiumLocked && <span className="roadmap-node-cta is-muted">Unlock this stage</span>}
                     </span>
                   </button>
                 </li>

@@ -36,7 +36,12 @@ export type AppEvents = {
   /** Open a stage's mandatory coding test. */
   'practice:openTest': { stageId: string };
   'account:openAuth': Record<string, never>;
-  'account:openPro': Record<string, never>;
+  /**
+   * Open the unlock modal. `stageId` highlights the stage that was locked
+   * (and its track); `trackId` picks a track without a stage; `tab` lands on
+   * the certificates tab instead of the unlocks.
+   */
+  'account:openPro': { stageId?: string; trackId?: string; tab?: 'unlock' | 'certificates' };
 };
 
 export const eventBus = createTypedEventBus<AppEvents>();

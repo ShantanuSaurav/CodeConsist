@@ -1,1 +1,1 @@
-export { applyProgress, applyProgressByTrack, stagesForTrack, stageStatus } from './stages';
+export { applyProgress, applyProgressByTrack, isPremiumLocked, stagesForTrack, stageStatus } from './stages';

@@ -4,7 +4,7 @@ import { ArrowRight, Check, Circle, Lock } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
-import { stageStatus } from '@/platform/progress';
+import { isPremiumLocked, stageStatus } from '@/platform/progress';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
 import { achievements, activityGrid, greeting, rankTitle, relativeDay, solvedOn, xpEarnedOn } from '@/platform/xp-leveling/insights';
 import { Button, ButtonLink, ProgressBar, Stat } from '@/ui';
@@ -27,7 +27,9 @@ export const DashboardHome: React.FC = () => {
     [learnerStages]
   );
   const currentStatus = current ? stageStatus(current, stats) : null;
-  const allDone = !current && learnerStages.length > 0 && learnerStages.every((s) => s.state === 'Completed' || s.isPremium);
+  // A premium stage the learner has not bought is skippable, not a blocker;
+  // one they own counts like any other stage.
+  const allDone = !current && learnerStages.length > 0 && learnerStages.every((s) => s.state === 'Completed' || isPremiumLocked(s, stats));
 
   const grid = useMemo(() => activityGrid(stats, 14), [stats]);
   const todaySolves = solvedOn(stats).length;

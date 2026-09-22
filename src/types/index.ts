@@ -373,7 +373,13 @@ export interface UserStats {
    */
   seenConcepts: string[];
   attempts: Record<string, ChallengeAttempt>;
+  /** Lifetime licence (or the legacy Pro flag): every premium stage is open. Server-set, mirrored here. */
   isPremium?: boolean;
+  /**
+   * Premium stage ids this account has bought outright, or through a track
+   * purchase. Copied from the server's `publicUser`; never edited locally.
+   */
+  unlockedStages?: string[];
   /**
    * Which account this local copy belongs to; absent for guest progress.
    * Signing in merges GUEST progress into the account - it must never merge
@@ -383,14 +389,47 @@ export interface UserStats {
   ownerId?: string;
 }
 
+/** A third-party sign-in the account can be linked to, alongside a password. */
+export type OAuthProviderId = 'google' | 'github';
+
 export interface UserProfile {
   id: string;
   email: string;
   username: string;
-  avatarUrl?: string;
+  /** The picture a linked provider gave us - a URL and nothing else. Null when there is none. */
+  avatarUrl?: string | null;
+  /** True with a lifetime licence (or the legacy Pro flag). */
   isPremium: boolean;
+  /** Premium stage ids unlocked one at a time or via a track purchase (expanded server-side). */
+  unlockedStages: string[];
   /** Where this session's identity came from. */
   provider?: 'local' | 'guest';
+  /**
+   * Which third-party sign-ins are linked - provider ids only (`['google']`).
+   * The provider's own record stays on the server. Optional because a profile
+   * cached by an older build has no such field.
+   */
+  identities?: string[];
+  /**
+   * Whether this account has a password at all, so the UI can offer "Set a
+   * password" instead of "Change password". The password itself is stored
+   * only as a bcrypt hash and is never sent anywhere, to anyone.
+   */
+  hasPassword?: boolean;
+  createdAt?: string | null;
+  lastLoginAt?: string | null;
+}
+
+/**
+ * One saved coding session: the code a learner last had in a challenge's
+ * editor. Kept per account on the server so closing the tab, signing out or
+ * moving to another machine never means starting the challenge over.
+ */
+export interface CodeDraft {
+  code: string;
+  language?: string;
+  /** ISO timestamp of the last save. */
+  updatedAt: string;
 }
 
 export interface LeaderboardEntry {

@@ -1,0 +1,8 @@
+{
+  "domain": "botany-subtext-chevron.ngrok-free.dev",
+  "port": 4000,
+
+  "_watchdog": "ngrok can keep running after its link to the edge dies - the process never exits, so only a real request proves it. Checks every watchdogMinutes; restarts ngrok after watchdogFailures checks in a row fail. Set watchdogMinutes to 0 to switch it off.",
+  "watchdogMinutes": 2,
+  "watchdogFailures": 3
+}

@@ -1033,3 +1033,57 @@ kbd {
 .admin-table .cell-primary { color: var(--text); font-weight: 500; }
 .admin-table .cell-mono { font-family: var(--font-mono); font-size: var(--text-xs); }
 .admin-table .cell-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------- saved coding sessions */
+
+/* The one line above a code editor: whether saved code was restored, and
+   whether what is being typed now is safe. Quiet - reassurance, not an alert.
+   Always in the DOM (it is a live region), and invisible when silent. */
+.draft-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  min-height: 1.2em;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.draft-bar.is-restored {
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+}
+
+/* "Saving…" / "Draft saved". Sits at the end of the bar; empty most of the time. */
+.draft-status {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------- provider sign-in callback */
+
+.auth-callback-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  background: var(--bg);
+}
+.auth-callback-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: min(30rem, 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-6);
+}

@@ -16,6 +16,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { AppSplash, ErrorBoundary, ToastProvider, Toasts } from '@/ui';
 import { ThemeProvider } from '@/platform/theme';
 import { SessionProvider } from '@/platform/session';
+import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
 import { PracticeHost } from '@/modules/challenges';
 import { AccountModals } from '@/modules/account';
@@ -36,11 +37,28 @@ const PlaygroundPage = lazyPage(() => import('@/modules/playground'), 'Playgroun
 const LeaderboardPage = lazyPage(() => import('@/modules/leaderboard'), 'LeaderboardPage');
 const AchievementsPage = lazyPage(() => import('@/modules/achievements'), 'AchievementsPage');
 const SettingsPage = lazyPage(() => import('@/modules/account'), 'SettingsPage');
+/* Outside the dashboard frame: the certificate prints as one clean sheet, and verification needs no sign-in. */
+const CertificatePage = lazyPage(() => import('@/modules/account'), 'CertificatePage');
+const VerifyPage = lazyPage(() => import('@/modules/account'), 'VerifyPage');
+/* Where a Google / GitHub sign-in comes back to, before the dashboard takes over. */
+const OAuthCallbackPage = lazyPage(() => import('@/modules/account'), 'OAuthCallbackPage');
 /* The administrator console - a separate session and its own chunk, fetched only on /admin. */
 const AdminApp = lazyPage(() => import('@/modules/admin'), 'AdminApp');
 
 /* The reading panel inside the practice modal - the articles arrive when a modal first opens. */
 const ReadingPanel = lazyPage(() => import('@/modules/articles'), 'ReadingPanel');
+
+/**
+ * A Google / GitHub sign-in that failed comes back to `/?auth_error=…`. Open
+ * the sign-in modal so the reason shows up where the learner can do something
+ * about it; the modal reads the message and clears it from the address bar.
+ */
+const AuthErrorWatcher: React.FC = () => {
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('auth_error')) intents.openAuth();
+  }, []);
+  return null;
+};
 
 /** Reset scroll on navigation - the landing page is long. Hash links keep their target. */
 const ScrollToTop: React.FC = () => {
@@ -87,6 +105,34 @@ const AppRoutes: React.FC = () => (
       <Route path="settings" element={<SettingsPage />} />
     </Route>
 
+    <Route
+      path={ROUTES.authCallback}
+      element={
+        <Suspense fallback={<AppSplash />}>
+          <OAuthCallbackPage />
+        </Suspense>
+      }
+    />
+
+    {/* A learner's own certificate (the server answers 404 to anyone else) and
+        the public check of one. Both full-page, no dashboard chrome. */}
+    <Route
+      path="/certificates/:id"
+      element={
+        <Suspense fallback={<AppSplash />}>
+          <CertificatePage />
+        </Suspense>
+      }
+    />
+    <Route
+      path="/verify/:code"
+      element={
+        <Suspense fallback={<AppSplash />}>
+          <VerifyPage />
+        </Suspense>
+      }
+    />
+
     {/* Admin: backend-authorized, not gated by anything in this file - every
         /api/admin/* route verifies the admin bearer token against the live
         admin record (server/admin-auth.js). The client-side redirect to
@@ -122,6 +168,9 @@ const Shell: React.FC = () => {
           <AppRoutes />
         </PracticeHost>
         <AccountModals />
+        {/* After AccountModals on purpose: sibling effects run in document
+            order, so the modal is listening before this asks it to open. */}
+        <AuthErrorWatcher />
         <BadgeToaster />
         <Toasts />
       </BrowserRouter>

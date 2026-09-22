@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import {
   Challenge,
+  CodeDraft,
   ExecutionResult,
   LanguageTrack,
   LearningMode,
@@ -26,10 +27,19 @@ import { loadFromApi } from './content';
 import type { ContentBundle } from './content';
 import { compilerService, ExecuteOptions } from '../execution/compilerService';
 import { api, ApiError, OfflineError, getToken, setToken } from '../api-client/api';
+import type { OAuthProviders } from '../api-client/api';
 import { STORAGE_KEYS, readJson, readString, writeJson, writeString, remove } from '../storage/storage';
 import { currentStreak, dayKey, levelFromXp, nextStreak, xpForSolve } from '../xp-leveling/leveling';
 
 export type ServerStatus = 'checking' | 'online' | 'offline';
+
+/**
+ * What the editor's little save line is showing for one challenge.
+ *   'saving' - a write is queued or in flight
+ *   'saved'  - the last write landed
+ *   'local'  - the server refused or was unreachable; the code is only here
+ */
+export type DraftStatus = 'idle' | 'saving' | 'saved' | 'local';
 
 export interface SolveOptions {
   attempts?: number;
@@ -106,12 +116,42 @@ export interface SessionContextType {
     options?: Pick<ExecuteOptions, 'onProgress'>
   ) => Promise<ExecutionResult>;
 
+  /* saved coding sessions - see "drafts" below. Nobody has to start a
+     challenge over: the code follows the account, not the tab. */
+  /** Every challenge this learner has unfinished code in, keyed by challenge id. */
+  drafts: Record<string, CodeDraft>;
+  /** The saved code for one challenge, or null when there is none. */
+  draftFor: (challengeId: string) => string | null;
+  /** Queue a save. At most one write per challenge every 1500 ms (trailing). */
+  saveDraft: (challengeId: string, code: string, language?: string) => void;
+  /** Write a queued save now - the editor closing, the challenge changing, the page hiding. */
+  flushDraft: (challengeId: string) => void;
+  /** Forget a draft: the challenge was solved, or the learner asked to start from scratch. */
+  clearDraft: (challengeId: string) => void;
+  /** What the "Draft saved" line should say for one challenge. */
+  draftStatus: (challengeId: string) => DraftStatus;
+
   /* account */
   loginWithEmail: (email: string, password: string) => Promise<void>;
   signupWithEmail: (email: string, username: string, password: string) => Promise<void>;
   continueAsGuest: () => void;
   logout: () => Promise<void>;
-  upgradeToPro: () => Promise<void>;
+  /**
+   * Which third-party sign-ins this server is configured for - booleans only,
+   * asked once. `null` until the answer arrives; both false hides the buttons.
+   */
+  oauthProviders: OAuthProviders | null;
+  /**
+   * Adopt the token a provider sign-in handed back at /auth/callback: store
+   * it, read the profile, reconcile progress and load the saved drafts.
+   */
+  adoptToken: (token: string) => Promise<void>;
+  /**
+   * Re-read the account from the server (after a purchase, say) and adopt
+   * its entitlements. Nothing unlocks locally: the server's `publicUser` is
+   * the only source of `isPremium` / `unlockedStages`.
+   */
+  refreshAccount: () => Promise<void>;
   resetProgress: () => Promise<void>;
 
   leaderboard: LeaderboardEntry[];
@@ -134,7 +174,8 @@ const INITIAL_STATS: UserStats = {
   completedStages: [],
   seenConcepts: [],
   attempts: {},
-  isPremium: false
+  isPremium: false,
+  unlockedStages: []
 };
 
 /** Old saves are missing fields added later; fill them in rather than crashing. */
@@ -152,8 +193,71 @@ function hydrateStats(raw: unknown): UserStats {
     completedStages: Array.isArray(saved.completedStages) ? saved.completedStages : [],
     seenConcepts: Array.isArray(saved.seenConcepts) ? saved.seenConcepts : [],
     attempts: saved.attempts && typeof saved.attempts === 'object' ? saved.attempts : {},
-    isPremium: Boolean(saved.isPremium)
+    isPremium: Boolean(saved.isPremium),
+    // A cached copy of what the server said last time; the next restore overwrites it.
+    unlockedStages: Array.isArray(saved.unlockedStages) ? saved.unlockedStages.filter((id) => typeof id === 'string') : []
   };
+}
+
+/** At most one draft write per challenge in this window, on the trailing edge. */
+const DRAFT_DEBOUNCE_MS = 1500;
+
+/**
+ * Own-property lookup only. A challenge id of `__proto__` or `constructor`
+ * would otherwise walk into Object.prototype and hand back something that is
+ * not a draft at all. (`Object.hasOwn` needs a newer lib target than this
+ * project compiles against.)
+ */
+function ownKey(map: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(map, key);
+}
+
+function draftAt(map: Record<string, CodeDraft>, challengeId: string): CodeDraft | null {
+  return ownKey(map, challengeId) ? map[challengeId] ?? null : null;
+}
+
+/** Keep only entries that actually look like drafts, whoever sent them. */
+function sanitiseDrafts(raw: unknown): Record<string, CodeDraft> {
+  const out: Record<string, CodeDraft> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    // A computed key is an own property even for '__proto__'; the source is
+    // still filtered so nothing odd survives a round trip through JSON.
+    if (!id || id === '__proto__') continue;
+    const draft = value as Partial<CodeDraft> | null;
+    if (!draft || typeof draft.code !== 'string') continue;
+    out[id] = {
+      code: draft.code,
+      language: typeof draft.language === 'string' ? draft.language : undefined,
+      updatedAt: typeof draft.updatedAt === 'string' ? draft.updatedAt : new Date(0).toISOString()
+    };
+  }
+  return out;
+}
+
+/** A learner with no account keeps their code in this browser, in the server's shape. */
+function readGuestDrafts(): Record<string, CodeDraft> {
+  return sanitiseDrafts(readJson<unknown>(STORAGE_KEYS.drafts, null));
+}
+
+/**
+ * Where a SIGNED-IN learner's draft waits when the server would not take it.
+ * Keyed by account, so it is still there after a refresh and the next person
+ * to sign in on this browser can never be handed somebody else's code. The
+ * next successful save, or the next sign-in, drains it.
+ */
+function accountDraftsKey(userId: string): string {
+  return `${STORAGE_KEYS.drafts}:${userId}`;
+}
+
+function readAccountDrafts(userId: string | null): Record<string, CodeDraft> {
+  if (!userId) return {};
+  return sanitiseDrafts(readJson<unknown>(accountDraftsKey(userId), null));
+}
+
+/** The entitlements half of a server profile, in the shape `stats` keeps them. */
+function entitlementsOf(profile: UserProfile): Pick<UserStats, 'isPremium' | 'unlockedStages'> {
+  return { isPremium: Boolean(profile.isPremium), unlockedStages: profile.unlockedStages ?? [] };
 }
 
 function prefersReducedMotion(): boolean {
@@ -198,6 +302,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   const [stats, setStats] = useState<UserStats>(() => hydrateStats(readJson(STORAGE_KEYS.stats, null)));
   const [serverStatus, setServerStatus] = useState<ServerStatus>('checking');
   const [judge0Configured, setJudge0Configured] = useState(false);
+  const [oauthProviders, setOauthProviders] = useState<OAuthProviders | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
 
   useEffect(() => {
@@ -221,6 +326,266 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+
+  /* --------------------------------------------------------------- drafts */
+  /**
+   * The learner's unfinished code, per challenge.
+   *
+   * Signed in, this is a mirror of the account's `/api/drafts`; as a guest it
+   * is a mirror of localStorage. Either way the editor reads it on open, so
+   * closing the modal, refreshing, or coming back on another machine never
+   * costs anyone the code they had typed.
+   */
+  const [drafts, setDrafts] = useState<Record<string, CodeDraft>>(() => readGuestDrafts());
+  const draftsRef = useRef(drafts);
+
+  /** Queued writes: one timer per challenge, holding the newest code not yet sent. */
+  const draftTimers = useRef(new Map<string, number>());
+  const draftPending = useRef(new Map<string, { code: string; language?: string }>());
+  const [draftState, setDraftState] = useState<Record<string, DraftStatus>>({});
+
+  /** Adopt a new set of drafts everywhere at once (state, the live handle, this browser). */
+  const applyDrafts = useCallback((next: Record<string, CodeDraft>, persistLocally: boolean) => {
+    draftsRef.current = next;
+    setDrafts(next);
+    if (persistLocally) writeJson(STORAGE_KEYS.drafts, next);
+  }, []);
+
+  const cancelQueuedDraft = useCallback((challengeId: string) => {
+    const timer = draftTimers.current.get(challengeId);
+    if (timer !== undefined) window.clearTimeout(timer);
+    draftTimers.current.delete(challengeId);
+    draftPending.current.delete(challengeId);
+  }, []);
+
+  /** Which account these drafts belong to, for the account-scoped fallback below. */
+  const draftOwnerId = useCallback(() => userRef.current?.id ?? statsRef.current.ownerId ?? null, []);
+
+  /** Keep a draft the server refused, so "the server could not be reached" does not mean "gone". */
+  const stashUnsavedDraft = useCallback(
+    (challengeId: string, draft: CodeDraft) => {
+      const userId = draftOwnerId();
+      if (!userId) return;
+      const key = accountDraftsKey(userId);
+      writeJson(key, { ...sanitiseDrafts(readJson<unknown>(key, null)), [challengeId]: draft });
+    },
+    [draftOwnerId]
+  );
+
+  /** It landed on the account: the local copy is no longer the only one. */
+  const dropStashedDraft = useCallback(
+    (challengeId: string) => {
+      const userId = draftOwnerId();
+      if (!userId) return;
+      const key = accountDraftsKey(userId);
+      const stashed = sanitiseDrafts(readJson<unknown>(key, null));
+      if (!ownKey(stashed, challengeId)) return;
+      delete stashed[challengeId];
+      if (Object.keys(stashed).length === 0) remove(key);
+      else writeJson(key, stashed);
+    },
+    [draftOwnerId]
+  );
+
+  /** Write one queued draft straight away. `keepalive` is for a page on its way out. */
+  const writeDraft = useCallback(
+    (challengeId: string, options: { keepalive?: boolean } = {}) => {
+      const pending = draftPending.current.get(challengeId);
+      if (!pending) return;
+      cancelQueuedDraft(challengeId);
+
+      const draft: CodeDraft = { ...pending, updatedAt: new Date().toISOString() };
+      const signedIn = Boolean(getToken());
+      applyDrafts({ ...draftsRef.current, [challengeId]: draft }, !signedIn);
+
+      if (!signedIn) {
+        setDraftState((prev) => ({ ...prev, [challengeId]: 'saved' }));
+        return;
+      }
+      setDraftState((prev) => ({ ...prev, [challengeId]: 'saving' }));
+
+      // Only report on a draft that still exists. A request that lands after
+      // the learner solved the challenge, pressed "start from scratch" or
+      // signed out must not resurrect a status line for it.
+      const report = (status: DraftStatus) =>
+        setDraftState((prev) => (ownKey(draftsRef.current, challengeId) ? { ...prev, [challengeId]: status } : prev));
+
+      api
+        .saveDraft(challengeId, draft.code, draft.language, { keepalive: options.keepalive })
+        .then(() => {
+          dropStashedDraft(challengeId);
+          report('saved');
+        })
+        // Say so rather than claim a save that did not happen - and put the
+        // code somewhere it survives a refresh, because the learner who reads
+        // "saved on this device" is about to close the tab. The next
+        // successful save, or the next sign-in, sends it on.
+        .catch(() => {
+          stashUnsavedDraft(challengeId, draft);
+          report('local');
+        });
+    },
+    [applyDrafts, cancelQueuedDraft, dropStashedDraft, stashUnsavedDraft]
+  );
+
+  const saveDraft = useCallback(
+    (challengeId: string, code: string, language?: string) => {
+      if (!challengeId) return;
+      const existing = draftAt(draftsRef.current, challengeId);
+      // Identical to what is already saved: no write, and no "Saving…" flicker.
+      // Undoing back to the saved text lands here with a timer already
+      // running, so cancel it and finish the status - otherwise the line sat
+      // on "Saving…" forever for a challenge that was fully saved.
+      if (existing && existing.code === code) {
+        cancelQueuedDraft(challengeId);
+        setDraftState((prev) =>
+          ownKey(prev, challengeId) && prev[challengeId] === 'saving' ? { ...prev, [challengeId]: 'saved' } : prev
+        );
+        return;
+      }
+      draftPending.current.set(challengeId, { code, language });
+      setDraftState((prev) => (prev[challengeId] === 'saving' ? prev : { ...prev, [challengeId]: 'saving' }));
+      // One timer per challenge: the burst of keystrokes that follows rides
+      // the timer already running, so a write happens at most once per window.
+      if (draftTimers.current.has(challengeId)) return;
+      const timer = window.setTimeout(() => {
+        draftTimers.current.delete(challengeId);
+        writeDraft(challengeId);
+      }, DRAFT_DEBOUNCE_MS);
+      draftTimers.current.set(challengeId, timer);
+    },
+    [writeDraft, cancelQueuedDraft]
+  );
+
+  const flushDraft = useCallback((challengeId: string) => writeDraft(challengeId), [writeDraft]);
+
+  /** Everything still queued, now - the tab is going away. */
+  const flushAllDrafts = useCallback(
+    (keepalive = false) => {
+      for (const id of [...draftPending.current.keys()]) writeDraft(id, { keepalive });
+    },
+    [writeDraft]
+  );
+
+  const clearDraft = useCallback(
+    (challengeId: string) => {
+      const had = ownKey(draftsRef.current, challengeId);
+      const queued = draftPending.current.has(challengeId);
+      cancelQueuedDraft(challengeId);
+      if (!had && !queued) return;
+
+      if (had) {
+        const next = { ...draftsRef.current };
+        delete next[challengeId];
+        applyDrafts(next, !getToken());
+      }
+      setDraftState((prev) => {
+        if (!ownKey(prev, challengeId)) return prev;
+        const next = { ...prev };
+        delete next[challengeId];
+        return next;
+      });
+      if (getToken()) api.deleteDraft(challengeId).catch(() => { /* the solve path drops it server-side too */ });
+    },
+    [applyDrafts, cancelQueuedDraft]
+  );
+
+  const draftFor = useCallback((challengeId: string) => draftAt(drafts, challengeId)?.code ?? null, [drafts]);
+  const draftStatus = useCallback(
+    (challengeId: string): DraftStatus => (ownKey(draftState, challengeId) ? draftState[challengeId] : 'idle'),
+    [draftState]
+  );
+
+  /**
+   * Load the account's drafts, carrying over anything typed before signing in
+   * and anything a failed save left behind. A local copy is pushed up only
+   * where the account has nothing newer - code written on another device is
+   * not overwritten by this browser's leftovers.
+   */
+  const restoreDrafts = useCallback(async (ownerId?: string) => {
+    if (!getToken()) return;
+    // The caller usually just learned who this is; `userRef` only catches up
+    // on the next render, which is too late for an account-scoped key.
+    const userId = ownerId ?? draftOwnerId();
+    const local = { ...readGuestDrafts(), ...readAccountDrafts(userId) };
+    let server: Record<string, CodeDraft>;
+    try {
+      server = sanitiseDrafts((await api.drafts()).drafts);
+    } catch {
+      return; // Offline, or an older server without the route: keep what is on screen.
+    }
+
+    const merged: Record<string, CodeDraft> = { ...server };
+    const stillLocal: Record<string, CodeDraft> = {};
+    const pushes: Promise<void>[] = [];
+    for (const [id, draft] of Object.entries(local)) {
+      const theirs = draftAt(server, id);
+      if (theirs && theirs.updatedAt >= draft.updatedAt) continue;
+      merged[id] = draft;
+      // Wait for these: clearing the local copy first meant a rejected upload
+      // - offline, over the size cap, a lesson this server does not serve -
+      // threw the learner's code away for good.
+      pushes.push(api.saveDraft(id, draft.code, draft.language).then(
+        () => {},
+        () => {
+          stillLocal[id] = draft;
+        }
+      ));
+    }
+    await Promise.all(pushes);
+
+    // What landed belongs to the account now, not to this browser. What did
+    // not is kept under this account's own key, where the next save or the
+    // next sign-in retries it and no other account can reach it.
+    if (userId) {
+      remove(STORAGE_KEYS.drafts);
+      if (Object.keys(stillLocal).length > 0) writeJson(accountDraftsKey(userId), stillLocal);
+      else remove(accountDraftsKey(userId));
+    }
+    applyDrafts(merged, false);
+    if (Object.keys(stillLocal).length > 0) {
+      setDraftState((prev) => {
+        const next = { ...prev };
+        for (const id of Object.keys(stillLocal)) next[id] = 'local';
+        return next;
+      });
+    }
+  }, [applyDrafts, draftOwnerId]);
+
+  /**
+   * Forget the account's code: timers, queued writes, status lines and the
+   * in-memory set. Losing a session has to mean this too - a token that
+   * expired used to leave the previous learner's drafts on screen, where the
+   * next keystroke wrote the whole lot into this browser's guest storage and
+   * the next person to sign in uploaded it into THEIR account.
+   *
+   * The account-scoped fallback key is deliberately left alone: it is that
+   * account's only copy of code the server never took, and only that account
+   * can read it back.
+   */
+  const clearDraftsFromMemory = useCallback(() => {
+    for (const timer of draftTimers.current.values()) window.clearTimeout(timer);
+    draftTimers.current.clear();
+    draftPending.current.clear();
+    setDraftState({});
+    applyDrafts({}, false);
+    remove(STORAGE_KEYS.drafts);
+  }, [applyDrafts]);
+
+  // A draft typed seconds before the tab closes still has to land, so flush
+  // on the way out. `keepalive` is what lets the request outlive the page.
+  useEffect(() => {
+    const onPageHide = () => flushAllDrafts(true);
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flushAllDrafts(true);
+    };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [flushAllDrafts]);
 
   /* -------------------------------------------------------------- content */
   const [bundle, setBundle] = useState<ContentBundle | null>(content);
@@ -393,9 +758,13 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
           ...reconciled,
           level: levelFromXp(reconciled.xp),
           streak: currentStreak(reconciled.streak, reconciled.lastActiveDay),
-          isPremium: me.isPremium,
+          ...entitlementsOf(me),
           ownerId: me.id
         }));
+
+        // Unfinished code is part of "where I left off", so it is restored in
+        // the same breath as the progress - not when an editor happens to open.
+        await restoreDrafts(me.id);
       } catch (err) {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
@@ -404,6 +773,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
           // while every solve quietly stopped reaching the server.
           setToken(null);
           setUser(null);
+          // Dropping the session and keeping their code would hand it to
+          // whoever signs in on this browser next.
+          clearDraftsFromMemory();
           notify('Your session has expired. Sign in again to keep syncing.', 'info');
         }
         // Any other failure (server hiccup) keeps the token and tries again
@@ -419,7 +791,19 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     /** One health probe; flips serverStatus either way and restores on recovery. */
     const probe = async (initial: boolean) => {
       try {
-        const health = initial ? await waitForServer() : await api.health();
+        let health: any;
+        if (initial) {
+          health = await waitForServer();
+        } else {
+          try {
+            health = await api.health();
+          } catch {
+            // One retry before declaring offline to absorb tunnel jitter or TLS renegotiation
+            await new Promise((r) => setTimeout(r, 1000));
+            if (cancelled) return;
+            health = await api.health();
+          }
+        }
         if (cancelled) return;
         // The non-secret half of the Judge0 story: whether the server can
         // run compiled languages at all, so the UI can say so up front.
@@ -473,6 +857,29 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Which sign-in buttons to offer. Asked once, and only booleans come back -
+   * a server with no Google/GitHub credentials answers false for both and the
+   * buttons never appear, leaving email and password exactly as they were.
+   */
+  useEffect(() => {
+    if (serverStatus !== 'online' || oauthProviders) return;
+    let cancelled = false;
+    api
+      .oauthProviders()
+      .then((res) => {
+        if (!cancelled) setOauthProviders({ google: Boolean(res?.google), github: Boolean(res?.github) });
+      })
+      .catch(() => {
+        // No route, or it failed: treat it as "not configured" rather than
+        // showing a button that cannot work.
+        if (!cancelled) setOauthProviders({ google: false, github: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [serverStatus, oauthProviders]);
 
   /* -------------------------------------------------------------- actions */
 
@@ -570,7 +977,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
             completedChallenges: [...new Set([...prev.completedChallenges, ...progress.completedChallenges])],
             level: levelFromXp(Math.max(prev.xp, progress.xp)),
             streak: currentStreak(progress.streak, progress.lastActiveDay),
-            isPremium: prev.isPremium
+            // Progress carries no entitlements; keep the ones the profile gave us.
+            isPremium: prev.isPremium,
+            unlockedStages: prev.unlockedStages
           }));
         } catch (err) {
           if (err instanceof OfflineError) {
@@ -632,7 +1041,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         ...progress,
         level: levelFromXp(progress.xp ?? 0),
         streak: currentStreak(progress.streak ?? 0, progress.lastActiveDay ?? null),
-        isPremium: profile.isPremium,
+        ...entitlementsOf(profile),
         ownerId: profile.id
       }));
     },
@@ -671,10 +1080,13 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         }
       }
       adoptSession(res.user, progress);
+      // Not awaited: the modal should close now, and the editor picks the
+      // drafts up as soon as they land.
+      restoreDrafts(res.user.id);
       eventBus.emit('auth:signedIn', { user: res.user });
       notify(`Welcome back, ${res.user.username}.`, 'success');
     },
-    [mergeableGuestProgress, adoptSession, notify]
+    [mergeableGuestProgress, adoptSession, restoreDrafts, notify]
   );
 
   const signupWithEmail = useCallback(
@@ -690,22 +1102,64 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         }
       }
       adoptSession(res.user, progress);
+      restoreDrafts(res.user.id);
       eventBus.emit('auth:signedIn', { user: res.user });
       notify(`Account created. Welcome, ${res.user.username}.`, 'success');
     },
-    [mergeableGuestProgress, adoptSession, notify]
+    [mergeableGuestProgress, adoptSession, restoreDrafts, notify]
+  );
+
+  /**
+   * The other way in: Google or GitHub. The provider exchange happened
+   * entirely on the server, and /auth/callback hands us nothing but a
+   * CodeQuest token - no provider token, no email, nothing to verify here.
+   */
+  const adoptToken = useCallback(
+    async (token: string) => {
+      if (!token) throw new Error('That sign-in link did not carry a token.');
+      setToken(token);
+      let res: { user: UserProfile; progress: any };
+      try {
+        res = await api.me();
+      } catch (err) {
+        // A token the server will not accept is worse than none: drop it
+        // rather than leave the app half signed in - and with it whatever
+        // account's code was still in memory.
+        setToken(null);
+        clearDraftsFromMemory();
+        throw err;
+      }
+
+      let progress = res.progress;
+      const guest = mergeableGuestProgress(res.user.id);
+      if (guest) {
+        try {
+          progress = (await api.mergeProgress(guest)).progress;
+        } catch {
+          /* keep the server copy */
+        }
+      }
+      adoptSession(res.user, progress);
+      await restoreDrafts(res.user.id);
+      eventBus.emit('auth:signedIn', { user: res.user });
+      notify(`Signed in as ${res.user.username}.`, 'success');
+    },
+    [mergeableGuestProgress, adoptSession, restoreDrafts, clearDraftsFromMemory, notify]
   );
 
   const continueAsGuest = useCallback(() => {
+    // A guest has no account, so nothing to buy against: no entitlements.
     setUser({
       id: 'guest',
       email: '',
       username: 'Guest',
-      isPremium: stats.isPremium ?? false,
+      isPremium: false,
+      unlockedStages: [],
       provider: 'guest'
     });
+    setStats((prev) => ({ ...prev, isPremium: false, unlockedStages: [] }));
     notify('Playing as a guest. Progress is saved in this browser only.', 'info');
-  }, [stats.isPremium, notify]);
+  }, [notify]);
 
   const logout = useCallback(async () => {
     // Anything solved while the server was unreachable exists only here. Push
@@ -720,6 +1174,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       }
     }
 
+    // Same reasoning for code that has not been written up yet.
+    flushAllDrafts();
+
     if (!synced) {
       notify('Could not reach the server to save your latest progress. Try again in a moment.', 'error');
       return;
@@ -730,31 +1187,24 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     // The account's progress lives on the server; the local copy is a cache
     // and must not be left for the next person who signs in on this browser.
     setStats({ ...INITIAL_STATS });
+    // The same goes for the code they were writing: it is on the account now.
+    clearDraftsFromMemory();
     eventBus.emit('auth:signedOut', {});
     notify('Signed out. Your progress is saved to your account.', 'info');
-  }, [user, stats, notify]);
+  }, [user, stats, flushAllDrafts, clearDraftsFromMemory, notify]);
 
-  const upgradeToPro = useCallback(async () => {
-    if (user && user.provider !== 'guest' && serverStatus === 'online' && getToken()) {
-      try {
-        const { user: updated } = await api.upgradePro();
-        setUser(updated);
-        setStats((prev) => ({ ...prev, isPremium: true }));
-        celebrate();
-        notify('Pro unlocked. Stages 09 and 10 are open.', 'success');
-        return;
-      } catch {
-        /* fall through to the local unlock */
-      }
-    }
-    setStats((prev) => ({ ...prev, isPremium: true }));
-    setUser((prev) => (prev ? { ...prev, isPremium: true } : prev));
-    celebrate();
-    notify('Pro unlocked locally. No payment processor is wired up in this build.', 'success');
-  }, [user, serverStatus, celebrate, notify]);
+  const refreshAccount = useCallback(async () => {
+    // Only a real account has anything to refresh; a guest owns nothing.
+    if (!getToken()) return;
+    const { user: me } = await api.me();
+    setUser(me);
+    setStats((prev) => ({ ...prev, ...entitlementsOf(me), ownerId: me.id }));
+    await restoreDrafts(me.id);
+  }, [restoreDrafts]);
 
   const resetProgress = useCallback(async () => {
-    setStats({ ...INITIAL_STATS, isPremium: stats.isPremium });
+    // Purchases are not progress: keep what the server says is unlocked.
+    setStats({ ...INITIAL_STATS, isPremium: stats.isPremium, unlockedStages: stats.unlockedStages ?? [] });
     eventBus.emit('progress:reset', {});
     if (user && user.provider !== 'guest' && serverStatus === 'online' && getToken()) {
       try {
@@ -765,7 +1215,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       }
     }
     notify('Progress reset. Back to Stage 01.', 'info');
-  }, [stats.isPremium, user, serverStatus, notify]);
+  }, [stats.isPremium, stats.unlockedStages, user, serverStatus, notify]);
 
   const refreshLeaderboard = useCallback(async () => {
     try {
@@ -803,11 +1253,19 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       completeChallenge,
       markConceptSeen,
       executeCode,
+      drafts,
+      draftFor,
+      saveDraft,
+      flushDraft,
+      clearDraft,
+      draftStatus,
       loginWithEmail,
       signupWithEmail,
       continueAsGuest,
       logout,
-      upgradeToPro,
+      oauthProviders,
+      adoptToken,
+      refreshAccount,
       resetProgress,
       leaderboard,
       refreshLeaderboard,
@@ -833,11 +1291,19 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       completeChallenge,
       markConceptSeen,
       executeCode,
+      drafts,
+      draftFor,
+      saveDraft,
+      flushDraft,
+      clearDraft,
+      draftStatus,
       loginWithEmail,
       signupWithEmail,
       continueAsGuest,
       logout,
-      upgradeToPro,
+      oauthProviders,
+      adoptToken,
+      refreshAccount,
       resetProgress,
       leaderboard,
       refreshLeaderboard,

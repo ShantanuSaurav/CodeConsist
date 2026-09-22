@@ -6,11 +6,21 @@
 import type { LanguageTrack, Stage, UserStats } from '@/types';
 
 /**
+ * Is this premium stage closed to this player? One rule for every screen:
+ * a lifetime licence (`stats.isPremium`) opens everything, otherwise the
+ * stage must be in the server-supplied `unlockedStages` list (bought on its
+ * own or as part of its track). Free stages are never locked by this.
+ */
+export function isPremiumLocked(stage: Pick<Stage, 'id' | 'isPremium'>, stats: Pick<UserStats, 'isPremium' | 'unlockedStages'>): boolean {
+  return Boolean(stage.isPremium) && !stats.isPremium && !(stats.unlockedStages ?? []).includes(stage.id);
+}
+
+/**
  * Decide each stage's state from the player's progress.
  *
- * A stage opens when the one before it is done. Premium stages stay locked for
- * free accounts, but they never block the stages after them - being unable to
- * pay should not end the path.
+ * A stage opens when the one before it is done. Premium stages stay locked
+ * until bought (see `isPremiumLocked`), but they never block the stages after
+ * them - being unable to pay should not end the path.
  *
  * The lock chain is local to whatever list is passed in. The session runs
  * this once per language track (`applyProgressByTrack`), so the C track's
@@ -25,7 +35,7 @@ export function applyProgress(stages: Stage[], stats: UserStats): Stage[] {
     // Cleared means the lessons AND the stage test. The test is what proves
     // the lessons transferred, so it is what opens the next stage.
     const isCleared = total > 0 && lessonsDone && testPassed;
-    const lockedByPremium = Boolean(stage.isPremium) && !stats.isPremium;
+    const lockedByPremium = isPremiumLocked(stage, stats);
     let state: Stage['state'];
 
     if (isCleared) state = 'Completed';

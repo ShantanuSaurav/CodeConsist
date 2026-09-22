@@ -5,6 +5,7 @@ import { AdminLayout } from './layout/AdminLayout';
 import { AdminLogin } from './pages/AdminLogin';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminUsers } from './pages/AdminUsers';
+import { AdminBilling } from './pages/AdminBilling';
 import { AdminLanguages } from './pages/AdminLanguages';
 import { AdminStages } from './pages/AdminStages';
 import { AdminChallenges } from './pages/AdminChallenges';
@@ -25,6 +26,7 @@ export const AdminApp: React.FC = () => (
       <Route element={<AdminLayout />}>
         <Route index element={<AdminDashboard />} />
         <Route path="users" element={<AdminUsers />} />
+        <Route path="billing" element={<AdminBilling />} />
         <Route path="languages" element={<AdminLanguages />} />
         <Route path="stages" element={<AdminStages />} />
         <Route path="challenges" element={<AdminChallenges />} />

@@ -1,7 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { DashboardSummary, adminApi } from '../services/adminApi';
 import { AdminPageHeader, Badge, Card, ErrorText, Spinner } from '../components/ui';
 import { Stat } from '@/ui';
+import { ROUTES } from '@/config/routes';
+
+/** Paise to "₹1,999" for the revenue tiles - display only. */
+const rupees = (paise: number) => `₹${Math.floor(paise / 100).toLocaleString('en-IN')}`;
 
 /**
  * /admin - real numbers only, straight from server/admin.js's /dashboard
@@ -51,6 +56,30 @@ export const AdminDashboard: React.FC = () => {
         </dl>
       </div>
 
+      <Card className="mb-6">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-sm font-medium text-fg">Revenue</h2>
+          <Link to={ROUTES.adminBilling} className="text-xs text-fg-muted hover:text-fg underline-offset-2 hover:underline">
+            Prices, grants and orders
+          </Link>
+        </div>
+        {/* Paid orders only - test-mode and granted orders count as orders but carry ₹0 or a simulated amount, so the totals below are what the server recorded, not what Razorpay settled. */}
+        <dl className="grid grid-cols-3 divide-x divide-border-subtle">
+          <div className="pr-4">
+            <Stat label="Paid orders" value={data.revenue.paidOrders} />
+          </div>
+          <div className="px-4">
+            <Stat label="Total" value={rupees(data.revenue.totalPaise)} />
+          </div>
+          <div className="pl-4">
+            <Stat label="Last 30 days" value={rupees(data.revenue.last30DaysPaise)} />
+          </div>
+        </dl>
+        {data.razorpayMode === 'test' && (
+          <p className="text-xs text-fg-muted mt-3">Test mode: no money moves. Orders completed through the test step are recorded at their list price so the flow can be checked end to end.</p>
+        )}
+      </Card>
+
       <div className="grid lg:grid-cols-2 gap-6">
         <Card>
           <div className="flex items-baseline justify-between mb-4">
@@ -89,11 +118,16 @@ export const AdminDashboard: React.FC = () => {
               <span className="text-sm text-fg-secondary">Gemini (AI question assistant)</span>
               <Badge tone={data.geminiConfigured ? 'success' : 'default'}>{data.geminiConfigured ? 'Configured' : 'Not configured'}</Badge>
             </div>
+            <div className="row">
+              <span className="text-sm text-fg-secondary">Razorpay (payments)</span>
+              <Badge tone={data.razorpayMode === 'razorpay' ? 'success' : 'warning'}>{data.razorpayMode === 'razorpay' ? 'Live' : 'Test mode'}</Badge>
+            </div>
           </div>
-          {(!data.excel.configured || !data.geminiConfigured) && (
+          {(!data.excel.configured || !data.geminiConfigured || data.razorpayMode === 'test') && (
             <p className="text-xs text-fg-muted mt-3">
               {!data.excel.configured && "See Excel sync in the sidebar to check what's missing, or .env.example for setup steps. "}
-              {!data.geminiConfigured && 'The AI question assistant on the Challenges page needs GEMINI_API_KEY in .env (see .env.example).'}
+              {!data.geminiConfigured && 'The AI question assistant on the Challenges page needs GEMINI_API_KEY in .env (see .env.example). '}
+              {data.razorpayMode === 'test' && 'Payments are simulated until RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are set in .env (see Billing).'}
             </p>
           )}
         </Card>

@@ -8,6 +8,8 @@
  *   - authoritative grading of quiz answers,
  *   - real sandboxed JavaScript execution in a child process,
  *   - a separate administrator credential system (server/admin-auth.js),
+ *   - one-time purchases through Razorpay, or an explicit test mode
+ *     (server/payments.js, server/billing.js, server/billing-routes.js),
  *   - an optional, best-effort mirror of accounts into Excel (server/excel.js).
  */
 // Must stay the first import - see server/env.js.
@@ -31,12 +33,17 @@ import { createGeminiClient } from './ai.js';
 import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken } from './auth.js';
 import { bootstrapAdminAccount, authenticateAdmin, publicAdmin, requireAdminAuth } from './admin-auth.js';
 import * as excel from './excel.js';
+import { createPaymentProvider } from './payments.js';
+import { entitlementsFor, unlockedStageIds } from './billing.js';
+import { createBillingRouter, createWebhookRouter } from './billing-routes.js';
+import { createOAuthProviders, PROVIDER_IDS } from './oauth.js';
+import { createOAuthRouter } from './oauth-routes.js';
+import { clearDraftForSolve, createDraftsRouter } from './drafts-routes.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 // Deliberately not `PORT`: dev harnesses set that for the *web* server, and the
-// API silently fighting Vite for port 3000 is a miserable thing to debug.
-const PORT = Number(process.env.API_PORT || 4000);
+const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
 
 /**
  * Judge0 configuration. Server-side only - this is the one place these
@@ -54,6 +61,25 @@ const JUDGE0_CONFIGURED = Boolean(
 );
 const JUDGE0_LANGUAGE_IDS = { java: 62, c: 50, cpp: 54, go: 60 };
 
+/**
+ * The payment gateway. Reads RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET /
+ * RAZORPAY_WEBHOOK_SECRET from .env (server/env.js ran first). With none
+ * set it runs in test mode: orders complete through an explicit, clearly
+ * labelled step and no money moves - see server/payments.js. Shared with
+ * the admin router so both sides agree on the mode.
+ */
+const billingDeps = { provider: createPaymentProvider() };
+
+/**
+ * "Continue with Google" / "Continue with GitHub". Reads GOOGLE_CLIENT_ID /
+ * GOOGLE_CLIENT_SECRET / GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET from .env
+ * (server/env.js ran first). With none set both providers are null, the
+ * browser is told `{ google: false, github: false }` and simply shows no
+ * buttons - email + password is completely unaffected. The secrets are read
+ * here and in server/oauth.js only; nothing about them reaches the client.
+ */
+const oauthProviders = createOAuthProviders();
+
 /* ------------------------------------------------------------ bootstrapping */
 
 let grading;
@@ -66,7 +92,7 @@ let gradingPath;
  * question assistant. Filled in by bootstrap() below; the router reads them
  * per request, so mounting it before bootstrap is fine.
  */
-const adminDeps = { validateChallenge: null, runSolution: null, ai: null };
+const adminDeps = { validateChallenge: null, runSolution: null, ai: null, billing: billingDeps };
 
 async function bootstrap() {
   await store.load();
@@ -105,7 +131,6 @@ async function bootstrap() {
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '256kb' }));
 
 // Request logging middleware for terminal visibility
 app.use((req, res, next) => {
@@ -113,7 +138,15 @@ app.use((req, res, next) => {
   const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
   const ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
   const method = req.method;
-  const url = req.originalUrl || req.url;
+  // Sign-in URLs carry credentials in the query: the `ticket` that authorises
+  // connecting a provider, and the `code`/`state` the provider sends back. A
+  // credential in a log file is a credential someone can use - an authorization
+  // code that never got exchanged is still redeemable. Log that the parameter
+  // was there, never what it was.
+  const url = String(req.originalUrl || req.url).replace(
+    /([?&](?:token|ticket|code|state)=)[^&]*/gi,
+    '$1[redacted]'
+  );
 
   res.on('finish', () => {
     const duration = Date.now() - start;
@@ -141,16 +174,54 @@ app.use((req, res, next) => {
   next();
 });
 
+// Razorpay signs the RAW webhook body, so this must run before the JSON
+// parser below turns it into an object - see server/billing-routes.js.
+app.use('/api', createWebhookRouter(billingDeps));
+
+app.use(express.json({ limit: '256kb' }));
+
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+/**
+ * The account shape the client keeps. `isPremium` and `unlockedStages`
+ * are derived from paid orders on every call (server/billing.js) - never a
+ * cached flag - so a purchase or an admin revoke shows on the next request.
+ * `unlockedStages` is already expanded: a bought track lists its stages.
+ *
+ * `identities` is provider IDS ONLY and `hasPassword` is a boolean: the
+ * identity records and the bcrypt hash never leave the server. There is no
+ * branch anywhere in this file that puts `passwordHash` in a response.
+ */
 function publicUser(user) {
+  const entitlements = entitlementsFor(user.id, user);
+  // Before the content has loaded there are no tracks to expand against.
+  const tracks = contentSnapshot()?.languageTracks ?? [];
+  const identities = store.identityProviders(user);
   return {
     id: user.id,
     email: user.email,
     username: user.username,
-    isPremium: Boolean(user.isPremium),
-    provider: 'local'
+    isPremium: entitlements.lifetime,
+    unlockedStages: [...unlockedStageIds(entitlements, tracks)],
+    provider: 'local',
+    identities,
+    // How this account can be signed into, so the client can offer "set a
+    // password" to a Google/GitHub-only learner and refuse to disconnect
+    // somebody's only way back in.
+    hasPassword: Boolean(user.passwordHash),
+    createdAt: user.createdAt ?? null,
+    lastLoginAt: user.lastLoginAt ?? null,
+    avatarUrl: avatarFor(user)
   };
+}
+
+/** The picture a provider gave us, if any - first linked wins, and it is only ever a URL. */
+function avatarFor(user) {
+  for (const id of store.identityProviders(user)) {
+    const url = user.identities?.[id]?.avatarUrl;
+    if (typeof url === 'string' && url) return url;
+  }
+  return null;
 }
 
 function readToken(req) {
@@ -233,13 +304,19 @@ app.post(
       return res.status(409).json({ error: 'That email or username was just taken.' });
     }
 
+    const now = new Date().toISOString();
     const user = store.insertUser({
       id: crypto.randomUUID(),
       email,
       username,
       passwordHash,
       isPremium: false,
-      createdAt: new Date().toISOString()
+      createdAt: now,
+      // Registering is a sign-in too, and a brand new account has no provider
+      // linked to it yet - "Continue with Google" adds one later.
+      lastLoginAt: now,
+      lastSeenAt: now,
+      identities: {}
     });
 
     // Fire-and-forget: `syncUser` never throws and never blocks this
@@ -254,6 +331,16 @@ app.post(
   })
 );
 
+/**
+ * A bcrypt hash of a value nothing can match, compared against whenever there
+ * is no real hash to compare against - an unknown email, or an account that
+ * signs in with Google/GitHub and has no password at all. Without it, those
+ * two cases would answer far faster than a wrong password and the timing
+ * alone would say which emails have accounts. Same guard, same reasoning as
+ * server/admin-auth.js.
+ */
+const NO_PASSWORD_HASH = bcrypt.hashSync('no-password-on-this-account', 10);
+
 app.post(
   '/api/auth/login',
   asyncRoute(async (req, res) => {
@@ -261,9 +348,17 @@ app.post(
     const password = String(req.body?.password ?? '');
     const user = store.findUserByEmail(email);
 
+    // An account with no password (created through Google or GitHub) is not a
+    // special case here: it compares against the dummy hash and gets exactly
+    // the same generic failure as a wrong password, so this route never says
+    // "that address exists, just not with a password".
+    const passwordOk = await bcrypt.compare(password, user?.passwordHash || NO_PASSWORD_HASH);
     // Same response either way so the endpoint cannot be used to enumerate accounts.
-    const ok = user && (await bcrypt.compare(password, user.passwordHash));
-    if (!ok) return res.status(401).json({ error: 'Email or password is incorrect.' });
+    if (!user || !user.passwordHash || !passwordOk) {
+      return res.status(401).json({ error: 'Email or password is incorrect.' });
+    }
+
+    store.recordLogin(user.id);
 
     // Throttled so a chatty client logging in repeatedly does not hammer
     // Graph - a fresh sync on every login is not worth the API calls.
@@ -276,8 +371,80 @@ app.post(
 );
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
+  // Throttled to once every five minutes inside the store, so a client that
+  // polls this route does not rewrite db.json each time.
+  store.touchLastSeen(req.user.id);
   res.json({ user: publicUser(req.user), progress: store.getProgress(req.user.id) });
 });
+
+/**
+ * Set or change the learner's OWN password. This is how an account created
+ * through Google or GitHub gains one - `currentPassword` is required only
+ * when there is already a password to prove knowledge of, and the response
+ * carries the account, never anything derived from either password.
+ */
+app.post(
+  '/api/auth/password',
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const currentPassword = String(req.body?.currentPassword ?? '');
+    const newPassword = String(req.body?.newPassword ?? '');
+
+    if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+
+    if (req.user.passwordHash) {
+      const ok = await bcrypt.compare(currentPassword, req.user.passwordHash);
+      if (!ok) return res.status(401).json({ error: 'Your current password is incorrect.' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const updated = store.updateUser(req.user.id, { passwordHash });
+    res.json({ user: publicUser(updated) });
+  })
+);
+
+// There is deliberately no /api/account/pro here any more. It set
+// `isPremium: true` for whoever asked, and `entitlementsFor` reads that flag
+// as a lifetime licence - so one authenticated request bought everything,
+// past the Razorpay signature check, the test-mode guard and the admin grant
+// alike. A Pro licence is now bought like every other product, through
+// POST /api/billing/orders with `{ product: { kind: 'lifetime' } }`.
+
+/**
+ * Disconnect a provider from the learner's own account. Refused with a reason
+ * when it would leave them with no way to sign in at all (see
+ * server/db.js's unlinkIdentity) - losing access to your own progress because
+ * a button was one click away is not an acceptable outcome.
+ */
+app.delete('/api/auth/oauth/:provider', requireAuth, (req, res) => {
+  const provider = String(req.params.provider);
+  if (!PROVIDER_IDS.includes(provider)) return res.status(404).json({ error: 'That sign-in option is not available.' });
+
+  const result = store.unlinkIdentity(req.user.id, provider);
+  if (!result.ok) return res.status(409).json({ error: result.reason });
+  res.json({ user: publicUser(result.user) });
+});
+
+/**
+ * Google / GitHub sign-in. Mounted here rather than inside the auth section
+ * above because it owns three routes and its own single-use state store; the
+ * password routes above stay exactly as they were, and remain the fallback
+ * when no provider is configured.
+ */
+app.use(
+  '/api',
+  createOAuthRouter({
+    providers: oauthProviders,
+    store,
+    signLearnerToken,
+    publicUser,
+    verifyLearnerToken,
+    // Same fire-and-forget mirror, same throttle, as register/login above.
+    syncUser: (user, progress, reason) => {
+      if (reason === 'signup' || !excel.shouldThrottle(store, user.id)) excel.syncUser(store, user, progress, reason);
+    }
+  })
+);
 
 /* --------------------------------------------------------- admin sign-in */
 
@@ -352,6 +519,15 @@ function recalc(progress) {
 app.get('/api/progress', requireAuth, (req, res) => {
   res.json({ progress: recalc(store.getProgress(req.user.id)) });
 });
+
+/* ------------------------------------------------------------------ drafts */
+
+// Saved coding sessions: the code a learner typed but has not solved yet,
+// restored in one call when they sign back in. `getChallengeMerged` is handed
+// over so a draft can only exist for a lesson this server really serves - the
+// same lookup /api/progress/solve does below. `getProgress` goes with it so a
+// save for an already-solved lesson is a no-op there too.
+app.use('/api', createDraftsRouter({ requireAuth, getChallengeMerged, getProgress: store.getProgress }));
 
 /* ------------------------------------------------------------ verification */
 
@@ -503,6 +679,10 @@ app.post(
 
     store.setProgress(req.user.id, next);
 
+    // The lesson is solved, so the half-finished attempt is no longer work in
+    // progress - see server/drafts-routes.js, which owns that rule.
+    clearDraftForSolve(req.user.id, challengeId);
+
     // Meaningful-progress-update trigger for Excel, throttled the same way
     // login is - a burst of solves in one session becomes one sync, not one
     // Graph call per challenge.
@@ -600,13 +780,13 @@ app.post('/api/progress/reset', requireAuth, (req, res) => {
   res.json({ progress: fresh });
 });
 
-app.post('/api/account/pro', requireAuth, (req, res) => {
-  // No payment processor is wired up locally; this is the honest local stand-in
-  // for a successful checkout webhook.
-  req.user.isPremium = true;
-  store.persist();
-  res.json({ user: publicUser(req.user) });
-});
+/* ----------------------------------------------------------------- billing */
+
+// One-time purchases (lifetime licence, a track, a stage, a certificate) and
+// the public certificate check. Every "mark paid" path lives behind a
+// verified signature, the explicit test-mode step or an admin grant - there
+// is no route that simply sets a flag any more.
+app.use('/api', createBillingRouter({ ...billingDeps, requireAuth, optionalAuth, publicUser }));
 
 /* ------------------------------------------------------------- leaderboard */
 
