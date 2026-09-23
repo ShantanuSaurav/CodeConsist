@@ -1,0 +1,94 @@
+# Judge0 configuration for the local stack in docker-compose.yml.
+#
+# This is the file judge0 v1.13.1 expects at /judge0.conf; the compose file
+# mounts it read-only into the server and the workers, and hands the same file
+# to postgres and redis as their env_file. Only the keys that matter for a
+# laptop instance are set - everything left out keeps judge0's own default.
+#
+# CHANGE THE TWO PASSWORDS BELOW before the first `docker compose up`. They are
+# only reachable from 127.0.0.1, but they end up baked into the postgres volume
+# on first boot, so changing them later means deleting the volume.
+
+# --- credentials ---------------------------------------------------------
+# Generate two different random strings, e.g.
+#   node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+REDIS_PASSWORD=change-me-redis-password
+POSTGRES_PASSWORD=change-me-postgres-password
+POSTGRES_DB=judge0
+POSTGRES_USER=judge0
+
+# The compose service names. judge0 defaults both hosts to localhost, which
+# inside its own container is nothing - the server then crash-loops on boot
+# with "could not connect to server ... port 5432".
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# --- who may talk to it --------------------------------------------------
+# The CodeConsist API server calls this from the same machine, server side, and
+# is the only thing that should. A server-to-server call sends no Origin and is
+# not subject to CORS, so nothing here affects it.
+#
+# What this does affect is browsers. ALLOW_ORIGIN is judge0's CORS allow-list,
+# and naming a real origin GRANTS that origin scripted access to the judge - it
+# does not withhold it. `http://localhost:3000` would hand the dev front-end,
+# and anything else served from that port, a direct line to an endpoint that
+# compiles and runs arbitrary code. The web app must never call the judge
+# itself: that is the whole point of proxying through /api/execute.
+#
+# So this is set to the judge's own address, which is not an origin any page is
+# ever served from. Every browser request is then refused at the CORS check,
+# and the port is bound to 127.0.0.1 on top of that. Leaving it unset is NOT
+# the same thing - judge0 defaults to "*".
+ALLOW_ORIGIN=http://127.0.0.1:2358
+
+# Optional shared secret. Leave empty for a stack nothing else can reach. If
+# you set it, put the SAME value in the project's .env as JUDGE0_AUTH_TOKEN -
+# the API server sends it as X-Auth-Token (and as a bearer token, for anyone
+# who puts a reverse proxy in front).
+AUTHN_TOKEN=
+
+# --- how submissions run -------------------------------------------------
+# `wait=true` lets the API server post a submission and get the result in one
+# request, which is what server/judge0.js does. Judge0 defaults this to true;
+# it is spelled out here because turning it off silently breaks every run.
+ENABLE_WAIT_RESULT=true
+
+# No network from inside a submission. A learner's program has no business
+# making HTTP requests, and this endpoint is reachable from a route that does
+# not require sign-in.
+ENABLE_NETWORK=false
+ALLOW_ENABLE_NETWORK=false
+
+# Callbacks post to a URL the submitter chooses - a server-side request forgery
+# primitive, handed out for free. Nothing here uses them.
+ENABLE_CALLBACKS=false
+
+# --- no cgroup v1 on this machine ----------------------------------------
+# Docker Desktop's WSL2 kernel (6.18) is built without CONFIG_MEMCG_V1, so
+# isolate's cgroup v1 memory controller does not exist and no .wslconfig
+# flag can bring it back. With BOTH of these on, judge0 runs isolate without
+# --cg: time is limited per process (RLIMIT_CPU) and memory per process
+# (RLIMIT_AS, the MEMORY_LIMIT below in KB) instead of per control group.
+# Check with: docker run --rm --entrypoint sh redis:7.2.4 -c "zcat /proc/config.gz | grep MEMCG_V1"
+ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT=true
+ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT=true
+
+# Limits: generous enough for a beginner's exercise, small enough that a
+# runaway loop costs a few seconds of one core rather than the laptop.
+CPU_TIME_LIMIT=5
+MAX_CPU_TIME_LIMIT=10
+WALL_TIME_LIMIT=10
+MAX_WALL_TIME_LIMIT=15
+MEMORY_LIMIT=128000
+# Java asks for 1,024,000 KB (server/judge0.js JAVA_MEMORY_LIMIT_KB): under the
+# per-process limits above, this caps reserved address space, and the JVM needs
+# that much to start with its 256 MB heap. C and C++ stay on MEMORY_LIMIT.
+MAX_MEMORY_LIMIT=1024000
+MAX_PROCESSES_AND_OR_THREADS=60
+
+# Two workers. This machine is also running the API server, the tunnel and a
+# browser; more workers mostly means more contention.
+COUNT=2
+MAX_QUEUE_SIZE=100

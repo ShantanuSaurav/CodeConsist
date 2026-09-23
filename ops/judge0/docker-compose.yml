@@ -1,0 +1,70 @@
+# Self-hosted Judge0 - the free engine behind Java, C, C++ and Go.
+#
+# Derived from the stack judge0 ships with v1.13.1, with two deliberate
+# differences:
+#
+#   1. The published port is bound to 127.0.0.1. The default "2358:2358" listens
+#      on every interface, and this laptop is the production server: its API is
+#      exposed to the public internet through an ngrok tunnel. A judge that
+#      compiles and runs arbitrary code must never be reachable from anywhere
+#      but this machine, and "127.0.0.1:" is the line that guarantees it.
+#   2. Every image is pinned. `judge0/judge0:latest` is how a working machine
+#      turns into a broken one after an unrelated `docker compose pull`.
+#
+# `privileged: true` is not optional and not an oversight: isolate, the sandbox
+# Judge0 runs submissions in, needs cgroup and namespace control to enforce the
+# time and memory limits. That is the whole point of sending code here instead
+# of running it on the host.
+#
+# Start it, check it and wire it up: docs/RUNNING-JAVA-C-CPP.md
+#
+# Config lives in the sibling judge0.conf.
+
+x-logging: &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: 100M
+
+services:
+  server:
+    image: judge0/judge0:1.13.1
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    ports:
+      - "127.0.0.1:2358:2358"
+    privileged: true
+    <<: *default-logging
+    restart: always
+
+  worker:
+    image: judge0/judge0:1.13.1
+    command: ["./scripts/workers"]
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    privileged: true
+    <<: *default-logging
+    restart: always
+
+  db:
+    image: postgres:16.2
+    env_file: judge0.conf
+    volumes:
+      - data:/var/lib/postgresql/data/
+    <<: *default-logging
+    restart: always
+
+  redis:
+    image: redis:7.2.4
+    command:
+      [
+        "bash",
+        "-c",
+        'docker-entrypoint.sh --appendonly no --requirepass "$$REDIS_PASSWORD"'
+      ]
+    env_file: judge0.conf
+    <<: *default-logging
+    restart: always
+
+volumes:
+  data:

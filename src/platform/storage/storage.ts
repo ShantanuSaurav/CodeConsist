@@ -73,6 +73,13 @@ export const STORAGE_KEYS = {
   token: 'cq-auth-token',
   editor: 'cq-playground-draft',
   /**
+   * The HTML/CSS/JS playground's three files, its active tab and its chosen
+   * example. Deliberately NOT `editor`: that key holds one language and one
+   * blob of code, and the single-language playground writes it on every
+   * keystroke, so sharing it would have the two modes overwrite each other.
+   */
+  webPlayground: 'cq-web-playground-draft',
+  /**
    * Saved challenge code for a learner with no account yet, keyed by challenge
    * id. A signed-in learner's drafts live on their account instead; these are
    * pushed up on sign-in and cleared on sign-out, so one person's code is

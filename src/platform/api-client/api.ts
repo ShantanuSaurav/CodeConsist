@@ -137,6 +137,20 @@ export function oauthStartUrl(provider: string, options: { ticket?: string } = {
   return `${path}?${new URLSearchParams({ link: '1', ticket: options.ticket }).toString()}`;
 }
 
+/**
+ * One language's engine, as the server describes it.
+ *
+ * `label` is a name and a version and nothing else - never a URL, a key or a
+ * host name. It exists so the UI can say "Judge0 (self-hosted)" rather than
+ * "Judge0", which is the difference between an engine that is free, private
+ * and unlimited and one that is rate limited and posts code to a third party.
+ */
+export interface RuntimeInfo {
+  available: boolean;
+  engine: 'node' | 'browser' | 'judge0' | 'none';
+  label: string;
+}
+
 export interface HealthResponse {
   ok: boolean;
   challenges: number;
@@ -144,6 +158,12 @@ export interface HealthResponse {
   users: number;
   /** Never carries credentials - just whether the server has a remote compiler wired up, and for which languages. */
   judge0?: { configured: boolean; languages: string[] };
+  /**
+   * Per-language engines, keyed by language. Optional because a server built
+   * before this key existed simply does not send it, and the client has to
+   * keep working against one - `judge0` above stays the fallback.
+   */
+  runtimes?: Record<string, RuntimeInfo>;
 }
 
 /* ----------------------------------------------------------------- billing */
@@ -450,6 +470,13 @@ export const api = {
     code: string;
     entryFunction?: string;
     testCases?: TestCase[];
+    /**
+     * What the program reads on standard input. Only the compiled languages
+     * use it (the server ignores it elsewhere), and it is what makes Scanner
+     * and scanf work - the first program most people write in Java or C reads
+     * a number, and without this it reads EOF.
+     */
+    stdin?: string;
   }): Promise<ExecutionResult> {
     return request('/execute', { method: 'POST', auth: false, body: payload, timeoutMs: 30000 });
   }

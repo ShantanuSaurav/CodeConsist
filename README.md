@@ -120,7 +120,7 @@ because nothing verifies it. The roadmaps' structure and text are CodeConsist's 
 roadmap.sh's content is copyrighted and is linked to, never copied.
 `npm run content:links` HEAD-requests every external URL.
 
-**Three real execution engines, and no faking.**
+**Four real execution engines, and no faking.**
 
 - JavaScript runs in a sandboxed Node child process (`node:vm`, no `require`,
   no `fs`, hard-killed after 8s). If the API is down it runs in a Web Worker,
@@ -128,12 +128,20 @@ roadmap.sh's content is copyrighted and is linked to, never copied.
 - Python is CPython compiled to WebAssembly (Pyodide) in a Web Worker, so an
   infinite loop is killed after 8s instead of freezing the tab. Each run gets a
   fresh namespace; the runtime itself is downloaded once per session.
-- C, C++, Java and Go run only if you configure a Judge0 endpoint **on the API
-  server** (`JUDGE0_API_URL` / `JUDGE0_API_KEY` in `.env`). The key never
-  reaches the browser: every compiled-language run goes through
-  `POST /api/execute`, and `/api/health` only says whether one is configured so
-  the Playground can label those languages "needs setup". Without one the app
-  says there is no runtime rather than pretending to compile.
+- HTML, CSS and JavaScript render together in the Playground's web mode: three
+  files in an `<iframe sandbox="allow-scripts">` with no same-origin access, so
+  the page cannot reach the app, its storage or the network. `console.log`
+  is relayed out to a console beside the preview, and a script that never
+  returns wedges that one frame — Run builds a new one.
+- C, C++, Java and Go run only if you point the **API server** at a Judge0
+  sandbox. Nothing submitted is ever compiled or run on the host: `/api/execute`
+  needs no sign-in and is reachable through the public tunnel, so there is no
+  `gcc` and no `javac` behind it. The free way is Judge0 in Docker on the same
+  machine — `JUDGE0_API_URL` alone, no key, no rate limit, nothing leaving the
+  laptop (`docs/RUNNING-JAVA-C-CPP.md`); a hosted RapidAPI endpoint takes
+  `JUDGE0_API_KEY` as well, and that key never reaches the browser.
+  `/api/health` reports only which languages run and what runs them, so the
+  Playground can label the rest "needs setup" rather than pretending to compile.
 
 **Accounts and progress.** bcrypt password hashing, JWT sessions, XP, levels,
 day-based streaks and a leaderboard, stored in `server/data/db.json` (atomic
