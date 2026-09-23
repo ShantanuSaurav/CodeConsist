@@ -27,7 +27,7 @@ import { loadFromApi } from './content';
 import type { ContentBundle } from './content';
 import { compilerService, ExecuteOptions } from '../execution/compilerService';
 import { api, ApiError, OfflineError, getToken, setToken } from '../api-client/api';
-import type { OAuthProviders } from '../api-client/api';
+import type { OAuthProviders, RuntimeInfo } from '../api-client/api';
 import { STORAGE_KEYS, readJson, readString, writeJson, writeString, remove } from '../storage/storage';
 import { currentStreak, dayKey, levelFromXp, nextStreak, xpForSolve } from '../xp-leveling/leveling';
 
@@ -103,6 +103,14 @@ export interface SessionContextType {
   serverStatus: ServerStatus;
   /** Server-verified: is a remote compiler (Judge0) configured for languages beyond JavaScript/Python? Never the credentials. */
   judge0Configured: boolean;
+  /**
+   * Per-language engines as the server reports them, keyed by language, or `{}`
+   * when it has not answered (or is too old to send them). The Playground reads
+   * it to say which languages run and what runs them; `judge0Configured` above
+   * stays for everything that only needs the yes/no. Never credentials - see
+   * RuntimeInfo.
+   */
+  runtimes: Record<string, RuntimeInfo>;
 
   /* actions */
   completeChallenge: (challenge: Challenge, options?: SolveOptions) => Promise<number>;
@@ -113,7 +121,7 @@ export interface SessionContextType {
     language?: SupportedLanguage,
     entryFunction?: string,
     testCases?: TestCase[],
-    options?: Pick<ExecuteOptions, 'onProgress'>
+    options?: Pick<ExecuteOptions, 'onProgress' | 'stdin'>
   ) => Promise<ExecutionResult>;
 
   /* saved coding sessions - see "drafts" below. Nobody has to start a
@@ -302,6 +310,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   const [stats, setStats] = useState<UserStats>(() => hydrateStats(readJson(STORAGE_KEYS.stats, null)));
   const [serverStatus, setServerStatus] = useState<ServerStatus>('checking');
   const [judge0Configured, setJudge0Configured] = useState(false);
+  const [runtimes, setRuntimes] = useState<Record<string, RuntimeInfo>>({});
   const [oauthProviders, setOauthProviders] = useState<OAuthProviders | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
 
@@ -810,6 +819,13 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         const configured = Boolean(health?.judge0?.configured);
         setJudge0Configured(configured);
         compilerService.setRemoteCompilerStatus(configured, health?.judge0?.languages ?? []);
+        // One level finer, and only from a server new enough to send it: which
+        // engine each language gets and what to call it. A server that sends
+        // nothing leaves this `{}`, and everything falls back to the flag
+        // above rather than claiming a language is missing.
+        const reportedRuntimes: Record<string, RuntimeInfo> = health?.runtimes ?? {};
+        setRuntimes(reportedRuntimes);
+        compilerService.setServerRuntimes(reportedRuntimes);
         const recovered = !wasOnline;
         wasOnline = true;
         setServerStatus('online');
@@ -1020,12 +1036,13 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       language: SupportedLanguage = 'javascript',
       entryFunction?: string,
       testCases: TestCase[] = [],
-      options: Pick<ExecuteOptions, 'onProgress'> = {}
+      options: Pick<ExecuteOptions, 'onProgress' | 'stdin'> = {}
     ) =>
       compilerService.executeCode(code, language, {
         entryFunction,
         testCases,
         onProgress: options.onProgress,
+        stdin: options.stdin,
         preferLocal: serverStatus !== 'online'
       }),
     [serverStatus]
@@ -1250,6 +1267,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       user,
       serverStatus,
       judge0Configured,
+      runtimes,
       completeChallenge,
       markConceptSeen,
       executeCode,
@@ -1288,6 +1306,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       user,
       serverStatus,
       judge0Configured,
+      runtimes,
       completeChallenge,
       markConceptSeen,
       executeCode,

@@ -3,3 +3,6 @@ logs/
 backups/
 power-backup.txt
 ngrok-path.txt
+
+# Real Judge0 credentials. The committed template is judge0/judge0.conf.example.
+judge0/judge0.conf

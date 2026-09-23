@@ -39,6 +39,14 @@ import { createBillingRouter, createWebhookRouter } from './billing-routes.js';
 import { createOAuthProviders, PROVIDER_IDS } from './oauth.js';
 import { createOAuthRouter } from './oauth-routes.js';
 import { clearDraftForSolve, createDraftsRouter } from './drafts-routes.js';
+import {
+  JUDGE0_LANGUAGE_IDS,
+  JUDGE0_STDIN_LIMIT,
+  buildRuntimes,
+  judge0SetupHint,
+  resolveJudge0Config,
+  runJudge0Submission
+} from './judge0.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -46,20 +54,23 @@ const ROOT = path.resolve(HERE, '..');
 const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
 
 /**
- * Judge0 configuration. Server-side only - this is the one place these
- * credentials are read. `JUDGE0_API_URL` / `JUDGE0_API_KEY` / `JUDGE0_API_HOST`
- * are the current names; the `VITE_JUDGE0_*` names are accepted as a fallback
- * so a `.env` written for the previous (client-side) architecture keeps
- * working without edits - but note that only the server ever reads them now.
+ * Judge0 configuration. Server-side only - server/judge0.js is the one place
+ * these credentials are read, and this file never sees more of the endpoint
+ * than `configured`, the mode and the host. A key is optional: a URL alone
+ * means a self-hosted instance, which is the free option and the one that
+ * keeps learners' code off the public internet (docs/RUNNING-JAVA-C-CPP.md).
  */
-const JUDGE0_API_URL = process.env.JUDGE0_API_URL || process.env.VITE_JUDGE0_API_URL;
-const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY || process.env.VITE_JUDGE0_API_KEY;
-const JUDGE0_API_HOST = process.env.JUDGE0_API_HOST || process.env.VITE_JUDGE0_API_HOST || 'judge0-ce.p.rapidapi.com';
-const JUDGE0_CONFIGURED = Boolean(
-  JUDGE0_API_URL && JUDGE0_API_KEY &&
-    !JUDGE0_API_URL.includes('your-judge0') && !JUDGE0_API_KEY.startsWith('your_')
-);
-const JUDGE0_LANGUAGE_IDS = { java: 62, c: 50, cpp: 54, go: 60 };
+const judge0Config = resolveJudge0Config();
+const JUDGE0_CONFIGURED = judge0Config.configured;
+
+if (judge0Config.reason === 'bad-url') {
+  // Loud at boot rather than silent until the first submission: the usual
+  // cause is `localhost:2358` with the scheme left off, which is two seconds
+  // to fix if anyone says so.
+  console.warn('[judge0] JUDGE0_API_URL is not a usable http(s) URL - Java, C, C++ and Go stay disabled.');
+} else if (judge0Config.reason === 'placeholder') {
+  console.warn('[judge0] JUDGE0_API_URL/JUDGE0_API_KEY still hold the .env.example placeholder values - Java, C, C++ and Go stay disabled.');
+}
 
 /**
  * The payment gateway. Reads RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET /
@@ -263,7 +274,14 @@ app.get('/api/health', (_req, res) => {
     // Never the credentials themselves - just whether Judge0 is wired up, and
     // which languages that unlocks, so the client can label the Playground
     // honestly without ever seeing the key.
-    judge0: { configured: JUDGE0_CONFIGURED, languages: Object.keys(JUDGE0_LANGUAGE_IDS) }
+    judge0: { configured: JUDGE0_CONFIGURED, languages: Object.keys(JUDGE0_LANGUAGE_IDS) },
+    // The same answer per language, plus what would actually run each one.
+    // `judge0` above stays exactly as it was because clients already shipped
+    // read it; this is the key that can say "Node sandbox" and "CPython
+    // (WebAssembly)" as well, and tell a free self-hosted judge from a
+    // rate-limited hosted one. Names and versions only - no URL, no host,
+    // no key (server/judge0.js).
+    runtimes: buildRuntimes(judge0Config)
   });
 });
 
@@ -996,73 +1014,6 @@ function runJsInChild(payload) {
   });
 }
 
-/**
- * Run one submission on a configured Judge0 instance. Server-side only - this
- * is the only function in the whole app that ever sees JUDGE0_API_KEY.
- */
-async function runJudge0Remote(language, code) {
-  const languageId = JUDGE0_LANGUAGE_IDS[language];
-  if (!languageId) {
-    return { status: 'error', engine: 'none', stderr: `${language} is not supported by the configured compiler.`, testResults: [] };
-  }
-
-  const encode = (str) => Buffer.from(str, 'utf8').toString('base64');
-  const decode = (b64) => (b64 ? Buffer.from(b64, 'base64').toString('utf8') : '');
-
-  const started = process.hrtime.bigint();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
-
-  let response;
-  try {
-    response = await fetch(`${JUDGE0_API_URL}/submissions?base64_encoded=true&wait=true`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-RapidAPI-Key': JUDGE0_API_KEY,
-        'X-RapidAPI-Host': JUDGE0_API_HOST
-      },
-      body: JSON.stringify({ source_code: encode(code), language_id: languageId }),
-      signal: controller.signal
-    });
-  } catch (e) {
-    return {
-      status: 'error',
-      engine: 'none',
-      stderr: `Could not reach the remote compiler: ${e?.message ?? e}`,
-      testResults: []
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!response.ok) {
-    return { status: 'error', engine: 'judge0', stderr: `The compiler service replied ${response.status}.`, testResults: [] };
-  }
-
-  const data = await response.json();
-  const compileOutput = decode(data.compile_output).trim();
-  const stderr = decode(data.stderr).trim();
-  const stdout = decode(data.stdout).trim();
-  const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
-  const time = data.time ? `${(parseFloat(data.time) * 1000).toFixed(0)}ms (Judge0)` : `${elapsedMs.toFixed(0)}ms (Judge0)`;
-
-  if (compileOutput) {
-    return { status: 'error', engine: 'judge0', stderr: compileOutput, time, testResults: [] };
-  }
-  if (stderr || (data.status?.id && data.status.id > 3)) {
-    return {
-      status: 'error',
-      engine: 'judge0',
-      stderr: stderr || data.status?.description || 'Runtime error',
-      stdout: stdout || undefined,
-      time,
-      testResults: []
-    };
-  }
-  return { status: 'passed', engine: 'judge0', stdout: stdout || 'Program finished with no output.', time, testResults: [] };
-}
-
 app.post(
   '/api/execute',
   asyncRoute(async (req, res) => {
@@ -1070,6 +1021,12 @@ app.post(
     const code = String(req.body?.code ?? '');
     const entryFunction = req.body?.entryFunction ? String(req.body.entryFunction) : undefined;
     const testCases = Array.isArray(req.body?.testCases) ? req.body.testCases.slice(0, 25) : [];
+    // Optional, and only Judge0 languages can use it: the JavaScript sandbox
+    // calls a function with arguments and Python runs in the browser, so
+    // neither has a stdin to feed. Capped rather than rejected - a beginner's
+    // Scanner program needs a line or two, and silently trimming a runaway
+    // paste beats a 413 nobody can act on.
+    const stdin = typeof req.body?.stdin === 'string' ? req.body.stdin.slice(0, JUDGE0_STDIN_LIMIT) : '';
 
     if (code.length > 100_000) return res.status(413).json({ error: 'Submission is too large.' });
 
@@ -1096,18 +1053,16 @@ app.post(
       if (!JUDGE0_CONFIGURED) {
         // Be honest rather than pretending to compile. JavaScript and Python
         // keep working with zero setup; this is the one thing that genuinely
-        // needs an external service.
+        // needs a sandbox we do not own. The hint leads with the free local
+        // judge - see server/judge0.js.
         return res.status(501).json({
           status: 'error',
           engine: 'none',
-          stderr:
-            `Running ${language} needs a Judge0 endpoint. JavaScript and Python already work with no ` +
-            'setup. To enable Java, C, C++ or Go, set JUDGE0_API_URL and JUDGE0_API_KEY in a .env file ' +
-            'at the project root (see .env.example) and restart the API server.',
+          stderr: judge0SetupHint(language),
           testResults: []
         });
       }
-      const result = await runJudge0Remote(language, code);
+      const result = await runJudge0Submission(judge0Config, { language, code, stdin });
       return res.json(result);
     }
 

@@ -20,9 +20,13 @@
  * module whether the server actually has Judge0 configured (from the
  * non-secret flag in /api/health), purely so the UI can label the engine and
  * warn ahead of time, without ever seeing the credentials.
+ * `setServerRuntimes` is the same idea with one more bit of detail per
+ * language - engine and a human label - which is what lets the UI distinguish
+ * a self-hosted Judge0 from a hosted one. Still no credentials: a label is a
+ * name and a version, never a URL or a host.
  */
 import { ExecutionResult, SupportedLanguage, TestCase, TestResult } from '@/types';
-import { api } from '../api-client/api';
+import { api, RuntimeInfo } from '../api-client/api';
 import { displayValue, matchesExpected } from '../grading-engine/grading';
 
 let remoteCompilerConfigured = false;
@@ -32,6 +36,22 @@ let remoteCompilerLanguages: SupportedLanguage[] = [];
 function setRemoteCompilerStatus(configured: boolean, languages: string[] = []): void {
   remoteCompilerConfigured = configured;
   remoteCompilerLanguages = languages as SupportedLanguage[];
+}
+
+/**
+ * The same answer, one level more detailed.
+ *
+ * `setRemoteCompilerStatus` can only say "Judge0: yes or no", which was enough
+ * while a key was the only way to have one. It is not enough now that Judge0
+ * can be self-hosted in Docker: "needs setup" and "Judge0 (self-hosted)" are
+ * different sentences to a learner, and only the server can tell them apart.
+ * Both setters are kept because both are called - this one when the server is
+ * new enough to report `runtimes`, the other always.
+ */
+let serverRuntimes: Record<string, RuntimeInfo> = {};
+
+function setServerRuntimes(runtimes: Record<string, RuntimeInfo> = {}): void {
+  serverRuntimes = runtimes ?? {};
 }
 
 const LANGUAGE_IDS: Partial<Record<SupportedLanguage, number>> = {
@@ -430,19 +450,49 @@ export interface ExecuteOptions {
   onProgress?: (message: string) => void;
   /** Skip the API round-trip (used by the offline path and by tests). */
   preferLocal?: boolean;
+  /**
+   * Standard input for the program, for the languages that read it. Ignored
+   * for everything the browser runs - a Pyodide or Worker run has no stdin to
+   * feed - and capped again on the server.
+   */
+  stdin?: string;
 }
 
 export const compilerService = {
   setRemoteCompilerStatus,
+  setServerRuntimes,
 
   /** Which engine will handle a language, for display in the UI. */
   engineFor(language: SupportedLanguage): string {
+    // The server's own label wins for anything the server runs: it is the only
+    // side that knows whether its Judge0 is self-hosted, hosted or absent, and
+    // guessing "requires Judge0 configuration" at somebody with Docker already
+    // running would be the client making it up. A runtime the server reports
+    // as 'browser' is one we ship ourselves, so our string wins there - it
+    // carries the exact version, which the server has no way to know.
+    const reported = serverRuntimes[language];
+    if (reported?.label && reported.engine !== 'browser') return reported.label;
+
     if (language === 'javascript' || language === 'typescript') return 'Node sandbox / browser worker';
     if (language === 'python') return `CPython ${PYODIDE_VERSION} (WebAssembly)`;
     if (language === 'html') return 'Browser DOM sandbox';
     if (!LANGUAGE_IDS[language]) return 'no runtime configured';
     if (remoteCompilerConfigured && remoteCompilerLanguages.includes(language)) return 'Judge0 remote compiler';
     return 'requires Judge0 configuration';
+  },
+
+  /**
+   * Can this language actually run right now?
+   *
+   * Straight from the server when it said, because the server is the only one
+   * who knows. When it did not - an older build, or nothing reachable yet -
+   * fall back to what we already worked out from the `judge0` flag, so this
+   * never gets *less* accurate than `remoteCompilerReady` was on its own.
+   */
+  runtimeAvailable(language: SupportedLanguage): boolean {
+    const reported = serverRuntimes[language];
+    if (reported) return reported.available;
+    return this.runsLocally(language) || this.remoteCompilerReady(language);
   },
 
   /** Languages that always work, with nothing to configure. */
@@ -469,7 +519,7 @@ export const compilerService = {
     language: SupportedLanguage = 'javascript',
     options: ExecuteOptions = {}
   ): Promise<ExecutionResult> {
-    const { entryFunction, testCases = [], onProgress, preferLocal = false } = options;
+    const { entryFunction, testCases = [], onProgress, preferLocal = false, stdin } = options;
 
     if (!code.trim()) {
       return { status: 'error', stderr: 'There is no code to run yet.', engine: 'none', testResults: [] };
@@ -508,7 +558,9 @@ export const compilerService = {
     // server fails the SAME honest way whether the request came from the
     // Playground or a lesson - one message to maintain.
     try {
-      return await api.execute({ language, code, entryFunction, testCases });
+      // stdin only goes on this path: it is the Judge0 languages that read it,
+      // and sending it to a Node-VM run that has no stdin would be noise.
+      return await api.execute({ language, code, entryFunction, testCases, stdin });
     } catch (e: any) {
       return {
         status: 'error',

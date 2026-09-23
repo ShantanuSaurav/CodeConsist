@@ -6,6 +6,7 @@ import { ExecutionResult, SupportedLanguage } from '@/types';
 import { Button, CodeEditor, Dropdown } from '@/ui';
 import { compilerService } from '@/platform/execution/compilerService';
 import { STORAGE_KEYS, readJson, writeJson } from '@/platform/storage/storage';
+import { WebPlayground } from './WebPlayground';
 
 const SNIPPETS: Record<string, Record<string, string>> = {
   javascript: {
@@ -117,7 +118,20 @@ int main() {
 
 const LANGUAGES: SupportedLanguage[] = ['javascript', 'python', 'java', 'c', 'cpp'];
 
+/**
+ * What the selector offers. 'web' is deliberately NOT a `SupportedLanguage`:
+ * that union is the content schema, so a challenge could claim to be written
+ * in it and the grader, the validator and every track would have to have an
+ * answer. Here it means one thing only - "show the other playground" - and it
+ * stops at this file.
+ */
+type Mode = SupportedLanguage | 'web';
+
+/** Selector order. The web mode comes first: it is the one a beginner wants. */
+const MODES: Mode[] = ['web', ...LANGUAGES];
+
 const LANGUAGE_LABELS: Record<string, string> = {
+  web: 'HTML / CSS / JS',
   javascript: 'JavaScript',
   python: 'Python',
   java: 'Java',
@@ -136,25 +150,40 @@ const FILE_NAMES: Partial<Record<SupportedLanguage, string>> = {
 /** Languages that always work: nothing to configure, ever. */
 const ALWAYS_AVAILABLE: SupportedLanguage[] = ['javascript', 'python'];
 
+/**
+ * Languages whose programs read standard input.
+ *
+ * The first Java or C program most people write asks for a number with
+ * Scanner or scanf. With nothing on stdin that program reads EOF and either
+ * throws or prints garbage, which is a miserable first five minutes. The
+ * browser engines have no stdin to feed, so they are not in the list.
+ */
+const STDIN_LANGUAGES: SupportedLanguage[] = ['java', 'c', 'cpp', 'go'];
+
+/** Same cap the server applies (JUDGE0_STDIN_LIMIT), so the textarea cannot promise more than it sends. */
+const STDIN_LIMIT = 10_000;
+
 interface Draft {
-  language: SupportedLanguage;
+  language: Mode;
   code: string;
   /** Which example the editor currently holds, or null once it has been edited. */
   snippet: string | null;
+  /** What the program will read on stdin. Only sent for STDIN_LANGUAGES. */
+  stdin: string;
 }
 
 /** The example whose text matches the code exactly, if any. */
-function matchingSnippet(language: SupportedLanguage, code: string): string | null {
+function matchingSnippet(language: Mode, code: string): string | null {
   const entry = Object.entries(SNIPPETS[language] ?? {}).find(([, text]) => text === code);
   return entry ? entry[0] : null;
 }
 
-function starterFor(language: SupportedLanguage): string {
+function starterFor(language: Mode): string {
   return SNIPPETS[language]?.['Hello World'] ?? Object.values(SNIPPETS[language] ?? {})[0] ?? '';
 }
 
 export const Playground: React.FC = () => {
-  const { executeCode, serverStatus, judge0Configured, activeTrack } = useSession();
+  const { executeCode, serverStatus, judge0Configured, runtimes, activeTrack } = useSession();
   // No saved draft yet: open on the language of the track the learner is
   // following, so the Playground picks up where Learn left off.
   const selectedLanguage = activeTrack.track.primaryLanguage;
@@ -163,23 +192,52 @@ export const Playground: React.FC = () => {
     const saved = readJson<Partial<Draft>>(STORAGE_KEYS.editor, {});
     // No saved draft yet: open on whatever language track the learner is
     // currently practising, so the Playground picks up where Learn left off.
-    // A previously saved draft's language always wins over this default.
-    const language = LANGUAGES.includes(saved.language as SupportedLanguage)
-      ? (saved.language as SupportedLanguage)
+    // A previously saved draft's language always wins over this default -
+    // including 'web', which is why this checks MODES and not LANGUAGES.
+    const language: Mode = MODES.includes(saved.language as Mode)
+      ? (saved.language as Mode)
       : LANGUAGES.includes(selectedLanguage)
         ? selectedLanguage
         : 'javascript';
     const code = saved.code ?? starterFor(language);
-    // Drafts saved before `snippet` existed work it out from the code.
-    return { language, code, snippet: saved.snippet !== undefined ? saved.snippet : matchingSnippet(language, code) };
+    // Drafts saved before `snippet` and `stdin` existed work them out or
+    // start empty; a draft written by an older build must still open.
+    return {
+      language,
+      code,
+      snippet: saved.snippet !== undefined ? saved.snippet : matchingSnippet(language, code),
+      stdin: typeof saved.stdin === 'string' ? saved.stdin : ''
+    };
   });
   const [isRunning, setRunning] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [progress, setProgress] = useState('');
+  // Open only when there is something in it, so an empty box stays out of the
+  // way of the four languages that never use it.
+  const [stdinOpen, setStdinOpen] = useState(() => Boolean(draft.stdin));
 
   useEffect(() => {
     writeJson(STORAGE_KEYS.editor, draft);
   }, [draft]);
+
+  /**
+   * Does this language have an engine right now?
+   *
+   * The rule itself lives in compilerService, because it is the same rule that
+   * picks the engine line two lines below - and the same health probe feeds
+   * both. Asking it here rather than re-deriving it from `runtimes` is what
+   * keeps the selector's "needs setup" hint and `engineFor`'s label from ever
+   * disagreeing about the same language.
+   *
+   * `runtimes` and `judge0Configured` are in the dependency list and nowhere in
+   * the body on purpose: compilerService holds that state in a module variable,
+   * which React cannot see, so these are what tell it to ask again once the
+   * health probe has answered.
+   */
+  const isAvailable = useCallback(
+    (language: SupportedLanguage): boolean => compilerService.runtimeAvailable(language),
+    [runtimes, judge0Configured]
+  );
 
   const setCode = useCallback(
     (code: string) => setDraft((d) => ({ ...d, code, snippet: matchingSnippet(d.language, code) })),
@@ -195,10 +253,19 @@ export const Playground: React.FC = () => {
     if (text !== undefined) setDraft((d) => ({ ...d, code: text, snippet: name }));
   };
 
-  const switchLanguage = (language: SupportedLanguage) => {
-    const text = starterFor(language);
-    setDraft({ language, code: text, snippet: matchingSnippet(language, text) });
+  const switchMode = (mode: Mode) => {
+    if (mode === draft.language) return;
     setResult(null);
+    if (mode === 'web') {
+      // The editor's code is kept rather than cleared: the web mode stores its
+      // three files under its own key, so there is nothing here in its way.
+      setDraft((d) => ({ ...d, language: 'web' }));
+      return;
+    }
+    // Any other switch loads that language's starter, the same as it always
+    // has - the code in the draft belongs to the language being left.
+    const text = starterFor(mode);
+    setDraft({ language: mode, code: text, snippet: matchingSnippet(mode, text), stdin: '' });
   };
 
   const clearCode = useCallback(() => {
@@ -215,11 +282,20 @@ export const Playground: React.FC = () => {
   }, []);
 
   const run = useCallback(async () => {
+    // The web mode has its own Run button and its own frame; Ctrl+Enter in
+    // this editor never reaches here while it is showing.
+    if (draft.language === 'web') return;
+    const language = draft.language;
     setRunning(true);
     setProgress('');
     setResult(null);
     try {
-      const res = await executeCode(draft.code, draft.language, undefined, [], { onProgress: setProgress });
+      const res = await executeCode(draft.code, language, undefined, [], {
+        onProgress: setProgress,
+        // Sent only where a program can read it; elsewhere it would be a field
+        // the engine silently drops.
+        stdin: STDIN_LANGUAGES.includes(language) ? draft.stdin : undefined
+      });
       setResult(res);
     } catch (err: any) {
       setResult({ status: 'error', stderr: err?.message ?? String(err), testResults: [] });
@@ -229,11 +305,54 @@ export const Playground: React.FC = () => {
     }
   }, [draft, executeCode]);
 
-  const errored = result?.status === 'error' || Boolean(result?.stderr);
-  const needsJudge0 = !ALWAYS_AVAILABLE.includes(draft.language) && !judge0Configured;
+  const languageSelector = (
+    <>
+      <label className="sr-only" htmlFor="playground-language">
+        Language
+      </label>
+      <Dropdown
+        id="playground-language"
+        value={draft.language}
+        onChange={(mode) => switchMode(mode as Mode)}
+        size="sm"
+        options={MODES.map((mode) => ({
+          value: mode,
+          label: LANGUAGE_LABELS[mode],
+          // The web mode runs in this browser, so it can never need setup.
+          hint: mode !== 'web' && !isAvailable(mode) ? 'needs setup' : undefined
+        }))}
+        ariaLabel="Programming Language"
+      />
+    </>
+  );
 
-  const statusLabel = isRunning ? 'running' : errored ? 'error' : needsJudge0 ? 'needs setup' : 'ready';
-  const statusClass = isRunning ? 'text-info' : errored ? 'text-error' : needsJudge0 ? 'text-warning' : 'text-success';
+  if (draft.language === 'web') {
+    return (
+      <div className="flex flex-col gap-3">
+        {/* The selector gets its own strip here. WebPlayground brings a whole
+            editor header of its own, and the one control it must not own is
+            the way back out of it. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 min-h-[44px] py-1.5 border border-border rounded-lg bg-surface-2">
+          {/* Not the file names: the tab strip below is already showing them. */}
+          <span className="text-xs text-fg-muted truncate pl-1">A web page, rendered as you type. Nothing to set up.</span>
+          <div className="flex items-center gap-1.5 flex-wrap">{languageSelector}</div>
+        </div>
+        <WebPlayground />
+      </div>
+    );
+  }
+
+  // Narrowed by the return above: everything below this line is one language
+  // in one editor.
+  const language = draft.language;
+  const usesStdin = STDIN_LANGUAGES.includes(language);
+  const stdinLines = draft.stdin ? draft.stdin.replace(/\n+$/, '').split('\n').length : 0;
+
+  const errored = result?.status === 'error' || Boolean(result?.stderr);
+  const needsSetup = !isAvailable(language);
+
+  const statusLabel = isRunning ? 'running' : errored ? 'error' : needsSetup ? 'needs setup' : 'ready';
+  const statusClass = isRunning ? 'text-info' : errored ? 'text-error' : needsSetup ? 'text-warning' : 'text-success';
 
   const consoleText = isRunning
     ? progress || 'Running…'
@@ -246,24 +365,10 @@ export const Playground: React.FC = () => {
       {/* ------------------------------------------------------------- editor */}
       <div className="xl:col-span-3 flex flex-col min-w-0 xl:border-r border-border">
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 h-auto min-h-[44px] py-1.5 border-b border-border bg-surface-2">
-          <span className="font-mono text-xs text-fg-secondary truncate pl-1">{FILE_NAMES[draft.language]}</span>
+          <span className="font-mono text-xs text-fg-secondary truncate pl-1">{FILE_NAMES[language]}</span>
 
           <div className="flex items-center gap-1.5 flex-wrap">
-            <label className="sr-only" htmlFor="playground-language">
-              Language
-            </label>
-            <Dropdown
-              id="playground-language"
-              value={draft.language}
-              onChange={(lang) => switchLanguage(lang as SupportedLanguage)}
-              size="sm"
-              options={LANGUAGES.map((lang) => ({
-                value: lang,
-                label: LANGUAGE_LABELS[lang],
-                hint: !ALWAYS_AVAILABLE.includes(lang) && !judge0Configured ? 'needs setup' : undefined
-              }))}
-              ariaLabel="Programming Language"
-            />
+            {languageSelector}
 
             <Dropdown
               value={draft.snippet ?? ''}
@@ -272,7 +377,7 @@ export const Playground: React.FC = () => {
               size="sm"
               options={[
                 { value: '', label: 'Custom code' },
-                ...Object.keys(SNIPPETS[draft.language] ?? {}).map((name) => ({ value: name, label: name }))
+                ...Object.keys(SNIPPETS[language] ?? {}).map((name) => ({ value: name, label: name }))
               ]}
               ariaLabel="Code Examples"
             />
@@ -288,10 +393,11 @@ export const Playground: React.FC = () => {
           </div>
         </div>
 
-        {needsJudge0 && (
+        {needsSetup && serverStatus !== 'offline' && (
           <div className="notice notice-warn m-3 mb-0 text-xs">
-            {LANGUAGE_LABELS[draft.language]} needs a Judge0 endpoint configured on the API server. JavaScript and Python run with no
-            setup. See <code>.env.example</code> for how to add one — Run still works and will explain this again if you try it.
+            {LANGUAGE_LABELS[language]} needs a Judge0 sandbox on the API server — free to run locally in Docker, with no
+            account, no key and no code leaving this machine. <code>docs/RUNNING-JAVA-C-CPP.md</code> has the steps.
+            HTML/CSS/JS, JavaScript and Python need no setup; Run still works and will explain this again if you try it.
           </div>
         )}
 
@@ -299,15 +405,53 @@ export const Playground: React.FC = () => {
           <CodeEditor
             value={draft.code}
             onChange={setCode}
-            language={draft.language}
+            language={language}
             minRows={16}
             onSubmit={run}
             ariaLabel="Playground editor"
           />
         </div>
 
+        {usesStdin && (
+          // A <details> rather than a panel that is always there: four of the
+          // five languages never read stdin, and the ones that do only need it
+          // for some programs. Collapsed it is one line.
+          <details
+            className="px-3 pb-3 -mt-1"
+            open={stdinOpen}
+            onToggle={(event) => setStdinOpen(event.currentTarget.open)}
+          >
+            <summary className="text-xs text-fg-muted cursor-pointer select-none py-1">
+              Input (stdin)
+              {stdinLines > 0 && (
+                <span className="text-fg-secondary">
+                  {' · '}
+                  {stdinLines} line{stdinLines > 1 ? 's' : ''}
+                </span>
+              )}
+            </summary>
+            <label className="sr-only" htmlFor="playground-stdin">
+              Standard input for the program
+            </label>
+            <textarea
+              id="playground-stdin"
+              className="w-full mt-1 font-mono text-xs"
+              rows={3}
+              spellCheck={false}
+              maxLength={STDIN_LIMIT}
+              value={draft.stdin}
+              onChange={(event) => setDraft((d) => ({ ...d, stdin: event.target.value }))}
+              placeholder={'What the program reads, one value per line:\n5\n7'}
+            />
+            <p className="mt-1 mb-0 text-xs text-fg-muted">
+              Read by <code>Scanner</code> in Java and <code>scanf</code> in C and C++. Leave it empty if the program asks
+              for nothing.
+            </p>
+          </details>
+        )}
+
         <div className="px-3 h-11 border-t border-border bg-surface-2 flex items-center justify-between gap-3">
-          <span className="font-mono text-xs text-fg-muted truncate pl-1">{compilerService.engineFor(draft.language)}</span>
+          <span className="font-mono text-xs text-fg-muted truncate pl-1">{compilerService.engineFor(language)}</span>
           <Button variant="primary" size="sm" disabled={isRunning} onClick={run}>
             <Play size={13} />
             <span>{isRunning ? 'Running…' : 'Run'}</span>
@@ -337,16 +481,16 @@ export const Playground: React.FC = () => {
           {consoleText}
         </pre>
 
-        {serverStatus === 'offline' && draft.language === 'javascript' && (
+        {serverStatus === 'offline' && language === 'javascript' && (
           <p className="px-4 pb-3 text-xs text-fg-muted">
             The API server is not running, so this uses the in-browser sandbox. Start it with <code>npm run dev:api</code> for the
             Node sandbox.
           </p>
         )}
-        {serverStatus === 'offline' && !ALWAYS_AVAILABLE.includes(draft.language) && (
+        {serverStatus === 'offline' && !ALWAYS_AVAILABLE.includes(language) && (
           <p className="px-4 pb-3 text-xs text-fg-muted">
-            The API server is not running, so {LANGUAGE_LABELS[draft.language]} cannot run right now. Start it with{' '}
-            <code>npm run dev:api</code>.
+            The API server is not running, so {LANGUAGE_LABELS[language]} cannot run right now: it compiles through the
+            server's Judge0 sandbox, not in this browser. Start it with <code>npm run dev:api</code>.
           </p>
         )}
 
