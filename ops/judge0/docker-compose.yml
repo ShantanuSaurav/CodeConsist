@@ -17,6 +17,10 @@
 # of running it on the host.
 #
 # Start it, check it and wire it up: docs/RUNNING-JAVA-C-CPP.md
+# Day to day it is started and stopped by ops\up.ps1 / ops\down.ps1
+# (START-AND-STOP.md). `restart: unless-stopped` means a crashed
+# container comes back, but one stopped on purpose stays stopped - even when
+# Docker Desktop is started for something else.
 #
 # Config lives in the sibling judge0.conf.
 
@@ -35,7 +39,7 @@ services:
       - "127.0.0.1:2358:2358"
     privileged: true
     <<: *default-logging
-    restart: always
+    restart: unless-stopped
 
   worker:
     image: judge0/judge0:1.13.1
@@ -44,7 +48,7 @@ services:
       - ./judge0.conf:/judge0.conf:ro
     privileged: true
     <<: *default-logging
-    restart: always
+    restart: unless-stopped
 
   db:
     image: postgres:16.2
@@ -52,7 +56,7 @@ services:
     volumes:
       - data:/var/lib/postgresql/data/
     <<: *default-logging
-    restart: always
+    restart: unless-stopped
 
   redis:
     image: redis:7.2.4
@@ -64,7 +68,7 @@ services:
       ]
     env_file: judge0.conf
     <<: *default-logging
-    restart: always
+    restart: unless-stopped
 
 volumes:
   data:
