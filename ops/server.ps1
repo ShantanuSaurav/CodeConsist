@@ -125,6 +125,14 @@ while ($true) {
         # `&` blocks until node exits, which is what the loop wants anyway -
         # and it means Ctrl+C in that window stops the server, as a person
         # watching a console would expect.
+        #
+        # ErrorActionPreference drops to Continue for this one call: in
+        # Windows PowerShell 5.1, `2>&1` turns every line node writes to
+        # stderr (console.warn / console.error) into an ErrorRecord, and under
+        # 'Stop' the first one is a terminating error - which killed the API
+        # the moment it logged any warning. Those lines are log output, not
+        # failures; the exit code below is what says whether node failed.
+        $ErrorActionPreference = 'Continue'
         & $node $entry 2>&1 | ForEach-Object {
             $line = [string]$_
             Write-Host $line
@@ -134,6 +142,7 @@ while ($true) {
             }
         }
         $exitCode = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
         Pop-Location
     } catch {
         Pop-Location -ErrorAction SilentlyContinue

@@ -31,15 +31,27 @@ const LOCKOUT_MS = 15 * 60_000;
 // password" from being trivially distinguishable by response time.
 const DUMMY_HASH = bcrypt.hashSync('no-admin-account-configured-yet', BCRYPT_COST);
 
+const WEAK_ADMIN_PASSWORD =
+  'This admin password is too weak to use on a public server. Put a new ADMIN_PASSWORD ' +
+  '(at least 12 characters) in .env on the server machine and restart the server.';
+
 /**
- * Runs once at boot, after store.load(). If an admin record already exists,
- * this is a complete no-op: ADMIN_USER_ID / ADMIN_PASSWORD are never read
- * again and never overwrite an existing admin, on this or any later
- * restart. If none exists yet, it reads the configured credentials,
- * validates them, hashes the password with bcrypt, and creates the admin
- * record - storing only the hash and the chosen Admin User ID. The
- * plaintext password is never stored, never logged, and never included in
- * this function's return value (it returns nothing at all).
+ * Runs once at boot, after store.load().
+ *
+ * No admin yet: reads ADMIN_USER_ID / ADMIN_PASSWORD, validates them, hashes
+ * the password with bcrypt and creates the admin record - storing only the
+ * hash and the chosen Admin User ID.
+ *
+ * An admin already exists: if ADMIN_USER_ID / ADMIN_PASSWORD are set, valid,
+ * and differ from the current credentials, the account is re-synced to them on
+ * EVERY boot and credentialsVersion is bumped, signing out every admin session.
+ * So .env is the source of truth while those lines are present - a password
+ * changed in the console is replaced at the next restart unless .env matches
+ * it (or the lines are removed). Values that fail validation are never
+ * applied; if the current password is itself such a value, every session is
+ * signed out and sign-in is refused (authenticateAdmin) until .env is fixed.
+ *
+ * The plaintext password is never stored, never logged, and never returned.
  */
 export async function bootstrapAdminAccount() {
   const userId = process.env.ADMIN_USER_ID;
@@ -50,6 +62,21 @@ export async function bootstrapAdminAccount() {
     if (userId && password) {
       const idCheck = validateAdminUserId(userId);
       const passwordCheck = validateAdminPassword(password, idCheck.ok ? idCheck.value : userId);
+      if (!idCheck.ok || !passwordCheck.ok) {
+        console.error(
+          `[admin] ADMIN_USER_ID / ADMIN_PASSWORD in .env were NOT applied: ${(idCheck.ok ? passwordCheck : idCheck).error}`
+        );
+        const stillInUse =
+          existing.userId === String(userId).trim() && (await bcrypt.compare(String(password), existing.passwordHash));
+        if (stillInUse) {
+          store.updateAdmin({ credentialsVersion: (existing.credentialsVersion ?? 0) + 1 });
+          console.error(
+            '[admin] The administrator account currently uses that weak password, so every admin session ' +
+              'has been signed out and admin sign-in is refused until a stronger ADMIN_PASSWORD is set in .env ' +
+              'and the server is restarted.'
+          );
+        }
+      }
       if (idCheck.ok && passwordCheck.ok) {
         const matchesCurrent = existing.userId === idCheck.value && (await bcrypt.compare(passwordCheck.value, existing.passwordHash));
         if (!matchesCurrent) {
@@ -156,6 +183,14 @@ export async function authenticateAdmin(userId, password) {
       store.updateAdmin(patch);
     }
     return { ok: false, error: GENERIC };
+  }
+
+  // Right credentials, but a password that fails today's policy (e.g. one set
+  // while the policy was weaker) never gets a session: on a public server the
+  // stored hash matching is not enough. The fix is a new ADMIN_PASSWORD in .env
+  // and a restart, which re-syncs the account (see bootstrapAdminAccount).
+  if (!validateAdminPassword(password, admin.userId).ok) {
+    return { ok: false, error: WEAK_ADMIN_PASSWORD };
   }
 
   const updated = store.updateAdmin({ failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date().toISOString() });

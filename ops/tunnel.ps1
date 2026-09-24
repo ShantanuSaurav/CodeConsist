@@ -183,8 +183,12 @@ while ($true) {
     $startedAt = Get-Date
     Write-OpsLog -LogFile $SupLog -Message "Starting the tunnel."
     try {
+        # --inspect=false: ngrok's local inspector (127.0.0.1:4040) otherwise
+        # keeps every request body in memory and shows it in plain text - that
+        # includes learners' sign-up/login passwords and the admin password.
+        # The counters ops\tunnel-status.ps1 reads are unaffected.
         $child = Start-Process -FilePath $ngrok `
-            -ArgumentList 'http', "--url=$domain", "$port" `
+            -ArgumentList 'http', "--url=$domain", '--inspect=false', "$port" `
             -WorkingDirectory $script:RepoRoot -NoNewWindow -PassThru `
             -RedirectStandardOutput $OutLog -RedirectStandardError $ErrLog
     } catch {

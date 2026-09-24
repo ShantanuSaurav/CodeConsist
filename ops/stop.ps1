@@ -1,6 +1,8 @@
 <#
   Stop the server and the tunnel, leaving the scheduled tasks installed so
-  they come back at the next logon (or with ops\start.ps1).
+  ops\start.ps1 (or ops\up.ps1, which also starts Docker and Judge0) can
+  bring them back. Their "at log on" triggers are disabled: nothing starts by
+  itself after a reboot (START-AND-STOP.md).
 
      powershell -ExecutionPolicy Bypass -File ops\stop.ps1
 
@@ -51,5 +53,5 @@ foreach ($p in $strays) {
 }
 
 Write-Host ''
-Write-Host 'Stopped. Start it again with ops\start.ps1, or just log out and back in.'
+Write-Host 'Stopped. Start it again with ops\start.ps1 (or ops\up.ps1 for everything).'
 Write-Host ''
