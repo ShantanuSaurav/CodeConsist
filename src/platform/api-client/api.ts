@@ -21,7 +21,7 @@ export class ApiError extends Error {
 /** Thrown when the server could not be reached at all. */
 export class OfflineError extends Error {
   constructor() {
-    super('The CodeQuest API is not reachable. Run `npm run dev:api` to enable accounts and the leaderboard.');
+    super('The CodeConsist server is offline right now. Please try again in a little while.');
     this.name = 'OfflineError';
   }
 }
@@ -78,7 +78,11 @@ async function request<T>(
     try {
       payload = JSON.parse(text);
     } catch {
-      payload = { error: text.slice(0, 300) };
+      // The API only ever answers JSON. Anything else came from something
+      // standing in front of it - ngrok's "endpoint is offline" page
+      // (ERR_NGROK_3200) when the tunnel is down, or a Vercel error page -
+      // so it means "server unreachable", and its HTML is never shown.
+      throw new OfflineError();
     }
   }
 

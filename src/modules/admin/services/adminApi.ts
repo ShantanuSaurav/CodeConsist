@@ -15,6 +15,8 @@ import { STORAGE_KEYS, readString, remove, writeString } from '@/platform/storag
 
 const BASE = '/api';
 
+const SERVER_OFFLINE = 'The CodeConsist server is offline right now. Please try again in a little while.';
+
 export class AdminApiError extends Error {
   status: number;
   /** The response body, when the server sent one - e.g. `issues` on a 422. */
@@ -55,7 +57,7 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
     });
     text = await response.text();
   } catch {
-    throw new AdminApiError('The CodeConsist API is not reachable. Is the server running?', 0);
+    throw new AdminApiError(SERVER_OFFLINE, 0);
   }
 
   let payload: any = null;
@@ -63,7 +65,11 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
     try {
       payload = JSON.parse(text);
     } catch {
-      payload = { error: text.slice(0, 300) };
+      // The API only ever answers JSON. Anything else came from something
+      // standing in front of it - ngrok's "endpoint is offline" page
+      // (ERR_NGROK_3200) when the tunnel is down, or a Vercel error page -
+      // so it means "server unreachable", and its HTML is never shown.
+      throw new AdminApiError(SERVER_OFFLINE, 0);
     }
   }
 

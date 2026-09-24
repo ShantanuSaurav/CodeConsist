@@ -53,6 +53,26 @@ powershell -ExecutionPolicy Bypass -File ops\status.ps1
 
 Read-only. It shows whether the API, the tunnel and the public URL are working.
 
+## Watch the ngrok tunnel live
+
+```bash
+powershell -ExecutionPolicy Bypass -File ops\tunnel-status.ps1
+```
+
+The same screen ngrok shows in a terminal — Session Status, Forwarding and
+`Connections ttl opn rt1 rt5 p50 p90` — refreshed every second. The tunnel
+itself runs hidden in the background, so this reads ngrok's numbers and draws
+them for you. Ctrl+C closes the screen; the tunnel keeps running.
+
+ngrok runs with `--inspect=false`, so it does **not** record requests: the
+inspector at http://127.0.0.1:4040 stays empty, and nobody using this laptop
+can read learners' or the admin's passwords out of it. To see which requests
+the API answered (method, path, status, time — never bodies), use:
+
+```bash
+powershell -ExecutionPolicy Bypass -File ops\logs.ps1
+```
+
 ## What works while it is stopped
 
 The Vercel site still opens. **JavaScript, Python and HTML/CSS/JS keep working**

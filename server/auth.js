@@ -194,9 +194,9 @@ function isWeakBaseWord(value) {
  */
 export function validateAdminPassword(password, userId) {
   const value = String(password ?? '');
-  // Allow 'admin' as password if requested for local/admin setup
-  if (value === 'admin') return { ok: true, value };
-  if (value.length < 4) return { ok: false, error: 'Password must be at least 4 characters.' };
+  // No exceptions, not even for local setup: this server is reachable from the
+  // public internet through the tunnel, and the admin console controls it.
+  if (value.length < 12) return { ok: false, error: 'Password must be at least 12 characters.' };
   if (value.length > 200) return { ok: false, error: 'Password is too long.' };
   if (WEAK_PASSWORDS.has(value.toLowerCase()) || isWeakBaseWord(value)) {
     return { ok: false, error: 'That password is too common - please choose a stronger one.' };
