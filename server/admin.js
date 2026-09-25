@@ -25,6 +25,7 @@ import * as store from './db.js';
 import {
   contentSnapshot,
   applyChallengeOverride,
+  applyLearnerOverrides,
   applyStageOverride,
   allChallenges,
   getChallenge,
@@ -32,6 +33,7 @@ import {
   isCustomChallenge,
   isModifiedChallenge
 } from './content.js';
+import { createSettingsAdminRouter } from './settings-routes.js';
 import { EXECUTABLE_LANGUAGES, generateChallengeId, mergeIssues, normalizeChallengeInput } from './custom-challenges.js';
 import { requireAdminAuth, publicAdmin, updateAdminCredentials } from './admin-auth.js';
 import * as excel from './excel.js';
@@ -61,8 +63,13 @@ const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next
  * this database exclusively as a bcrypt hash, which no route returns and no
  * administrator can read or recover; the Users page says so in as many words.
  */
-function adminUserRow(user) {
+function adminUserRow(user, deps = {}) {
   const progress = store.getProgress(user.id);
+  // The level is always derived from XP with the CURRENT curve (an admin may
+  // have changed it since the row was written); without the learning
+  // services (a test, or before boot) the stored value is shown.
+  const learning = deps.learning;
+  const level = learning?.lib && learning.settings ? learning.lib.levelFromXp(progress.xp, learning.settings.current().levels) : progress.level;
   return {
     id: user.id,
     email: user.email,
@@ -74,11 +81,116 @@ function adminUserRow(user) {
     lastLoginAt: user.lastLoginAt ?? null,
     createdAt: user.createdAt ?? null,
     xp: progress.xp,
-    level: progress.level,
+    level,
     streak: progress.streak,
     completedChallenges: progress.completedChallenges.length,
     completedStages: progress.completedStages.length,
     lastActiveDay: progress.lastActiveDay
+  };
+}
+
+/**
+ * "Most missed": the questions the largest share of learners got wrong,
+ * from the activity store's per-learner miss summaries (server/activity.js).
+ *
+ * The old version counted `attempts` keys - but those are written only on a
+ * solve, so "attempted more than solved" could never happen and the list was
+ * always empty. A miss is now recorded as a miss (and never as an attempt).
+ *
+ *   learners  - learners who missed it or solved it
+ *   missedBy  - learners with at least one miss
+ *   missRate  - missedBy / learners
+ * Only questions at least `retention.mostMissedMinLearners` learners missed
+ * are listed. `attempts` (= learners) and `solved` keep the old keys working.
+ */
+function mostMissedRows(deps) {
+  const learning = deps.learning;
+  if (!learning?.lib || typeof store.allActivity !== 'function') return [];
+  const lib = learning.lib;
+  const minLearners = learning.settings?.current().retention.mostMissedMinLearners ?? 3;
+  const users = store.allUsers();
+  const liveUsers = new Set(users.map((u) => u.id));
+  const allProgress = store.allProgress();
+
+  const missed = new Map(); // challengeId -> { users: Set, totalMisses, revealed, keys: Map }
+  for (const [userId, raw] of Object.entries(store.allActivity())) {
+    if (!liveUsers.has(userId)) continue;
+    const log = lib.normalizeActivityLog(raw);
+    for (const [id, summary] of Object.entries(log.misses)) {
+      const row = missed.get(id) ?? { users: new Set(), totalMisses: 0, revealed: 0, keys: new Map() };
+      row.users.add(userId);
+      row.totalMisses += summary.count;
+      row.revealed += summary.revealed;
+      for (const [key, count] of Object.entries(summary.keys)) row.keys.set(key, (row.keys.get(key) ?? 0) + count);
+      missed.set(id, row);
+    }
+  }
+
+  const byId = new Map(allChallenges().map((c) => [c.id, c]));
+  const rows = [];
+  for (const [id, agg] of missed) {
+    const challenge = byId.get(id);
+    if (!challenge || agg.users.size < minLearners) continue;
+    let solved = 0;
+    let solvedOnly = 0;
+    for (const user of users) {
+      if (!(allProgress[user.id]?.completedChallenges ?? []).includes(id)) continue;
+      solved += 1;
+      if (!agg.users.has(user.id)) solvedOnly += 1;
+    }
+    const learners = agg.users.size + solvedOnly;
+    rows.push({
+      id,
+      title: challenge.title,
+      stageId: challenge.stageId,
+      learners,
+      missedBy: agg.users.size,
+      missRate: learners > 0 ? Math.round((agg.users.size / learners) * 100) / 100 : 0,
+      totalMisses: agg.totalMisses,
+      revealed: agg.revealed,
+      topWrong: [...agg.keys.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([key, count]) => ({ key, label: lib.missKeyLabel(challenge, key), count })),
+      attempts: learners,
+      solved
+    });
+  }
+  return rows.sort((a, b) => b.missRate - a.missRate || b.totalMisses - a.totalMisses || b.missedBy - a.missedBy).slice(0, 15);
+}
+
+/**
+ * Facts the rules page needs to judge a change: what the learner-facing bank
+ * holds (to warn when the top rank is out of reach), which engines this
+ * server has, and every learner's XP (to preview how many would change level).
+ */
+function settingsContext(deps) {
+  const snapshot = contentSnapshot();
+  const overrides = store.getContentOverrides();
+  const merged = snapshot ? applyLearnerOverrides(snapshot, overrides) : { stages: [], challenges: [] };
+  const premium = new Set(merged.stages.filter((s) => s.isPremium).map((s) => s.id));
+  const hiddenTracks = new Set(Object.keys(overrides.languages ?? {}).filter((id) => overrides.languages[id]?.hidden));
+  let totalXp = 0;
+  let freeXp = 0;
+  for (const c of merged.challenges) {
+    const xp = Number(c.xpReward) || 0;
+    totalXp += xp;
+    if (!premium.has(c.stageId)) freeXp += xp;
+  }
+  const allProgress = store.allProgress();
+  return {
+    content: {
+      lessons: merged.challenges.filter((c) => !c.isStageTest).length,
+      tests: merged.challenges.filter((c) => c.isStageTest).length,
+      stages: merged.stages.length,
+      tracks: (snapshot?.languageTracks ?? []).filter((t) => !hiddenTracks.has(t.id)).length,
+      freeStages: merged.stages.length - premium.size,
+      premiumStages: premium.size,
+      totalXp,
+      freeXp
+    },
+    runtime: deps.learning?.runtimeInfo?.() ?? { pythonVerifiable: false, judge0Languages: [] },
+    levels: { learnerXp: store.allUsers().map((u) => Number(allProgress[u.id]?.xp) || 0) }
   };
 }
 
@@ -88,7 +200,10 @@ function adminUserRow(user) {
  *   validateChallenge(candidate) -> { ok, challenge, issues[] } via the zod ChallengeSchema;
  *   runSolution(challenge, code) -> { status, testResults, stderr, reason };
  *   ai -> the Gemini client from server/ai.js ({ configured, model, generateJson });
- *   billing -> { provider } from server/payments.js, the same instance the learner routes use.
+ *   billing -> { provider } from server/payments.js, the same instance the learner routes use;
+ *   learning -> { lib, settings, activity, runtimeInfo } (server/index.js's learningDeps):
+ *     the rules store, each learner's activity, and the shared rule code. Read
+ *     per request; routes that need it answer 503 while it is missing.
  */
 export function createAdminRouter(deps = {}) {
   const router = express.Router();
@@ -116,6 +231,19 @@ export function createAdminRouter(deps = {}) {
   router.get('/me', (req, res) => {
     res.json({ admin: publicAdmin(req.admin) });
   });
+
+  /* ----------------------------------------------------------- rules store */
+  // GET/PUT /settings and GET /settings/context - server/settings-routes.js.
+  // Mounted here, after requireAdminAuth, so it sits behind the same gate as
+  // everything else in this file. (PATCH /settings/credentials below is the
+  // admin's own sign-in, a different thing that happens to share a prefix.)
+  router.use(
+    createSettingsAdminRouter({
+      getService: () => deps.learning?.settings ?? null,
+      audit,
+      getContext: () => settingsContext(deps)
+    })
+  );
 
   /* ------------------------------------------------------------- dashboard */
   router.get(
@@ -178,7 +306,7 @@ export function createAdminRouter(deps = {}) {
   /* ----------------------------------------------------------------- users */
   router.get('/users', (req, res) => {
     const q = String(req.query.q ?? '').trim().toLowerCase();
-    let rows = store.allUsers().map(adminUserRow);
+    let rows = store.allUsers().map((user) => adminUserRow(user, deps));
     if (q) {
       rows = rows.filter((u) => u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
     }
@@ -210,11 +338,11 @@ export function createAdminRouter(deps = {}) {
       }
     }
 
-    if (Object.keys(patch).length === 0) return res.json({ user: adminUserRow(target) });
+    if (Object.keys(patch).length === 0) return res.json({ user: adminUserRow(target, deps) });
 
     const updated = store.updateUser(target.id, patch);
     audit(req, 'user.update', target.id, changes);
-    res.json({ user: adminUserRow(updated) });
+    res.json({ user: adminUserRow(updated, deps) });
   });
 
   router.delete('/users/:id', (req, res) => {
@@ -232,12 +360,10 @@ export function createAdminRouter(deps = {}) {
     const users = store.allUsers();
 
     const solvedCount = new Map(); // challengeId -> number of users who solved it
-    const attemptCount = new Map(); // challengeId -> number of users who attempted it
     for (const user of users) {
       const p = allProgress[user.id];
       if (!p) continue;
       for (const id of p.completedChallenges ?? []) solvedCount.set(id, (solvedCount.get(id) ?? 0) + 1);
-      for (const id of Object.keys(p.attempts ?? {})) attemptCount.set(id, (attemptCount.get(id) ?? 0) + 1);
     }
 
     const byLanguage = {};
@@ -256,19 +382,82 @@ export function createAdminRouter(deps = {}) {
       byLanguage[stage.language] = (byLanguage[stage.language] ?? 0) + challenges.length;
     }
 
-    // Attempted-but-rarely-solved is the honest signal for "this one is too
-    // hard or badly worded" - never invented, always derived from real attempts.
-    const mostMissed = allChallenges()
-      .map((c) => {
-        const attempts = attemptCount.get(c.id) ?? 0;
-        const solved = solvedCount.get(c.id) ?? 0;
-        return { id: c.id, title: c.title, stageId: c.stageId, attempts, solved };
-      })
-      .filter((r) => r.attempts >= 3 && r.solved < r.attempts)
-      .sort((a, b) => b.attempts - a.attempts - (b.solved - a.solved))
-      .slice(0, 15);
+    res.json({ byStage, challengesByLanguage: byLanguage, mostMissed: mostMissedRows(deps) });
+  });
 
-    res.json({ byStage, challengesByLanguage: byLanguage, mostMissed });
+  /**
+   * One question's wrong answers across every learner: the most common wrong
+   * answers (from each learner's top keys) and the latest recorded misses.
+   * Answers only - never who gave them.
+   */
+  router.get('/analytics/challenges/:id/misses', (req, res) => {
+    const lib = deps.learning?.lib;
+    if (!lib) return res.status(503).json({ error: 'Activity is not available yet.' });
+    const challenge = getChallenge(req.params.id);
+    if (!challenge) return res.status(404).json({ error: 'No such challenge.' });
+    const id = challenge.id;
+
+    const liveUsers = new Set(store.allUsers().map((u) => u.id));
+    const keys = new Map();
+    const recent = [];
+    let missedBy = 0;
+    let totalMisses = 0;
+    let revealed = 0;
+    for (const [userId, raw] of Object.entries(store.allActivity())) {
+      if (!liveUsers.has(userId)) continue;
+      const log = lib.normalizeActivityLog(raw);
+      const summary = Object.hasOwn(log.misses, id) ? log.misses[id] : null;
+      if (summary) {
+        missedBy += 1;
+        totalMisses += summary.count;
+        revealed += summary.revealed;
+        for (const [key, count] of Object.entries(summary.keys)) keys.set(key, (keys.get(key) ?? 0) + count);
+      }
+      for (const entry of log.missLog) if (entry.challengeId === id) recent.push(entry);
+    }
+
+    res.json({
+      challenge: { id, title: challenge.title, type: challenge.type, stageId: challenge.stageId, options: challenge.options ?? null },
+      missedBy,
+      totalMisses,
+      revealed,
+      answers: [...keys.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([key, count]) => ({ key, label: lib.missKeyLabel(challenge, key), count })),
+      recent: recent
+        .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+        .slice(0, 20)
+        .map((entry) => ({
+          at: entry.at,
+          day: entry.day,
+          context: entry.context,
+          final: entry.final,
+          answer: lib.describeMissAnswer(challenge, entry.answer)
+        }))
+    });
+  });
+
+  /** One learner's time zone, recent days and most-missed questions, for the Users page drawer. */
+  router.get('/users/:id/learning', (req, res) => {
+    const target = store.findUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'No such user.' });
+    const learning = deps.learning;
+    if (!learning?.activity || !learning.lib) return res.status(503).json({ error: 'Activity is not available yet.' });
+    const view = learning.activity.learning(target);
+    res.json({
+      ...view,
+      misses: view.misses.map((m) => {
+        const challenge = getChallenge(m.challengeId);
+        const topKey = Object.entries(m.keys ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+        return {
+          ...m,
+          title: challenge?.title ?? m.challengeId,
+          stageId: challenge?.stageId ?? null,
+          topWrong: challenge && topKey ? learning.lib.missKeyLabel(challenge, topKey) : null
+        };
+      })
+    });
   });
 
   /* ------------------------------------------------------------- audit log */

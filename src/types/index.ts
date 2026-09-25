@@ -361,7 +361,104 @@ export interface ChallengeAttempt {
   score: number;
   attempts: number;
   hintsUsed: number;
+  /**
+   * When it was FIRST solved. Never overwritten by a re-solve (it used to be,
+   * which moved old lessons onto today in the heatmap and the badge dates).
+   */
   solvedAt: string;
+  /** The most recent solve. Absent on rows written before it existed. */
+  lastSolvedAt?: string;
+  /** How many times it has been solved. Absent on rows written before it existed. */
+  solves?: number;
+}
+
+/* ==========================================================================
+   Daily activity and failed attempts (src/platform/activity)
+   ========================================================================== */
+
+/** Where something happened: a lesson, a stage test, a review, the library, an assessment. */
+export type ActivityContext = 'lesson' | 'test' | 'review' | 'library' | 'assessment';
+
+/**
+ * One calendar day of a learner's activity, keyed by `yyyy-mm-dd` in THEIR
+ * time zone. Every counter defaults to 0 (see `normalizeDay`).
+ */
+export interface DayRecord {
+  /** XP credited that day: only what was actually awarded, so a 0-XP re-solve adds nothing. */
+  xp: number;
+  /** First-time lesson solves. */
+  lessons: number;
+  /** First-time stage-test solves. */
+  tests: number;
+  /** Solves of something already solved before. */
+  reSolves: number;
+  /** Wrong answers recorded that day. */
+  mistakes: number;
+  firstAt: string | null;
+  lastAt: string | null;
+  /** How the row came to exist: a live event, the one-time backfill, or a guest merge. */
+  source: 'live' | 'backfill' | 'merge';
+}
+
+/**
+ * A wrong answer, reduced to indices and short text - never code, never more
+ * than the answer length cap. `lines` are indices into the correct order.
+ */
+export type MissAnswer =
+  | { kind: 'choice'; index: number }
+  | { kind: 'multi'; indices: number[] }
+  | { kind: 'blanks'; values: string[] }
+  | { kind: 'order'; lines: number[] }
+  | { kind: 'code'; passed: number; total: number };
+
+/** Everything known about one learner's misses on one challenge. */
+export interface MissSummary {
+  count: number;
+  firstAt: string;
+  lastAt: string;
+  lastDay: string;
+  /** Misses on `lastDay` - what the per-item daily cap counts. */
+  lastDayCount: number;
+  /** True from any miss until a clean review answer clears it (a later phase). */
+  open: boolean;
+  /** Final misses, where the answer was shown afterwards. */
+  revealed: number;
+  /** Wrong-answer keys (`o2`, `o0.3`, `b1:foo`, `order`) and how often, top five. */
+  keys: Record<string, number>;
+  lastAnswer: MissAnswer | null;
+  /** Only ever missed by failing tests - nothing to show but pass counts. */
+  codeOnly?: true;
+}
+
+export interface MissEntry {
+  challengeId: string;
+  at: string;
+  day: string;
+  context: ActivityContext;
+  answer: MissAnswer | null;
+  /** The answer was shown after this miss. */
+  final: boolean;
+  /** Present (false) only on a signed-in learner's miss the server has not taken yet. */
+  synced?: false;
+}
+
+/**
+ * A learner's activity log: per-day counters, per-challenge miss summaries
+ * and a capped log of recent misses. The server keeps one per account
+ * (`db.activity`); the browser keeps a mirror, tagged with `ownerId` exactly
+ * like `UserStats.ownerId`.
+ */
+export interface ActivityLog {
+  v: 1;
+  /** The latest day anything was recorded on - the day never moves backwards. */
+  lastDay: string | null;
+  /** When the one-time backfill from `attempts` ran (null = not yet). */
+  backfilledAt: string | null;
+  days: Record<string, DayRecord>;
+  misses: Record<string, MissSummary>;
+  /** Newest last, capped. */
+  missLog: MissEntry[];
+  ownerId?: string;
 }
 
 export interface UserStats {
@@ -425,6 +522,18 @@ export interface UserProfile {
   hasPassword?: boolean;
   createdAt?: string | null;
   lastLoginAt?: string | null;
+  /**
+   * The learner's own settings, stored on the account. `timeZone` is the
+   * zone their days are counted in (null until the server has seen one).
+   * Optional because older servers, and profiles cached by older builds, have
+   * no such field.
+   */
+  preferences?: LearnerPreferences;
+}
+
+/** Account-level preferences. Every field is nullable: null means "use the default". */
+export interface LearnerPreferences {
+  timeZone?: string | null;
 }
 
 /**

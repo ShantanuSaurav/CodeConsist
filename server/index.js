@@ -39,6 +39,11 @@ import { createBillingRouter, createWebhookRouter } from './billing-routes.js';
 import { createOAuthProviders, PROVIDER_IDS } from './oauth.js';
 import { createOAuthRouter } from './oauth-routes.js';
 import { clearDraftForSolve, createDraftsRouter } from './drafts-routes.js';
+import { createSettingsService } from './settings.js';
+import { createSettingsRouter } from './settings-routes.js';
+import { createActivityService } from './activity.js';
+import { createActivityRouter } from './activity-routes.js';
+import { createProgressRouter, recalcForUser } from './progress-routes.js';
 import {
   JUDGE0_LANGUAGE_IDS,
   JUDGE0_STDIN_LIMIT,
@@ -104,7 +109,19 @@ let gradingPath;
  * question assistant. Filled in by bootstrap() below; the router reads them
  * per request, so mounting it before bootstrap is fine.
  */
-const adminDeps = { validateChallenge: null, runSolution: null, ai: null, billing: billingDeps };
+const adminDeps = { validateChallenge: null, runSolution: null, ai: null, billing: billingDeps, learning: null };
+
+/**
+ * The learning-loop services, filled in by bootstrap():
+ *   lib      - src/platform/server-lib.ts compiled to learning.mjs: the same
+ *              settings, day, XP and activity rules the browser runs;
+ *   settings - server/settings.js: the admin's rules over the defaults;
+ *   activity - server/activity.js: each learner's days and wrong answers;
+ *   runtimeInfo - which engines this server has, for the admin's rules page.
+ * Routers read it per request, so mounting them before bootstrap is fine.
+ */
+const learningDeps = { lib: null, settings: null, activity: null, runtimeInfo: null };
+adminDeps.learning = learningDeps;
 
 async function bootstrap() {
   await store.load();
@@ -117,6 +134,21 @@ async function bootstrap() {
   const levelingPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'xp-leveling', 'leveling.ts'), 'leveling.mjs');
   grading = await import(pathToFileURL(gradingPath).href);
   leveling = await import(pathToFileURL(levelingPath).href);
+
+  const learningPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'server-lib.ts'), 'learning.mjs');
+  learningDeps.lib = await import(pathToFileURL(learningPath).href);
+  learningDeps.settings = createSettingsService({ store, lib: learningDeps.lib });
+  learningDeps.activity = createActivityService({
+    lib: learningDeps.lib,
+    store,
+    settings: learningDeps.settings,
+    getChallengeMerged,
+    gradeAnswer
+  });
+  learningDeps.runtimeInfo = () => ({
+    pythonVerifiable: Boolean(findPython()),
+    judge0Languages: JUDGE0_CONFIGURED ? Object.keys(JUDGE0_LANGUAGE_IDS) : []
+  });
 
   // The admin console creates questions against the SAME zod schema the
   // authored TypeScript is validated with, so a question written in the
@@ -131,6 +163,13 @@ async function bootstrap() {
   adminDeps.runSolution = runSolutionAgainstTests;
 
   await loadContent();
+
+  // One pass, once per account: days rebuilt from the solve times already in
+  // `attempts`, for every learner whose history predates the activity log.
+  // Lossy on purpose (old solve times were overwritten by re-solves) and
+  // marked `source: 'backfill'`. Idempotent, so every later boot is a no-op.
+  const backfilled = learningDeps.activity.backfillAll();
+  if (backfilled > 0) console.log(`[activity] rebuilt the day history of ${backfilled} account(s) from their solves`);
 
   // The administrator account is bootstrapped from ADMIN_USER_ID /
   // ADMIN_PASSWORD the very first time the server runs with none configured
@@ -223,7 +262,10 @@ function publicUser(user) {
     hasPassword: Boolean(user.passwordHash),
     createdAt: user.createdAt ?? null,
     lastLoginAt: user.lastLoginAt ?? null,
-    avatarUrl: avatarFor(user)
+    avatarUrl: avatarFor(user),
+    // The zone this account's days are counted in (null until a browser has
+    // reported one). When it was set stays on the server.
+    preferences: { timeZone: store.normalizePreferences(user.preferences).timeZone }
   };
 }
 
@@ -282,9 +324,19 @@ app.get('/api/health', (_req, res) => {
     // (WebAssembly)" as well, and tell a free self-hosted judge from a
     // rate-limited hosted one. Names and versions only - no URL, no host,
     // no key (server/judge0.js).
-    runtimes: buildRuntimes(judge0Config)
+    runtimes: buildRuntimes(judge0Config),
+    // Learners refetch GET /api/settings when this differs from what they
+    // have cached, so an admin's change reaches every open tab within one
+    // probe. Absent only before bootstrap.
+    settingsRevision: learningDeps.settings ? learningDeps.settings.revision() : undefined
   });
 });
+
+/* ---------------------------------------------------------------- settings */
+
+// The learner-facing rules: XP, levels, streak - never the admin-only
+// sections. No auth: guests play by the same rules.
+app.use('/api', createSettingsRouter({ getService: () => learningDeps.settings }));
 
 /* -------------------------------------------------------------------- auth */
 
@@ -385,7 +437,9 @@ app.post(
 
     console.log(`\x1b[32m[AUTH]\x1b[0m Learner "${user.username}" logged in.`);
 
-    res.json({ token: signLearnerToken(user), user: publicUser(user), progress: store.getProgress(user.id) });
+    // Level and streak as they stand today in the learner's own zone, like
+    // /auth/me: the browser adopts this streak as it is.
+    res.json({ token: signLearnerToken(user), user: publicUser(user), progress: recalcForUser({ store, learningDeps }, user) });
   })
 );
 
@@ -393,7 +447,9 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   // Throttled to once every five minutes inside the store, so a client that
   // polls this route does not rewrite db.json each time.
   store.touchLastSeen(req.user.id);
-  res.json({ user: publicUser(req.user), progress: store.getProgress(req.user.id) });
+  // Level and streak as they stand today in the learner's own zone, like
+  // GET /api/progress - a stale streak is not shown as alive.
+  res.json({ user: publicUser(req.user), progress: recalcForUser({ store, learningDeps }, req.user) });
 });
 
 /**
@@ -524,21 +580,6 @@ app.get(
 // above is involved in, or a substitute for, that check.
 app.use('/api/admin', createAdminRouter(adminDeps));
 
-/* ---------------------------------------------------------------- progress */
-
-function recalc(progress) {
-  const today = leveling.dayKey();
-  return {
-    ...progress,
-    level: leveling.levelFromXp(progress.xp),
-    streak: leveling.currentStreak(progress.streak, progress.lastActiveDay, today)
-  };
-}
-
-app.get('/api/progress', requireAuth, (req, res) => {
-  res.json({ progress: recalc(store.getProgress(req.user.id)) });
-});
-
 /* ------------------------------------------------------------------ drafts */
 
 // Saved coding sessions: the code a learner typed but has not solved yet,
@@ -550,31 +591,14 @@ app.use('/api', createDraftsRouter({ requireAuth, getChallengeMerged, getProgres
 
 /* ------------------------------------------------------------ verification */
 
-/** Is `answer` correct for a non-code challenge? Pure, synchronous. */
+/**
+ * Is `answer` correct for a non-code challenge? Pure, synchronous. The rule
+ * itself is src/platform/grading-engine/grading.ts's `gradeAnswer`, so the
+ * solve route, the grade route and the activity routes (which refuse a
+ * "miss" that is actually right) can never disagree.
+ */
 function gradeAnswer(challenge, answer) {
-  switch (challenge.type) {
-    case 'quiz':
-    case 'output_prediction':
-      return Number(answer) === challenge.correctIndex;
-    case 'multi_select':
-      return Array.isArray(answer) && grading.sameSet(answer.map(Number), challenge.correctIndices ?? []);
-    case 'fill_blank':
-      return (
-        Array.isArray(answer) &&
-        answer.length === (challenge.blanks ?? []).length &&
-        (challenge.blanks ?? []).every((b, i) =>
-          grading.checkBlank(String(answer[i] ?? ''), b.answer, b.alternatives ?? [])
-        )
-      );
-    case 'pseudocode_order':
-      return (
-        Array.isArray(answer) &&
-        answer.length === (challenge.pseudocodeLines ?? []).length &&
-        answer.every((line, i) => String(line) === challenge.pseudocodeLines[i])
-      );
-    default:
-      return false;
-  }
+  return grading.gradeAnswer(challenge, answer);
 }
 
 /** getChallenge() plus any live admin edit to its safe, presentational fields. */
@@ -635,95 +659,11 @@ async function verifySubmission(challenge, body) {
 }
 
 /**
- * Record a solve. The server owns both the verdict and the XP maths: the client
- * says WHICH challenge, WHAT it answered, and how much help it took - never
- * whether it was right and never how much XP it earned.
- */
-app.post(
-  '/api/progress/solve',
-  requireAuth,
-  asyncRoute(async (req, res) => {
-    const challengeId = String(req.body?.challengeId ?? '');
-    const attempts = Math.max(1, Math.min(50, Number(req.body?.attempts ?? 1) || 1));
-    const hintsUsed = Math.max(0, Math.min(10, Number(req.body?.hintsUsed ?? 0) || 0));
-
-    const challenge = getChallengeMerged(challengeId);
-    if (!challenge) return res.status(404).json({ error: 'Unknown challenge.' });
-
-    const verdict = await verifySubmission(challenge, req.body ?? {});
-    if (!verdict.ok) {
-      return res.status(422).json({ error: 'That submission does not solve the challenge.', reason: verdict.reason });
-    }
-
-    // A correct answer below the pass mark does not complete the lesson.
-    if (!leveling.isPassingSolve(attempts, hintsUsed)) {
-      return res.status(422).json({
-        error: `Correct, but below the pass mark of ${leveling.PASS_SCORE}%. Retry the lesson for a fresh attempt.`,
-        reason: 'below-pass-mark',
-        score: leveling.rawScore(attempts, hintsUsed)
-      });
-    }
-
-    const progress = store.getProgress(req.user.id);
-    const today = leveling.dayKey();
-    const previous = progress.attempts[challengeId];
-    const score = leveling.scoreSolve(attempts, hintsUsed);
-
-    // Re-solving is allowed and keeps your best score, but only pays XP once.
-    const firstSolve = !progress.completedChallenges.includes(challengeId);
-    const awarded = firstSolve ? leveling.xpForSolve(challenge.xpReward, attempts, hintsUsed) : 0;
-
-    const next = {
-      ...progress,
-      xp: progress.xp + awarded,
-      completedChallenges: firstSolve
-        ? [...progress.completedChallenges, challengeId]
-        : progress.completedChallenges,
-      attempts: {
-        ...progress.attempts,
-        [challengeId]: {
-          challengeId,
-          score: Math.max(previous?.score ?? 0, score),
-          attempts: (previous?.attempts ?? 0) + attempts,
-          hintsUsed: (previous?.hintsUsed ?? 0) + hintsUsed,
-          solvedAt: new Date().toISOString()
-        }
-      },
-      streak: leveling.nextStreak(progress.streak, progress.lastActiveDay, today),
-      lastActiveDay: today
-    };
-    next.bestStreak = Math.max(progress.bestStreak ?? 0, next.streak);
-    next.level = leveling.levelFromXp(next.xp);
-    next.completedStages = completedStagesFor(next.completedChallenges);
-
-    store.setProgress(req.user.id, next);
-
-    // The lesson is solved, so the half-finished attempt is no longer work in
-    // progress - see server/drafts-routes.js, which owns that rule.
-    clearDraftForSolve(req.user.id, challengeId);
-
-    // Meaningful-progress-update trigger for Excel, throttled the same way
-    // login is - a burst of solves in one session becomes one sync, not one
-    // Graph call per challenge.
-    if (!excel.shouldThrottle(store, req.user.id)) excel.syncUser(store, req.user, next, 'progress');
-
-    res.json({ progress: next, awardedXp: awarded, score, firstSolve, verified: verdict.verified });
-  })
-);
-
-/**
- * Merge a guest's local progress into the account they just signed into.
- *
- * The client says WHICH challenges it solved. The server decides what that is
- * worth, from its own content - it never copies an XP number, a level, or a
- * challenge id it has never heard of from the request body. The previous
- * version took max(xp) straight from the client, which both let anyone set
- * their own score and, when merging two genuinely separate pools, silently
- * discarded the smaller one while still marking its challenges solved.
+ * Which stages a set of solved ids completes. The learner-facing view:
+ * authored + admin-authored questions, minus anything an admin hid - the same
+ * list the client counts against.
  */
 function completedStagesFor(completedIds) {
-  // The learner-facing view: authored + admin-authored questions, minus
-  // anything an admin hid - the same list the client counts against.
   const merged = applyLearnerOverrides(contentSnapshot(), store.getContentOverrides());
   const solved = new Set(completedIds);
   return merged.stages
@@ -734,70 +674,38 @@ function completedStagesFor(completedIds) {
     .map((stage) => stage.id);
 }
 
-const MAX_PLAUSIBLE_STREAK = 400;
+/* ---------------------------------------------------------------- progress */
 
-app.post('/api/progress/merge', requireAuth, (req, res) => {
-  const incoming = req.body?.progress ?? {};
-  const current = store.getProgress(req.user.id);
+// GET /api/progress, POST /api/progress/solve, /merge and /reset - see
+// server/progress-routes.js for the order each runs in and
+// server/progress-rules.js for the rules. The server owns the verdict and the
+// XP maths: the client says WHICH challenge, WHAT it answered and how much
+// help it took - never whether it was right or what it earned.
+app.use(
+  '/api',
+  createProgressRouter({
+    requireAuth,
+    store,
+    learningDeps,
+    getChallenge,
+    getChallengeMerged,
+    verifySubmission,
+    completedStagesFor,
+    clearDraftForSolve,
+    // Meaningful-progress-update trigger for Excel, throttled the same way
+    // login is - a burst of solves in one session becomes one sync, not one
+    // Graph call per challenge.
+    onProgress: (user, progress) => {
+      if (!excel.shouldThrottle(store, user.id)) excel.syncUser(store, user, progress, 'progress');
+    }
+  })
+);
 
-  const known = new Set(current.completedChallenges ?? []);
-  const incomingIds = Array.isArray(incoming.completedChallenges)
-    ? incoming.completedChallenges.map(String)
-    : [];
+/* ---------------------------------------------------------------- activity */
 
-  // Only ids that exist, and only ones this account has not already been paid for.
-  const newIds = [...new Set(incomingIds)].filter((id) => !known.has(id) && getChallenge(id));
-
-  const incomingAttempts = incoming.attempts && typeof incoming.attempts === 'object' ? incoming.attempts : {};
-  const attempts = { ...(current.attempts ?? {}) };
-  let awarded = 0;
-
-  for (const id of newIds) {
-    const challenge = getChallengeMerged(id);
-    const a = incomingAttempts[id] ?? {};
-    const tries = Math.max(1, Math.min(50, Number(a.attempts) || 1));
-    const hints = Math.max(0, Math.min(10, Number(a.hintsUsed) || 0));
-    // Same maths as a live solve, so a guest is paid exactly what they would
-    // have been paid signed in - no more for having been offline.
-    awarded += leveling.xpForSolve(challenge.xpReward, tries, hints);
-    attempts[id] = {
-      challengeId: id,
-      score: leveling.scoreSolve(tries, hints),
-      attempts: tries,
-      hintsUsed: hints,
-      solvedAt: typeof a.solvedAt === 'string' ? a.solvedAt : new Date().toISOString()
-    };
-  }
-
-  const completedChallenges = [...known, ...newIds];
-  const clampStreak = (v) => Math.max(0, Math.min(MAX_PLAUSIBLE_STREAK, Number(v) || 0));
-  const dayRe = /^\d{4}-\d{2}-\d{2}$/;
-
-  const merged = {
-    ...current,
-    xp: current.xp + awarded,
-    bestStreak: Math.max(current.bestStreak ?? 0, clampStreak(incoming.bestStreak)),
-    streak: Math.max(current.streak ?? 0, clampStreak(incoming.streak)),
-    lastActiveDay:
-      [current.lastActiveDay, incoming.lastActiveDay]
-        .filter((d) => typeof d === 'string' && dayRe.test(d))
-        .sort()
-        .pop() ?? null,
-    completedChallenges,
-    completedStages: completedStagesFor(completedChallenges),
-    attempts
-  };
-  merged.level = leveling.levelFromXp(merged.xp);
-
-  store.setProgress(req.user.id, merged);
-  res.json({ progress: merged, mergedChallenges: newIds.length, awardedXp: awarded });
-});
-
-app.post('/api/progress/reset', requireAuth, (req, res) => {
-  const fresh = { ...store.EMPTY_PROGRESS, attempts: {}, completedChallenges: [], completedStages: [] };
-  store.setProgress(req.user.id, fresh);
-  res.json({ progress: fresh });
-});
+// A learner's days (in their own time zone) and their wrong answers. A miss
+// is graded here too, so a correct answer can never be recorded as one.
+app.use('/api', createActivityRouter({ requireAuth, learningDeps, gradeAnswer, getChallengeMerged }));
 
 /* ----------------------------------------------------------------- billing */
 
@@ -814,6 +722,9 @@ app.get('/api/leaderboard', (_req, res) => {
   // separate `admin` field - so the leaderboard is learner-only by
   // construction, not by filtering something out here.
   const all = store.allProgress();
+  const { lib, settings, activity } = learningDeps;
+  const levels = settings.current().levels;
+  const now = new Date();
   const rows = store
     .db()
     .users.map((u) => {
@@ -821,8 +732,9 @@ app.get('/api/leaderboard', (_req, res) => {
       return {
         username: u.username,
         xp: p.xp ?? 0,
-        level: leveling.levelFromXp(p.xp ?? 0),
-        streak: leveling.currentStreak(p.streak ?? 0, p.lastActiveDay ?? null),
+        level: lib.levelFromXp(p.xp ?? 0, levels),
+        // Stale or alive as of THIS learner's today, in their own zone.
+        streak: lib.currentStreak(p.streak ?? 0, p.lastActiveDay ?? null, activity.todayFor(u, p, now)),
         solved: (p.completedChallenges ?? []).length
       };
     })
@@ -1124,6 +1036,10 @@ app.use((req, res) => {
 });
 
 app.use((err, _req, res, _next) => {
+  // A body over the JSON limit is the request's problem, not the server's:
+  // say 413, so a client can send less (a merge retries without its
+  // activity log) instead of reading it as an outage.
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'That request is too large.' });
   console.error('[api] unhandled error:', err);
   res.status(500).json({ error: 'Something went wrong on the server.' });
 });

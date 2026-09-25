@@ -47,3 +47,65 @@ describe('learner API client when the server is offline', () => {
     expect(err.message).toBe('Wrong email or password.');
   });
 });
+
+describe("the learner's time zone", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Capture the headers of the one request a call makes. */
+  function capture() {
+    const seen: Record<string, string>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        seen.push({ ...(init.headers as Record<string, string>) });
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      })
+    );
+    return seen;
+  }
+
+  it('goes with every request as X-Time-Zone', async () => {
+    const seen = capture();
+    await api.health();
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(seen[0]['X-Time-Zone']).toBe(zone);
+  });
+
+  it('is simply left out when Intl throws, and the request still works', async () => {
+    const seen = capture();
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => {
+      throw new Error('broken Intl');
+    });
+    await expect(api.health()).resolves.toEqual({ ok: true });
+    expect(seen[0]['X-Time-Zone']).toBeUndefined();
+    expect(seen[0]['ngrok-skip-browser-warning']).toBe('true');
+  });
+});
+
+describe('a merge the server finds too large', () => {
+  const json = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  const log = { days: {}, misses: {}, missLog: [] };
+
+  it('goes up again without its activity log, so a sign-in or sign-out never loses the solves', async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return bodies.length === 1 ? json({ error: 'That request is too large.' }, 413) : json({ progress: { xp: 40 } }, 200);
+      })
+    );
+    const res = await api.mergeProgress({ completedChallenges: ['c1'] }, log);
+    expect(res.progress.xp).toBe(40);
+    expect(bodies).toEqual([{ progress: { completedChallenges: ['c1'] }, activity: log }, { progress: { completedChallenges: ['c1'] } }]);
+  });
+
+  it('does not retry any other refusal', async () => {
+    const fetch = vi.fn(async () => json({ error: 'Something went wrong on the server.' }, 500));
+    vi.stubGlobal('fetch', fetch);
+    await expect(api.mergeProgress({ completedChallenges: ['c1'] }, log)).rejects.toBeInstanceOf(ApiError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});

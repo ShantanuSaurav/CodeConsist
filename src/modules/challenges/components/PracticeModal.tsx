@@ -4,7 +4,7 @@ import { useSession } from '@/platform/session';
 import { Challenge, ExecutionResult } from '@/types';
 import { Answer, optionOrder } from '@/platform/grading-engine/answers';
 import { stageStatus } from '@/platform/progress';
-import { PASS_SCORE, isPassingSolve, rawScore } from '@/platform/xp-leveling/leveling';
+import { isPassingSolve, rawScore, scoreSolve } from '@/platform/xp-leveling/leveling';
 import { CodeBlock, LearningModeSwitch, useBodyScrollLock, useFocusTrap } from '@/ui';
 import { checkAnswer, definitionFor, emptyAnswer, isAnswerComplete, isCodeChallenge, typeLabel } from '../challenge-types';
 import { usePracticeSession } from '../session/PracticeSessionProvider';
@@ -27,8 +27,10 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const {
     learnerStages,
     completeChallenge,
+    recordMiss,
     markConceptSeen,
     executeCode,
+    settings,
     stats,
     draftFor,
     saveDraft,
@@ -245,17 +247,17 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
       // Right answer, but too many retries or hints: the lesson is not
       // completed (nothing is recorded) and the learner takes it again fresh.
       // A lesson solved on an earlier visit keeps its credit regardless.
-      if (!wasAlreadySolved && !isPassingSolve(usedAttempts, revealedHints)) {
-        setFailedPass(rawScore(usedAttempts, revealedHints));
+      if (!wasAlreadySolved && !isPassingSolve(usedAttempts, revealedHints, settings.xp)) {
+        setFailedPass(rawScore(usedAttempts, revealedHints, settings.xp));
         return;
       }
       const xp = await completeChallenge(target, {
         attempts: usedAttempts,
         hintsUsed: revealedHints,
+        context: answerContext,
         ...submission
       });
-      const penalty = Math.max(0, usedAttempts - 1) * 10 + revealedHints * 10;
-      const score = Math.max(50, 100 - penalty);
+      const score = scoreSolve(usedAttempts, revealedHints, settings.xp);
       setLastAwarded({
         xp: wasAlreadySolved ? 0 : xp,
         score,
@@ -272,7 +274,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         clearDraft(target.id);
       }
     },
-    [completeChallenge, revealedHints, stats.completedChallenges, clearDraft]
+    [completeChallenge, revealedHints, stats.completedChallenges, clearDraft, settings.xp, answerContext]
   );
 
   const handleCheck = useCallback(async () => {
@@ -284,7 +286,10 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     setIsCorrect(correct);
     setChecked(true);
     if (correct) await award(challenge, nextAttempts, { answer: currentAnswer });
-  }, [challenge, checked, attempts, currentAnswer, award]);
+    // A wrong answer is kept (as indices and short text) so the admin can see
+    // which questions trip people up. It never touches XP or attempts.
+    else recordMiss(challenge, { answer: currentAnswer }, { context: answerContext });
+  }, [challenge, checked, attempts, currentAnswer, award, recordMiss, answerContext]);
 
   const handleRun = useCallback(async () => {
     if (!challenge || isRunning) return;
@@ -317,6 +322,19 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         setChecked(true);
       }
       if (passed) await award(challenge, nextAttempts, { code });
+      else if (result.engine !== 'none') {
+        // A failed run is a miss - kept as its pass count, never the code. A
+        // run that could not happen at all (no engine for the language) is not
+        // the learner's mistake, and neither is an error with nothing tested.
+        const results = result.testResults ?? [];
+        if (result.status === 'failed' || (result.status === 'error' && results.length > 0)) {
+          recordMiss(
+            challenge,
+            { code: { passed: results.filter((t) => t.passed).length, total: results.length } },
+            { context: answerContext }
+          );
+        }
+      }
     } catch (err: any) {
       if (!stillMine()) return;
       setExecResult({
@@ -332,7 +350,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         setProgressMessage('');
       }
     }
-  }, [challenge, isRunning, attempts, code, executeCode, award]);
+  }, [challenge, isRunning, attempts, code, executeCode, award, recordMiss, answerContext]);
 
   /**
    * Changing an answer after a wrong check clears the red highlighting, so the
@@ -817,7 +835,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       className="btn btn-ghost btn-sm"
                       onClick={() => setRevealedHints((n) => n + 1)}
                     >
-                      Show a hint · {hints.length - revealedHints} left · costs 10% XP
+                      Show a hint · {hints.length - revealedHints} left · costs {settings.xp.hintPenalty}% XP
                     </button>
                   )}
                 </div>
@@ -847,7 +865,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       {isCorrect && failedPass !== null && (
                         <div className="feedback-points-cluster">
                           <span className="feedback-score-pill">
-                            Score: {failedPass}% · pass mark {PASS_SCORE}%
+                            Score: {failedPass}% · pass mark {settings.xp.passScore}%
                           </span>
                         </div>
                       )}

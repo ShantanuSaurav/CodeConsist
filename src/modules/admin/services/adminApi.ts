@@ -12,6 +12,7 @@
  * is a security boundary by itself, it just talks to the one that is.
  */
 import { STORAGE_KEYS, readString, remove, writeString } from '@/platform/storage/storage';
+import type { Settings, SettingsIssue } from '@/platform/settings';
 
 const BASE = '/api';
 
@@ -397,10 +398,111 @@ export interface AuditEntry {
   details: unknown;
 }
 
+/** One of the most common wrong answers to a question, labelled for display. */
+export interface WrongAnswerRow {
+  key: string;
+  label: string;
+  count: number;
+}
+
+/** A question many learners got wrong - from the activity store's per-learner miss summaries. */
+export interface MostMissedRow {
+  id: string;
+  title: string;
+  stageId: string;
+  /** Learners who missed it or solved it. */
+  learners: number;
+  /** Learners with at least one miss. */
+  missedBy: number;
+  /** missedBy / learners, 0-1. */
+  missRate: number;
+  totalMisses: number;
+  /** Misses after which the answer was shown. */
+  revealed: number;
+  topWrong: WrongAnswerRow[];
+  /** Kept for older screens: the same as `learners`. */
+  attempts: number;
+  solved: number;
+}
+
 export interface AnalyticsSummary {
   byStage: { stageId: string; name: string; language: string; challengeCount: number; totalSolves: number }[];
   challengesByLanguage: Record<string, number>;
-  mostMissed: { id: string; title: string; stageId: string; attempts: number; solved: number }[];
+  mostMissed: MostMissedRow[];
+}
+
+/** One question's wrong answers across every learner - answers only, never who. */
+export interface ChallengeMisses {
+  challenge: { id: string; title: string; type: string; stageId: string; options: string[] | null };
+  missedBy: number;
+  totalMisses: number;
+  revealed: number;
+  answers: WrongAnswerRow[];
+  recent: { at: string; day: string; context: string; final: boolean; answer: string }[];
+}
+
+/** One day of a learner's activity (their own time zone). */
+export interface AdminDayRecord {
+  xp: number;
+  lessons: number;
+  tests: number;
+  reSolves: number;
+  mistakes: number;
+  firstAt: string | null;
+  lastAt: string | null;
+  source: 'live' | 'backfill' | 'merge';
+}
+
+export interface UserLearning {
+  timeZone: string | null;
+  timeZoneSetAt: string | null;
+  today: string;
+  from: string;
+  days: Record<string, AdminDayRecord>;
+  misses: {
+    challengeId: string;
+    title: string;
+    stageId: string | null;
+    count: number;
+    lastAt: string;
+    revealed: number;
+    topWrong: string | null;
+  }[];
+}
+
+/* ------------------------------------------------------- rules & rewards */
+
+/** A sparse settings patch: a value sets a setting, `null` puts it (or a whole section) back to its default. */
+export type SettingsPatch = Record<string, unknown>;
+
+/** GET /api/admin/settings. `settings`/`defaults` are complete; `overrides` is only what was changed. */
+export interface AdminSettingsView {
+  settings: Settings;
+  overrides: Record<string, unknown>;
+  defaults: Settings;
+  revision: number;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  /** Stored values the server could not use (their section runs on defaults until fixed). */
+  issues: SettingsIssue[];
+  /** Settings supplied by environment variables, by path. */
+  env: Record<string, unknown>;
+}
+
+/** GET /api/admin/settings/context: what the rules page needs to judge a change. */
+export interface SettingsContext {
+  content: {
+    lessons: number;
+    tests: number;
+    stages: number;
+    tracks: number;
+    freeStages: number;
+    premiumStages: number;
+    totalXp: number;
+    freeXp: number;
+  } | null;
+  runtime: { pythonVerifiable: boolean; judge0Languages: string[] } | null;
+  levels: { learnerXp: number[] };
 }
 
 export interface CredentialsChangeResult {
@@ -443,6 +545,35 @@ export const adminApi = {
 
   async analytics(): Promise<AnalyticsSummary> {
     return request('/admin/analytics');
+  },
+
+  /** One question's wrong-answer distribution and its latest misses (no learner identities). */
+  async challengeMisses(id: string): Promise<ChallengeMisses> {
+    return request(`/admin/analytics/challenges/${encodeURIComponent(id)}/misses`);
+  },
+
+  /** One learner's time zone, last 14 weeks of days and most-missed questions. */
+  async userLearning(id: string): Promise<UserLearning> {
+    return request(`/admin/users/${encodeURIComponent(id)}/learning`);
+  },
+
+  /* Rules & rewards: the settings store. Every learner picks a change up within one health probe. */
+
+  async settings(): Promise<AdminSettingsView> {
+    return request('/admin/settings');
+  },
+
+  /**
+   * Save a sparse patch against the revision it was made on. 409 (with the
+   * current `revision` in the payload) when someone else saved first; 422
+   * with `issues` tied to paths when a value is out of bounds.
+   */
+  async updateSettings(revision: number, patch: SettingsPatch): Promise<AdminSettingsView> {
+    return request('/admin/settings', { method: 'PUT', body: { revision, patch } });
+  },
+
+  async settingsContext(): Promise<SettingsContext> {
+    return request('/admin/settings/context');
   },
 
   async auditLog(limit = 100): Promise<{ entries: AuditEntry[] }> {

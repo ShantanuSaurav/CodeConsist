@@ -13,6 +13,7 @@ import { AdminAnalytics } from './pages/AdminAnalytics';
 import { AdminAuditLog } from './pages/AdminAuditLog';
 import { AdminExcelSettings } from './pages/AdminExcelSettings';
 import { AdminSettingsSecurity } from './pages/AdminSettingsSecurity';
+import { AdminRules } from './pages/AdminRules';
 
 /**
  * The /admin route tree. Mounted by the app at `/admin/*`, so every path
@@ -31,6 +32,9 @@ export const AdminApp: React.FC = () => (
         <Route path="stages" element={<AdminStages />} />
         <Route path="challenges" element={<AdminChallenges />} />
         <Route path="analytics" element={<AdminAnalytics />} />
+        {/* The learning rules (settings store). Not under settings/: that is the admin's own sign-in. */}
+        <Route path="rules" element={<AdminRules />} />
+        <Route path="rules/:sectionId" element={<AdminRules />} />
         <Route path="excel" element={<AdminExcelSettings />} />
         <Route path="audit-log" element={<AdminAuditLog />} />
         <Route path="settings/security" element={<AdminSettingsSecurity />} />

@@ -3,23 +3,66 @@
    rank titles, today's activity, the activity heatmap, recent achievements.
    Pure functions over UserStats and content so they are trivial to test.
    ========================================================================== */
-import type { Challenge, Stage, UserStats } from '@/types';
+import type { ActivityLog, Challenge, DayRecord, Stage, UserStats } from '@/types';
 import { dayKey } from './leveling';
 
+/** One rank title and the level it starts at. */
+export interface RankRow {
+  minLevel: number;
+  title: string;
+}
+
+/**
+ * The default rank titles. The live list is `settings.levels.ranks`; it must
+ * start at level 1 and ascend strictly (src/platform/settings/schema.ts).
+ */
+export const DEFAULT_RANKS: RankRow[] = [
+  { minLevel: 1, title: 'Apprentice' },
+  { minLevel: 3, title: 'Junior Developer' },
+  { minLevel: 6, title: 'Developer' },
+  { minLevel: 10, title: 'Senior Developer' },
+  { minLevel: 15, title: 'Staff Engineer' },
+  { minLevel: 20, title: 'Principal Engineer' }
+];
+
 /** A name for each band of levels. Purely cosmetic. */
-export function rankTitle(level: number): string {
-  if (level >= 20) return 'Principal Engineer';
-  if (level >= 15) return 'Staff Engineer';
-  if (level >= 10) return 'Senior Developer';
-  if (level >= 6) return 'Developer';
-  if (level >= 3) return 'Junior Developer';
-  return 'Apprentice';
+export function rankTitle(level: number, ranks: RankRow[] = DEFAULT_RANKS): string {
+  let title = ranks[0]?.title ?? '';
+  for (const rank of ranks) if (level >= rank.minLevel) title = rank.title;
+  return title;
 }
 
 /** The level at which the next rank title starts, or null at the top. */
-export function nextRankLevel(level: number): number | null {
-  for (const threshold of [3, 6, 10, 15, 20]) if (level < threshold) return threshold;
+export function nextRankLevel(level: number, ranks: RankRow[] = DEFAULT_RANKS): number | null {
+  for (const rank of ranks) if (level < rank.minLevel) return rank.minLevel;
   return null;
+}
+
+/** What a learner did on one day, from their activity log (zeros for a day with nothing). */
+export interface DayTotals {
+  xp: number;
+  lessons: number;
+  tests: number;
+  reSolves: number;
+  mistakes: number;
+  /** Every solve that day, first-time or not. */
+  solves: number;
+}
+
+/**
+ * One day's totals from the activity log. This is what "XP today" reads: the
+ * log counts only XP that was actually awarded, so re-solving an old lesson
+ * no longer inflates it the way `xpEarnedOn` (a fallback for days before the
+ * log existed) did.
+ */
+export function dayTotals(log: Pick<ActivityLog, 'days'> | null | undefined, day: string): DayTotals {
+  const raw: Partial<DayRecord> | undefined =
+    log?.days && Object.prototype.hasOwnProperty.call(log.days, day) ? log.days[day] : undefined;
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+  const lessons = n(raw?.lessons);
+  const tests = n(raw?.tests);
+  const reSolves = n(raw?.reSolves);
+  return { xp: n(raw?.xp), lessons, tests, reSolves, mistakes: n(raw?.mistakes), solves: lessons + tests + reSolves };
 }
 
 /** Local day key for an ISO timestamp. */
@@ -49,6 +92,8 @@ export function xpEarnedOn(stats: UserStats, byId: (id: string) => Challenge | u
 export interface HeatCell {
   day: string;
   count: number;
+  /** XP credited that day, when the grid was built from the activity log. */
+  xp?: number;
   /** 0-4 intensity bucket for colouring. */
   level: 0 | 1 | 2 | 3 | 4;
 }

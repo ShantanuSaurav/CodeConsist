@@ -1,21 +1,23 @@
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Check, Circle, Lock } from 'lucide-react';
-import { useSession } from '@/platform/session';
+import { useLeveling, useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
 import { isPremiumLocked, stageStatus } from '@/platform/progress';
-import { levelProgress } from '@/platform/xp-leveling/leveling';
-import { achievements, activityGrid, greeting, rankTitle, relativeDay, solvedOn, xpEarnedOn } from '@/platform/xp-leveling/insights';
+import { achievements, dayOf, greeting, relativeDay } from '@/platform/xp-leveling/insights';
+import { activityGridFromLog } from '@/platform/activity/log';
 import { Button, ButtonLink, ProgressBar, Stat } from '@/ui';
 
 /* Heat levels: from the page surface up to the accent, no glow. */
 const HEAT = ['bg-surface-3', 'bg-accent/30', 'bg-accent/55', 'bg-accent/80', 'bg-accent'];
+// The daily goals stay these constants until the goal settings arrive.
 const DAILY_SOLVES = 3;
 const DAILY_XP = 100;
 
 export const DashboardHome: React.FC = () => {
-  const { stats, stages, learnerStages, user, challengeById, activeTrack } = useSession();
+  const { stats, stages, learnerStages, user, activeTrack, activity, today, todayKey } = useSession();
+  const { levelProgress, rankTitle } = useLeveling();
   const level = levelProgress(stats.xp);
   const name = user && user.provider !== 'guest' ? user.username : 'there';
 
@@ -31,9 +33,20 @@ export const DashboardHome: React.FC = () => {
   // one they own counts like any other stage.
   const allDone = !current && learnerStages.length > 0 && learnerStages.every((s) => s.state === 'Completed' || isPremiumLocked(s, stats));
 
-  const grid = useMemo(() => activityGrid(stats, 14), [stats]);
-  const todaySolves = solvedOn(stats).length;
-  const todayXp = xpEarnedOn(stats, challengeById);
+  // The heatmap reads the day log (in the learner's zone), and falls back to
+  // the solve times in `attempts` for days before the log began.
+  const grid = useMemo(() => {
+    const fromAttempts = new Map<string, number>();
+    for (const a of Object.values(stats.attempts)) {
+      const day = dayOf(a.solvedAt);
+      if (day) fromAttempts.set(day, (fromAttempts.get(day) ?? 0) + 1);
+    }
+    return activityGridFromLog(activity.days, 14, todayKey, (day) => fromAttempts.get(day) ?? 0);
+  }, [activity.days, stats.attempts, todayKey]);
+  // Today's numbers from the log: XP actually awarded (a re-solve pays 0, so
+  // it no longer inflates "XP today"), and every solve, re-solves included.
+  const todaySolves = today.lessons + today.tests + today.reSolves;
+  const todayXp = today.xp;
   const recent = useMemo(() => achievements(stats, stages).filter((a) => a.earnedAt).slice(0, 3), [stats, stages]);
   const nextUp = useMemo(() => achievements(stats, stages).find((a) => !a.earnedAt), [stats, stages]);
 
@@ -153,7 +166,7 @@ export const DashboardHome: React.FC = () => {
                     <div
                       key={cell.day}
                       className={`w-3 h-3 rounded-[2px] ${HEAT[cell.level]}`}
-                      title={`${cell.day}: ${cell.count} solved`}
+                      title={`${cell.day}: ${cell.count} solved${cell.xp !== undefined ? ` · ${cell.xp} XP` : ''}`}
                     />
                   ))}
                 </div>

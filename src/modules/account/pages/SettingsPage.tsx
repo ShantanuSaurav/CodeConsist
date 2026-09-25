@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useSession } from '@/platform/session';
+import { useLeveling, useSession } from '@/platform/session';
 import { Badge, Button, DevHint, Dropdown, LearningModeSwitch, PageHeader, Switch } from '@/ui';
 import type { BadgeTone } from '@/ui';
 import { useTheme } from '@/platform/theme';
@@ -8,7 +8,6 @@ import { intents } from '@/platform/events';
 import { api, oauthStartUrl, rupees } from '@/platform/api-client/api';
 import type { BillingOrder, Certificate } from '@/platform/api-client/api';
 import { ROUTES } from '@/config/routes';
-import { levelProgress } from '@/platform/xp-leveling/leveling';
 
 /** One settings row: label + description on the left, the control on the right. */
 const Row: React.FC<{ title: React.ReactNode; description?: React.ReactNode; children: React.ReactNode }> = ({ title, description, children }) => (
@@ -79,6 +78,7 @@ export const SettingsPage: React.FC = () => {
   const openAuthModal = intents.openAuth;
   const [confirmingReset, setConfirmingReset] = useState(false);
   const signedIn = Boolean(user && user.provider !== 'guest');
+  const { levelProgress } = useLeveling();
   const level = levelProgress(stats.xp);
 
   const unlockedCount = (stats.unlockedStages ?? []).length;

@@ -81,3 +81,51 @@ describe('the access log keeps credentials out', () => {
     );
   });
 });
+
+describe('the progress routes live in their own router', () => {
+  it('mounts createProgressRouter and no longer defines the routes inline', () => {
+    // Moved to server/progress-routes.js so they can be tested over HTTP
+    // (server/__tests__/progress-routes.test.mjs). A copy left behind here
+    // would shadow the tested one.
+    expect(source).toMatch(/app\.use\(\s*'\/api',\s*createProgressRouter\(/);
+    for (const route of ['/api/progress/solve', '/api/progress/merge', '/api/progress/reset', '/api/progress']) {
+      expect(source).not.toMatch(new RegExp(`app\\.(?:get|post)\\(\\s*'${route.replace(/\//g, '\\/')}'`));
+    }
+    expect(source).toContain('createActivityRouter(');
+  });
+
+  it('wraps /auth/me in the same recalculation as GET /progress', () => {
+    const me = handlerSource('/api/auth/me');
+    expect(me).toContain('recalcForUser(');
+  });
+
+  it('wraps /auth/login in it too, so the browser adopts the streak as the server counts it', () => {
+    const login = handlerSource('/api/auth/login');
+    expect(login).toContain('recalcForUser(');
+    expect(login).not.toContain('progress: store.getProgress(');
+  });
+});
+
+describe('a request body over the JSON limit', () => {
+  it('is answered 413, not 500 - so a merge can go up again without its activity log', () => {
+    const handler = source.slice(source.indexOf('app.use((err, _req, res, _next)'));
+    expect(handler.indexOf("err?.type === 'entity.too.large'")).toBeGreaterThan(-1);
+    const tooLarge = handler.indexOf('status(413)');
+    expect(tooLarge).toBeGreaterThan(-1);
+    expect(tooLarge).toBeLessThan(handler.indexOf('status(500)'));
+  });
+});
+
+describe('learners notice a settings change', () => {
+  it('reports the settings revision on /api/health and serves GET /api/settings', () => {
+    const health = handlerSource('/api/health');
+    expect(health).toContain('settingsRevision');
+    expect(source).toMatch(/app\.use\(\s*'\/api',\s*createSettingsRouter\(/);
+  });
+
+  it('compiles the shared learning rules at boot and backfills activity after the content loads', () => {
+    expect(source).toContain("'server-lib.ts'), 'learning.mjs'");
+    const bootstrap = source.slice(source.indexOf('async function bootstrap()'), source.indexOf('/* -------------------------------------------------------------------- app */'));
+    expect(bootstrap.indexOf('backfillAll(')).toBeGreaterThan(bootstrap.indexOf('await loadContent()'));
+  });
+});

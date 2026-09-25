@@ -12,6 +12,7 @@ import {
   Menu,
   ScrollText,
   ShieldCheck,
+  SlidersHorizontal,
   Users,
   X
 } from 'lucide-react';
@@ -37,6 +38,10 @@ const GROUPS: Array<{ label: string; items: Array<{ icon: React.ReactNode; label
       { icon: <BookOpen size={ICON} />, label: 'Stages', path: '/admin/stages' },
       { icon: <ListChecks size={ICON} />, label: 'Challenges', path: '/admin/challenges' }
     ]
+  },
+  {
+    label: 'Learning',
+    items: [{ icon: <SlidersHorizontal size={ICON} />, label: 'Rules & rewards', path: '/admin/rules' }]
   },
   {
     label: 'Operations',

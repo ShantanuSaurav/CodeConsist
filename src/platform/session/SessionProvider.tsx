@@ -8,12 +8,16 @@ import React, {
   useState
 } from 'react';
 import {
+  ActivityContext,
+  ActivityLog,
   Challenge,
   CodeDraft,
+  DayRecord,
   ExecutionResult,
   LanguageTrack,
   LearningMode,
   LeaderboardEntry,
+  MissEntry,
   Stage,
   SupportedLanguage,
   TestCase,
@@ -29,7 +33,24 @@ import { compilerService, ExecuteOptions } from '../execution/compilerService';
 import { api, ApiError, OfflineError, getToken, setToken } from '../api-client/api';
 import type { OAuthProviders, RuntimeInfo } from '../api-client/api';
 import { STORAGE_KEYS, readJson, readString, writeJson, writeString, remove } from '../storage/storage';
-import { currentStreak, dayKey, levelFromXp, nextStreak, xpForSolve } from '../xp-leveling/leveling';
+import { levelFromXp, nextStreak, scoreSolve, xpForSolve } from '../xp-leveling/leveling';
+import { browserTimeZone, msUntilLocalMidnight } from '../time/days';
+import { MERGE_BODY_MAX_BYTES, dayRow, jsonByteLength, trimActivityForMerge, unsyncedMisses } from '../activity/log';
+import type { ActivityView } from '../activity/log';
+import { isCodeChallengeType, normalizeMissAnswer, rawAnswerFromMiss, wrongAnswerKeys } from '../grading-engine/misses';
+import { gradeAnswer } from '../grading-engine/grading';
+import { DEFAULT_SETTINGS } from '../settings/defaults';
+import type { PublicSettings } from '../settings/types';
+import { INITIAL_STATS, adoptAccountProgress, hydrateStats, sessionToday, statsAfterSolve } from './stats';
+import { useSettingsState } from './useSettingsState';
+import { useActivityLog } from './useActivityLog';
+
+/**
+ * How long a typed answer may be when it is kept as a miss. The real cap is
+ * the admin-only `retention.answerMaxChars`; the server applies it again, so
+ * this is only the browser's own bound on what it stores.
+ */
+const MISS_ANSWER_CHARS = DEFAULT_SETTINGS.retention.answerMaxChars;
 
 export type ServerStatus = 'checking' | 'online' | 'offline';
 
@@ -48,6 +69,14 @@ export interface SolveOptions {
   answer?: unknown;
   /** The code as submitted, for coding challenges. */
   code?: string;
+  /** Where it was answered: a lesson (default), a stage test, the library. */
+  context?: ActivityContext;
+}
+
+/** A wrong answer as the practice modal saw it: the answer given, or a failed run's pass counts. */
+export interface MissSubmission {
+  answer?: unknown;
+  code?: { passed: number; total: number };
 }
 
 /** One language track, with progress computed against the player's own stats. */
@@ -97,8 +126,27 @@ export interface SessionContextType {
   learningMode: LearningMode | null;
   setLearningMode: (mode: LearningMode) => void;
 
+  /* rules */
+  /**
+   * The learning rules - XP, levels and ranks, streak - as the server last
+   * served them (or the defaults). An admin's change arrives within one
+   * health probe. Use `useLeveling()` for levels and rank titles.
+   */
+  settings: PublicSettings;
+  /** The revision `settings` came from; null for the built-in defaults. */
+  settingsRevision: number | null;
+
   /* player */
   stats: UserStats;
+  /**
+   * Days and wrong answers: a guest's own log, or a signed-in learner's
+   * mirror of the account's (the server's rows win when they arrive).
+   */
+  activity: ActivityLog;
+  /** The learner's current day (`yyyy-mm-dd` in their time zone). Rolls over at their midnight. */
+  todayKey: string;
+  /** Today's row of the activity log: XP actually awarded today, lessons, re-solves, mistakes. */
+  today: DayRecord & { day: string };
   user: UserProfile | null;
   serverStatus: ServerStatus;
   /** Server-verified: is a remote compiler (Judge0) configured for languages beyond JavaScript/Python? Never the credentials. */
@@ -114,6 +162,13 @@ export interface SessionContextType {
 
   /* actions */
   completeChallenge: (challenge: Challenge, options?: SolveOptions) => Promise<number>;
+  /**
+   * Record a wrong answer. Fire and forget: a guest's stays in this browser;
+   * a signed-in learner's goes to the server, or waits (marked unsynced) for
+   * the next merge when the server cannot be reached. A correct answer, or one
+   * that does not fit the challenge, is ignored. Never touches XP or attempts.
+   */
+  recordMiss: (challenge: Challenge, submission: MissSubmission, options?: { context?: ActivityContext; final?: boolean }) => void;
   /** Record that a Concept's teaching sequence has been shown, so it is not repeated. Local only; earns nothing. */
   markConceptSeen: (conceptId: string) => void;
   executeCode: (
@@ -170,42 +225,9 @@ export interface SessionContextType {
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
-/* Not exported: a non-component export from this file breaks React Fast
-   Refresh, which turns every edit here into a full remount. */
-const INITIAL_STATS: UserStats = {
-  xp: 0,
-  level: 1,
-  streak: 0,
-  bestStreak: 0,
-  lastActiveDay: null,
-  completedChallenges: [],
-  completedStages: [],
-  seenConcepts: [],
-  attempts: {},
-  isPremium: false,
-  unlockedStages: []
-};
-
-/** Old saves are missing fields added later; fill them in rather than crashing. */
-function hydrateStats(raw: unknown): UserStats {
-  const saved = (raw ?? {}) as Partial<UserStats>;
-  const xp = Number(saved.xp) || 0;
-  return {
-    ...INITIAL_STATS,
-    ...saved,
-    xp,
-    level: levelFromXp(xp),
-    streak: currentStreak(Number(saved.streak) || 0, saved.lastActiveDay ?? null),
-    bestStreak: Number(saved.bestStreak) || Number(saved.streak) || 0,
-    completedChallenges: Array.isArray(saved.completedChallenges) ? saved.completedChallenges : [],
-    completedStages: Array.isArray(saved.completedStages) ? saved.completedStages : [],
-    seenConcepts: Array.isArray(saved.seenConcepts) ? saved.seenConcepts : [],
-    attempts: saved.attempts && typeof saved.attempts === 'object' ? saved.attempts : {},
-    isPremium: Boolean(saved.isPremium),
-    // A cached copy of what the server said last time; the next restore overwrites it.
-    unlockedStages: Array.isArray(saved.unlockedStages) ? saved.unlockedStages.filter((id) => typeof id === 'string') : []
-  };
-}
+/* INITIAL_STATS and hydrateStats live in ./stats: a non-component export from
+   this file breaks React Fast Refresh, which turns every edit here into a
+   full remount. */
 
 /** At most one draft write per challenge in this window, on the trailing edge. */
 const DRAFT_DEBOUNCE_MS = 1500;
@@ -303,11 +325,63 @@ const EMPTY_TRACK: LanguageTrackProgress = {
 export const SessionProvider: React.FC<SessionProviderProps> = ({ content, children }) => {
   const { notify } = useToast();
 
+  /* ---------------------------------------------------------------- rules */
+  // The admin's learning rules, cached, refetched when the server reports a
+  // new revision (see useSettingsState). Read through a ref in the long-lived
+  // handshake closures below.
+  const { settings, settingsRevision, noteRevision } = useSettingsState();
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
   /* --------------------------------------------------------------- player */
   const [user, setUser] = useState<UserProfile | null>(() =>
     readJson<UserProfile | null>(STORAGE_KEYS.user, null)
   );
-  const [stats, setStats] = useState<UserStats>(() => hydrateStats(readJson(STORAGE_KEYS.stats, null)));
+
+  /* ------------------------------------------------------------- activity */
+  // Read before the stats: the first streak is judged on the learner's day,
+  // and the log's last day is part of it.
+  const activityLog = useActivityLog();
+  const { activity, activityRef } = activityLog;
+
+  // The learner's own zone: the account's once the server has one, else this browser's.
+  const zone = user?.preferences?.timeZone ?? browserTimeZone();
+
+  const [stats, setStats] = useState<UserStats>(() => {
+    const saved = readJson<Partial<UserStats> | null>(STORAGE_KEYS.stats, null);
+    return hydrateStats(saved, settings.levels, sessionToday(zone, saved, activityRef.current));
+  });
+
+  // A new level curve re-derives the level silently: the level-up toast only
+  // ever fires from a solve, so an admin's curve change never announces one.
+  const levelsRef = useRef(settings.levels);
+  useEffect(() => {
+    if (levelsRef.current === settings.levels) return;
+    levelsRef.current = settings.levels;
+    setStats((prev) => {
+      const level = levelFromXp(prev.xp, settings.levels);
+      return level === prev.level ? prev : { ...prev, level };
+    });
+  }, [settings.levels]);
+
+  // The learner's day, counted exactly as the server counts it: local in
+  // their zone, but never before their last active day or the log's last
+  // day (see sessionToday) - so after a flight west the browser does not
+  // judge the streak on a day the server has already left behind.
+  // Re-evaluated at their local midnight.
+  const [midnightTick, setMidnightTick] = useState(0);
+  const todayKey = useMemo(
+    () => sessionToday(zone, { lastActiveDay: stats.lastActiveDay }, { lastDay: activity.lastDay }),
+    // midnightTick is only there to re-evaluate at local midnight.
+    [zone, midnightTick, stats.lastActiveDay, activity.lastDay]
+  );
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMidnightTick((n) => n + 1), msUntilLocalMidnight(new Date(), zone) + 500);
+    return () => window.clearTimeout(timer);
+  }, [zone, midnightTick]);
+  const today = useMemo(() => dayRow(activity, todayKey), [activity, todayKey]);
   const [serverStatus, setServerStatus] = useState<ServerStatus>('checking');
   const [judge0Configured, setJudge0Configured] = useState(false);
   const [runtimes, setRuntimes] = useState<Record<string, RuntimeInfo>>({});
@@ -611,6 +685,74 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   const contentReady = bundle !== null;
 
+  /* ------------------------------------------------- activity: bookkeeping */
+
+  // The log is tagged with the account it mirrors, exactly like the stats. A
+  // cache from before the log existed starts untagged; it takes the stats' tag.
+  const { setOwner, backfillOnce, adoptView, resetActivity } = activityLog;
+  useEffect(() => {
+    if (!activityRef.current.ownerId && stats.ownerId) setOwner(stats.ownerId);
+  }, [stats.ownerId, activityRef, setOwner]);
+
+  // History from before the log existed is rebuilt once from `attempts` in
+  // this browser's zone (the server does the same for accounts), as soon as
+  // the content bank is here to say which solves were stage tests.
+  useEffect(() => {
+    if (!bundle || activity.backfilledAt) return;
+    const byId = bundle.byId;
+    backfillOnce(
+      statsRef.current,
+      (id) => {
+        const c = byId.get(id);
+        return c ? { isStageTest: Boolean(c.isStageTest), xpReward: c.xpReward } : null;
+      },
+      zone,
+      settingsRef.current.xp,
+      todayKey
+    );
+  }, [bundle, activity.backfilledAt, backfillOnce, zone, todayKey]);
+
+  /**
+   * Make the browser's log the account's. `view` is what a merge returned
+   * (everything local was just sent, so nothing is pending any more); without
+   * one the server's view is fetched. A log that belongs to anyone else is
+   * dropped first - it must never be shown under, or sent into, this account.
+   */
+  const adoptAccountActivity = useCallback(
+    async (ownerId: string, view?: ActivityView | null) => {
+      if (activityRef.current.ownerId && activityRef.current.ownerId !== ownerId) resetActivity();
+      let fresh: ActivityView | null | undefined = view;
+      if (!fresh) {
+        try {
+          fresh = await api.activity();
+        } catch {
+          fresh = null; // offline, or an older server without the route
+        }
+      }
+      if (fresh) adoptView(fresh, { ownerId, synced: Boolean(view) });
+      else setOwner(ownerId);
+    },
+    [activityRef, adoptView, resetActivity, setOwner]
+  );
+
+  /**
+   * What goes up with a merge next to `progress`: this log, trimmed so the
+   * whole body stays well under the server's 256 kB limit. A signed-in
+   * learner's own log only sends what the server has not taken yet
+   * (`pendingOnly`); a guest's goes whole, its oldest entries first to go.
+   */
+  const activityForMerge = useCallback(
+    (progress: unknown, options: { pendingOnly?: boolean } = {}) => {
+      const log = activityRef.current;
+      const day = sessionToday(userRef.current?.preferences?.timeZone ?? browserTimeZone(), statsRef.current, log);
+      return trimActivityForMerge(log, day, undefined, {
+        pendingOnly: options.pendingOnly,
+        maxBytes: MERGE_BODY_MAX_BYTES - jsonByteLength(progress)
+      });
+    },
+    [activityRef]
+  );
+
   /* -------------------------------------------------------- language track */
   /**
    * Which track the learner is currently following. A client-side viewing
@@ -739,15 +881,26 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         const local = statsRef.current;
         const localBelongsHere = !local.ownerId || local.ownerId === me.id;
         const serverSolved = new Set(progress.completedChallenges ?? []);
+        // Wrong answers recorded while the server was unreachable are waiting
+        // too, even when there is no solve to carry.
+        const localLog = activityRef.current;
+        const logBelongsHere = !localLog.ownerId || localLog.ownerId === me.id;
+        const pendingMisses = logBelongsHere && unsyncedMisses(localLog).length > 0;
         const localIsAhead =
           localBelongsHere &&
           ((local.completedChallenges ?? []).some((id) => !serverSolved.has(id)) ||
-            local.xp > (progress.xp ?? 0));
+            local.xp > (progress.xp ?? 0) ||
+            pendingMisses);
 
         let reconciled = progress;
+        let mergedActivity: ActivityView | null = null;
         if (localIsAhead) {
           try {
-            reconciled = (await api.mergeProgress(local)).progress;
+            // This account's own log: only what the server has not taken yet.
+            const pendingOnly = Boolean(localLog.ownerId);
+            const merged = await api.mergeProgress(local, logBelongsHere ? activityForMerge(local, { pendingOnly }) : undefined);
+            reconciled = merged.progress;
+            mergedActivity = merged.activity ?? null;
           } catch {
             // Could not reach the server after all - keep the local copy
             // rather than discarding work.
@@ -762,14 +915,19 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         }
         if (cancelled) return;
 
+        // The streak as the server worked it out on the learner's own day
+        // (/auth/me and the merge both recalculate it) - never judged again
+        // against this browser's day, which can differ after a zone flip.
         setStats((prev) => ({
-          ...prev,
-          ...reconciled,
-          level: levelFromXp(reconciled.xp),
-          streak: currentStreak(reconciled.streak, reconciled.lastActiveDay),
+          ...adoptAccountProgress(prev, reconciled, settingsRef.current.levels),
           ...entitlementsOf(me),
           ownerId: me.id
         }));
+
+        // The account's days and misses, as the server has them. A log that
+        // was just merged is adopted from the merge; otherwise it is fetched
+        // (and a pending one that could not be sent stays pending).
+        await adoptAccountActivity(me.id, mergedActivity);
 
         // Unfinished code is part of "where I left off", so it is restored in
         // the same breath as the progress - not when an editor happens to open.
@@ -826,6 +984,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         const reportedRuntimes: Record<string, RuntimeInfo> = health?.runtimes ?? {};
         setRuntimes(reportedRuntimes);
         compilerService.setServerRuntimes(reportedRuntimes);
+        // An admin changed the rules: fetch them. An older server that sends
+        // no revision means the defaults.
+        noteRevision(typeof health?.settingsRevision === 'number' ? health.settingsRevision : undefined);
         const recovered = !wasOnline;
         wasOnline = true;
         setServerStatus('online');
@@ -923,19 +1084,25 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       const attempts = Math.max(1, options.attempts ?? 1);
       const hintsUsed = Math.max(0, options.hintsUsed ?? 0);
       const alreadySolved = stats.completedChallenges.includes(challenge.id);
-      const awarded = alreadySolved ? 0 : xpForSolve(challenge.xpReward, attempts, hintsUsed);
+      // The same rules the server prices with (settings.xp); its answer wins
+      // when signed in, this is the instant preview.
+      const awarded = alreadySolved ? 0 : xpForSolve(challenge.xpReward, attempts, hintsUsed, settings.xp);
+      // Which revision of the rules that preview was priced with.
+      const pricedWith = settingsRevision;
 
-      const today = dayKey();
-      const streak = nextStreak(stats.streak, stats.lastActiveDay, today);
+      const day = todayKey;
+      const at = new Date().toISOString();
+      const streak = nextStreak(stats.streak, stats.lastActiveDay, day);
       const xp = stats.xp + awarded;
+      const previous = stats.attempts[challenge.id];
 
       const optimistic: UserStats = {
         ...stats,
         xp,
-        level: levelFromXp(xp),
+        level: levelFromXp(xp, settings.levels),
         streak,
         bestStreak: Math.max(stats.bestStreak, streak),
-        lastActiveDay: today,
+        lastActiveDay: day,
         completedChallenges: alreadySolved
           ? stats.completedChallenges
           : [...stats.completedChallenges, challenge.id],
@@ -943,16 +1110,25 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
           ...stats.attempts,
           [challenge.id]: {
             challengeId: challenge.id,
-            score: Math.max(stats.attempts[challenge.id]?.score ?? 0, Math.max(50, 100 - (attempts - 1) * 10 - hintsUsed * 10)),
-            attempts: (stats.attempts[challenge.id]?.attempts ?? 0) + attempts,
-            hintsUsed: (stats.attempts[challenge.id]?.hintsUsed ?? 0) + hintsUsed,
-            solvedAt: new Date().toISOString()
+            score: Math.max(previous?.score ?? 0, scoreSolve(attempts, hintsUsed, settings.xp)),
+            attempts: (previous?.attempts ?? 0) + attempts,
+            hintsUsed: (previous?.hintsUsed ?? 0) + hintsUsed,
+            // The FIRST solve's time - a re-solve used to overwrite it, which
+            // moved old lessons onto today in the heatmap and the badges.
+            solvedAt: previous?.solvedAt || at,
+            lastSolvedAt: at,
+            solves: (typeof previous?.solves === 'number' ? previous.solves : previous ? 1 : 0) + 1
           }
         }
       };
 
       const levelledUp = optimistic.level > stats.level;
       setStats(optimistic);
+      // Today's row, optimistically: a re-solve counts as one and pays nothing.
+      const activityBefore = activityLog.applyEvent(
+        { type: 'solve', challengeId: challenge.id, isTest: Boolean(challenge.isStageTest), firstSolve: !alreadySolved, awardedXp: awarded },
+        { day, at }
+      );
       celebrate();
 
       eventBus.emit('challenge:completed', {
@@ -980,23 +1156,25 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       // the UI never waits on the network to feel responsive.
       if (user && user.provider !== 'guest' && serverStatus === 'online' && getToken()) {
         try {
-          const { progress } = await api.solve(challenge.id, attempts, hintsUsed, {
+          const res = await api.solve(challenge.id, attempts, hintsUsed, {
             answer: options.answer,
-            code: options.code
+            code: options.code,
+            context: options.context
           });
-          setStats((prev) => ({
-            ...prev,
-            // Union rather than overwrite: anything solved locally while this
-            // request was in flight must not be erased by an older snapshot.
-            ...progress,
-            xp: Math.max(prev.xp, progress.xp),
-            completedChallenges: [...new Set([...prev.completedChallenges, ...progress.completedChallenges])],
-            level: levelFromXp(Math.max(prev.xp, progress.xp)),
-            streak: currentStreak(progress.streak, progress.lastActiveDay),
-            // Progress carries no entitlements; keep the ones the profile gave us.
-            isPremium: prev.isPremium,
-            unlockedStages: prev.unlockedStages
-          }));
+          const { progress } = res;
+          // Priced with other rules than the server's (an admin changed them
+          // since this tab fetched its copy): the server's XP is the truth,
+          // not the larger of the two.
+          const rulesChanged = typeof res.settingsRevision === 'number' && res.settingsRevision !== pricedWith;
+          // The rules changed since this tab last looked: fetch them.
+          noteRevision(res.settingsRevision);
+          // The server's day row wins over the optimistic one.
+          activityLog.adoptDay(res.today);
+          // Union rather than overwrite: anything solved locally while this
+          // request was in flight must not be erased by an older snapshot.
+          setStats((prev) =>
+            statsAfterSolve(prev, progress, { rulesChanged, curve: settingsRef.current.levels, serverDay: res.today?.day ?? day })
+          );
         } catch (err) {
           if (err instanceof OfflineError) {
             // Kept locally; the next session restore pushes it up.
@@ -1004,8 +1182,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
           } else if (err instanceof ApiError && err.status === 422) {
             // The server re-checked the submission and disagreed. Its verdict
             // wins: take the local award back rather than show XP that does
-            // not exist on the leaderboard.
+            // not exist on the leaderboard - and the day row with it.
             setStats(stats);
+            activityLog.replaceActivity(activityBefore);
             notify('The server did not accept that answer, so no XP was awarded.', 'error');
             return 0;
           } else {
@@ -1016,7 +1195,67 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
       return awarded;
     },
-    [stats, stages, user, serverStatus, celebrate, notify]
+    [stats, stages, user, serverStatus, celebrate, notify, settings, settingsRevision, todayKey, activityLog, noteRevision]
+  );
+
+  /**
+   * Record a wrong answer (see SessionContextType.recordMiss). What a miss is
+   * reduced to comes from the shared code the server re-runs:
+   * normalizeMissAnswer, wrongAnswerKeys and gradeAnswer.
+   */
+  const recordMiss = useCallback<SessionContextType['recordMiss']>(
+    (challenge, submission, options = {}) => {
+      const isCode = isCodeChallengeType(challenge.type);
+      const raw = isCode ? (submission.code ? { kind: 'code', ...submission.code } : undefined) : submission.answer;
+      if (raw === undefined) return;
+      const answer = normalizeMissAnswer(challenge, raw, MISS_ANSWER_CHARS);
+      // Not a miss at all: malformed, or - for anything but code - correct,
+      // graded as given and as it would be stored (the server does both).
+      if (!answer) return;
+      if (!isCode && (gradeAnswer(challenge, submission.answer) || gradeAnswer(challenge, rawAnswerFromMiss(challenge, answer)))) return;
+
+      const context = options.context ?? 'lesson';
+      const at = new Date().toISOString();
+      const signedIn = Boolean(user && user.provider !== 'guest' && getToken());
+      activityLog.applyEvent(
+        {
+          type: 'miss',
+          challengeId: challenge.id,
+          context,
+          answer,
+          final: options.final === true,
+          keys: wrongAnswerKeys(challenge, answer),
+          // A signed-in learner's miss is pending until the server has it.
+          synced: signedIn ? false : undefined
+        },
+        { day: todayKey, at }
+      );
+      // A guest's log lives here; an offline learner's waits for the next merge.
+      if (!signedIn || serverStatus !== 'online') return;
+
+      const isThis = (entry: MissEntry) => entry.challengeId === challenge.id && entry.at === at;
+      api
+        .recordMisses([
+          {
+            challengeId: challenge.id,
+            ...(isCode ? { code: submission.code } : { answer: submission.answer }),
+            context,
+            final: options.final === true,
+            at
+          }
+        ])
+        .then((res) => {
+          activityLog.markSynced(isThis);
+          activityLog.adoptDay(res.today);
+          activityLog.adoptMisses(res.misses);
+        })
+        .catch((err) => {
+          // Unreachable: it stays pending and goes up with the next merge.
+          // Refused (a cap, an unknown lesson): there is nothing to retry.
+          if (!(err instanceof OfflineError)) activityLog.markSynced(isThis);
+        });
+    },
+    [user, serverStatus, todayKey, activityLog]
   );
 
   /**
@@ -1053,11 +1292,10 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   const adoptSession = useCallback(
     (profile: UserProfile, progress: any) => {
       setUser(profile);
+      // Login, /auth/me and a merge all hand over the streak already worked
+      // out on the learner's own day: taken as it is.
       setStats((prev) => ({
-        ...prev,
-        ...progress,
-        level: levelFromXp(progress.xp ?? 0),
-        streak: currentStreak(progress.streak ?? 0, progress.lastActiveDay ?? null),
+        ...adoptAccountProgress(prev, progress, settingsRef.current.levels),
         ...entitlementsOf(profile),
         ownerId: profile.id
       }));
@@ -1073,57 +1311,69 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
    * lab machine, signing in used to hand the next user all of the previous
    * user's solves. Progress already tagged with THIS account is the server's
    * own cache and needs no merge (the session-restore path reconciles it).
+   *
+   * A guest who only got answers wrong (no solves yet) still has something to
+   * carry: their misses. The activity log goes along only when it is a
+   * guest's too.
    */
-  const mergeableGuestProgress = useCallback(
-    (forUserId: string): UserStats | null => {
-      if (stats.completedChallenges.length === 0) return null;
-      if (stats.ownerId && stats.ownerId !== forUserId) return null;
-      if (stats.ownerId === forUserId) return null;
-      return stats;
+  const mergeableGuestProgress = useCallback((): { stats: UserStats; activity?: ReturnType<typeof trimActivityForMerge> } | null => {
+    if (stats.ownerId) return null;
+    const log = activityRef.current;
+    const guestLog = !log.ownerId;
+    const hasMisses = guestLog && (Object.keys(log.misses).length > 0 || log.missLog.length > 0);
+    if (stats.completedChallenges.length === 0 && !hasMisses) return null;
+    return { stats, activity: guestLog ? activityForMerge(stats) : undefined };
+  }, [stats, activityRef, activityForMerge]);
+
+  /**
+   * Everything after a successful sign-in: carry the guest's progress and
+   * activity into the account (the server re-prices it and merges the log
+   * idempotently), then adopt the account's progress and activity.
+   * Resolves once the activity is in; callers that want the modal to close
+   * sooner need not wait for it.
+   */
+  const enterAccount = useCallback(
+    async (profile: UserProfile, serverProgress: any): Promise<void> => {
+      let progress = serverProgress;
+      let mergedActivity: ActivityView | null = null;
+      const guest = mergeableGuestProgress();
+      if (guest) {
+        try {
+          const merged = await api.mergeProgress(guest.stats, guest.activity);
+          progress = merged.progress;
+          mergedActivity = merged.activity ?? null;
+        } catch {
+          /* keep the server copy */
+        }
+      }
+      adoptSession(profile, progress);
+      await adoptAccountActivity(profile.id, mergedActivity);
     },
-    [stats]
+    [mergeableGuestProgress, adoptSession, adoptAccountActivity]
   );
 
   const loginWithEmail = useCallback(
     async (email: string, password: string) => {
       const res = await api.login(email, password);
-      let progress = res.progress;
-      const guest = mergeableGuestProgress(res.user.id);
-      if (guest) {
-        try {
-          progress = (await api.mergeProgress(guest)).progress;
-        } catch {
-          /* keep the server copy */
-        }
-      }
-      adoptSession(res.user, progress);
+      await enterAccount(res.user, res.progress);
       // Not awaited: the modal should close now, and the editor picks the
       // drafts up as soon as they land.
       restoreDrafts(res.user.id);
       eventBus.emit('auth:signedIn', { user: res.user });
       notify(`Welcome back, ${res.user.username}.`, 'success');
     },
-    [mergeableGuestProgress, adoptSession, restoreDrafts, notify]
+    [enterAccount, restoreDrafts, notify]
   );
 
   const signupWithEmail = useCallback(
     async (email: string, username: string, password: string) => {
       const res = await api.register(email, username, password);
-      let progress = res.progress;
-      const guest = mergeableGuestProgress(res.user.id);
-      if (guest) {
-        try {
-          progress = (await api.mergeProgress(guest)).progress;
-        } catch {
-          /* keep the server copy */
-        }
-      }
-      adoptSession(res.user, progress);
+      await enterAccount(res.user, res.progress);
       restoreDrafts(res.user.id);
       eventBus.emit('auth:signedIn', { user: res.user });
       notify(`Account created. Welcome, ${res.user.username}.`, 'success');
     },
-    [mergeableGuestProgress, adoptSession, restoreDrafts, notify]
+    [enterAccount, restoreDrafts, notify]
   );
 
   /**
@@ -1147,21 +1397,12 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         throw err;
       }
 
-      let progress = res.progress;
-      const guest = mergeableGuestProgress(res.user.id);
-      if (guest) {
-        try {
-          progress = (await api.mergeProgress(guest)).progress;
-        } catch {
-          /* keep the server copy */
-        }
-      }
-      adoptSession(res.user, progress);
+      await enterAccount(res.user, res.progress);
       await restoreDrafts(res.user.id);
       eventBus.emit('auth:signedIn', { user: res.user });
       notify(`Signed in as ${res.user.username}.`, 'success');
     },
-    [mergeableGuestProgress, adoptSession, restoreDrafts, clearDraftsFromMemory, notify]
+    [enterAccount, restoreDrafts, clearDraftsFromMemory, notify]
   );
 
   const continueAsGuest = useCallback(() => {
@@ -1182,10 +1423,16 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     // Anything solved while the server was unreachable exists only here. Push
     // it up before clearing, or signing out would be the one action that
     // loses work.
+    // Wrong answers recorded while it was unreachable are waiting too.
     let synced = true;
-    if (user && user.provider !== 'guest' && getToken() && stats.completedChallenges.length > 0) {
+    const log = activityRef.current;
+    const logIsTheirs = Boolean(user) && (!log.ownerId || log.ownerId === user?.id);
+    const pendingMisses = logIsTheirs && unsyncedMisses(log).length > 0;
+    if (user && user.provider !== 'guest' && getToken() && (stats.completedChallenges.length > 0 || pendingMisses)) {
       try {
-        await api.mergeProgress(stats);
+        // Their own log sends only what the server has not taken yet - small
+        // enough that signing out never trips the body limit.
+        await api.mergeProgress(stats, logIsTheirs ? activityForMerge(stats, { pendingOnly: Boolean(log.ownerId) }) : undefined);
       } catch {
         synced = false;
       }
@@ -1204,11 +1451,13 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     // The account's progress lives on the server; the local copy is a cache
     // and must not be left for the next person who signs in on this browser.
     setStats({ ...INITIAL_STATS });
+    // So is their activity log - days and wrong answers.
+    resetActivity();
     // The same goes for the code they were writing: it is on the account now.
     clearDraftsFromMemory();
     eventBus.emit('auth:signedOut', {});
     notify('Signed out. Your progress is saved to your account.', 'info');
-  }, [user, stats, flushAllDrafts, clearDraftsFromMemory, notify]);
+  }, [user, stats, activityRef, activityForMerge, resetActivity, flushAllDrafts, clearDraftsFromMemory, notify]);
 
   const refreshAccount = useCallback(async () => {
     // Only a real account has anything to refresh; a guest owns nothing.
@@ -1219,9 +1468,13 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     await restoreDrafts(me.id);
   }, [restoreDrafts]);
 
+  const { clearMisses } = activityLog;
   const resetProgress = useCallback(async () => {
     // Purchases are not progress: keep what the server says is unlocked.
     setStats({ ...INITIAL_STATS, isPremium: stats.isPremium, unlockedStages: stats.unlockedStages ?? [] });
+    // The wrong answers go with the progress; the days are history and stay
+    // (the server does the same).
+    clearMisses();
     eventBus.emit('progress:reset', {});
     if (user && user.provider !== 'guest' && serverStatus === 'online' && getToken()) {
       try {
@@ -1232,7 +1485,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       }
     }
     notify('Progress reset. Back to Stage 01.', 'info');
-  }, [stats.isPremium, stats.unlockedStages, user, serverStatus, notify]);
+  }, [stats.isPremium, stats.unlockedStages, clearMisses, user, serverStatus, notify]);
 
   const refreshLeaderboard = useCallback(async () => {
     try {
@@ -1263,12 +1516,18 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       learnerChallenges,
       learningMode,
       setLearningMode,
+      settings,
+      settingsRevision,
       stats,
+      activity,
+      todayKey,
+      today,
       user,
       serverStatus,
       judge0Configured,
       runtimes,
       completeChallenge,
+      recordMiss,
       markConceptSeen,
       executeCode,
       drafts,
@@ -1290,6 +1549,12 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       celebrate
     }),
     [
+      settings,
+      settingsRevision,
+      activity,
+      todayKey,
+      today,
+      recordMiss,
       contentReady,
       stages,
       allChallenges,

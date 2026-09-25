@@ -16,10 +16,9 @@ import {
   Wifi,
   WifiOff
 } from 'lucide-react';
-import { useSession } from '@/platform/session';
+import { useLeveling, useSession } from '@/platform/session';
 import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
-import { levelProgress } from '@/platform/xp-leveling/leveling';
 import { ROUTES } from '@/config/routes';
 import { DevlingoLogo, Dropdown, ProgressBar } from '@/ui';
 
@@ -59,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
   const { user, stats, logout, serverStatus, tracks, selectedTrackId, setSelectedTrack } = useSession();
   const { theme, toggleTheme } = useTheme();
   const openAuthModal = intents.openAuth;
+  const { levelProgress } = useLeveling();
   const level = levelProgress(stats.xp);
   const signedIn = Boolean(user && user.provider !== 'guest');
 

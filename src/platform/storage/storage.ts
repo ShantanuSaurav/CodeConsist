@@ -93,5 +93,17 @@ export const STORAGE_KEYS = {
   /** Separate from the learner's own token - the admin app is a distinct session. */
   adminToken: 'cq-admin-token',
   /** '1' once the welcome intro at "/" has played this visit (sessionStorage, not localStorage). */
-  intro: 'cq-intro-seen'
+  intro: 'cq-intro-seen',
+  /**
+   * The learning rules the server last served, as `{ revision, settings }`
+   * (src/platform/settings). Read through `coerceSettings`, so a stale or
+   * hand-edited copy can only ever fall back to the defaults.
+   */
+  settings: 'cq-settings-v1',
+  /**
+   * The learner's activity log (days and wrong answers). A guest's own log,
+   * or a signed-in learner's mirror of the server's, tagged with `ownerId`
+   * exactly like the stats so one account's log never reaches another.
+   */
+  activity: 'cq-activity-v1'
 } as const;

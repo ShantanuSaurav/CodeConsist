@@ -24,8 +24,18 @@ const DATA_DIR = process.env.DATA_DIR
   : path.join(HERE, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
+/**
+ * The shape version of db.json. Bumped by one whenever a release adds a
+ * top-level key; `load()` keeps a copy of the file as it was
+ * (`db.json.pre-v<N>-<ts>`) before migrating an older one. Migrations are
+ * additive only: no existing row is rewritten or re-scored.
+ *   2 - `settings` (the admin rules store) and `activity` (per-learner days
+ *       and failed attempts), plus `users[].preferences`.
+ */
+export const SCHEMA_VERSION = 2;
+
 const EMPTY = {
-  version: 1,
+  version: SCHEMA_VERSION,
   users: [],
   progress: {},
   /**
@@ -85,7 +95,22 @@ const EMPTY = {
    * user (see DRAFT_CODE_MAX / DRAFTS_PER_USER_MAX) so it cannot grow db.json
    * without limit, and dropped entirely when the account is deleted.
    */
-  drafts: {}
+  drafts: {},
+  /**
+   * The administrator's changes to the learning rules - XP, levels, streak
+   * and time zones, data limits - as SPARSE overrides nested by section
+   * (`{ xp: { passScore: 70 } }`). Everything not here is the default in
+   * src/platform/settings/defaults.ts. `revision` goes up by one on every
+   * save, which is how learners notice a change (server/settings.js).
+   */
+  settings: { overrides: {}, revision: 0, updatedAt: null, updatedBy: null },
+  /**
+   * Per learner, keyed by user id: their days (in their own time zone), a
+   * summary of their wrong answers per challenge, and a capped log of recent
+   * ones - see src/platform/activity/log.ts for the shape and
+   * server/activity.js for who writes it. Deleted with the account.
+   */
+  activity: {}
 };
 
 let state = null;
@@ -120,9 +145,51 @@ function ownEntry(map, key) {
   return typeof key === 'string' && map && Object.hasOwn(map, key) ? map[key] : null;
 }
 
-/** Fill in fields added to the schema after some rows already existed. */
+/** The settings record with every field present and sane. */
+function normalizeSettingsRecord(raw) {
+  const record = plainObject(raw);
+  return {
+    overrides: plainObject(record.overrides),
+    revision: Number.isInteger(record.revision) && record.revision >= 0 ? record.revision : 0,
+    updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : null,
+    updatedBy: typeof record.updatedBy === 'string' ? record.updatedBy : null
+  };
+}
+
+/**
+ * A learner's own preferences, stored on the user row so they survive a
+ * progress reset. Every field is nullable - null means "use the default".
+ * Fields this version does not know are kept, so an older build never strips
+ * what a newer one wrote.
+ */
+export function normalizePreferences(raw) {
+  const prefs = plainObject(raw);
+  const text = (value) => (typeof value === 'string' && value ? value : null);
+  return {
+    ...prefs,
+    timeZone: text(prefs.timeZone),
+    timeZoneSetAt: text(prefs.timeZoneSetAt),
+    updatedAt: text(prefs.updatedAt)
+  };
+}
+
+/**
+ * Fill in fields added to the schema after some rows already existed.
+ *
+ * Pure, idempotent and order-independent: it only ADDS what is missing and
+ * normalizes containers; progress rows are carried over untouched (new
+ * progress fields appear lazily, on first read or write).
+ */
+export function migrateState(loaded) {
+  return migrate(plainObject(loaded));
+}
+
 function migrate(loaded) {
   const next = { ...clone(EMPTY), ...loaded };
+  next.version = Math.max(SCHEMA_VERSION, Number.isInteger(loaded.version) ? loaded.version : 1);
+  next.progress = plainObject(loaded.progress);
+  next.settings = normalizeSettingsRecord(loaded.settings);
+  next.activity = plainObject(loaded.activity);
   next.auditLog = Array.isArray(loaded.auditLog) ? loaded.auditLog : [];
   next.admin = loaded.admin && typeof loaded.admin === 'object' ? loaded.admin : null;
   next.contentOverrides = {
@@ -169,7 +236,8 @@ function migrate(loaded) {
       // rather than `undefined` so "this account has no password" is a state
       // the login route can check, not a missing key it has to guess at.
       passwordHash: rest.passwordHash ?? null,
-      identities: plainObject(rest.identities)
+      identities: plainObject(rest.identities),
+      preferences: normalizePreferences(rest.preferences)
     };
   });
   return next;
@@ -180,10 +248,12 @@ export async function load() {
   await mkdir(DATA_DIR, { recursive: true });
 
   if (existsSync(DB_FILE)) {
+    let raw = null;
+    let parsed = null;
     try {
-      const raw = await readFile(DB_FILE, 'utf8');
-      const parsed = JSON.parse(raw);
-      state = migrate(parsed);
+      raw = await readFile(DB_FILE, 'utf8');
+      parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a JSON object');
     } catch (err) {
       // A corrupt database should not take the server down; keep the bad file
       // around for inspection and start clean.
@@ -194,7 +264,29 @@ export async function load() {
       } catch {
         console.error(`[db] db.json was unreadable and could not be moved: ${err.message}`);
       }
+      parsed = null;
       state = clone(EMPTY);
+    }
+
+    if (parsed) {
+      // An older file is copied aside, byte for byte, before it is migrated -
+      // the same approach as the `.corrupt-*` copy above, so a release can
+      // always be rolled back to the data it started from. A failed copy is
+      // loud but not fatal: the migration only adds fields.
+      const from = Number.isInteger(parsed.version) ? parsed.version : 1;
+      if (from < SCHEMA_VERSION) {
+        const copy = `${DB_FILE}.pre-v${SCHEMA_VERSION}-${Date.now()}`;
+        try {
+          await writeFile(copy, raw, 'utf8');
+          console.log(`[db] db.json is version ${from}; kept a copy as ${path.basename(copy)} before migrating to ${SCHEMA_VERSION}`);
+        } catch (err) {
+          console.error(`[db] could not keep a copy of db.json before migrating (${err.message}); migrating anyway`);
+        }
+      }
+      // Deliberately outside the try above: a bug in a migration must stop
+      // the server with the file untouched, never move a readable database
+      // aside as "corrupt" and start empty.
+      state = migrate(parsed);
     }
   } else {
     state = clone(EMPTY);
@@ -285,6 +377,8 @@ export function deleteUser(id) {
   // Their unsolved work in progress goes too - it is their code, and nothing
   // else in the database refers to it.
   deleteDraftsForUser(id);
+  // So do their days and wrong answers (typed blanks are their words).
+  deleteActivity(id);
 
   forgetBillingIdentity(db(), id);
 
@@ -546,6 +640,50 @@ export function deleteDraftsForUser(userId) {
   const id = String(userId ?? '');
   if (!Object.hasOwn(db().drafts, id)) return false;
   delete db().drafts[id];
+  persist();
+  return true;
+}
+
+/* --------------------------------------------------------------- settings */
+
+/**
+ * The admin's rule overrides: `{ overrides, revision, updatedAt, updatedBy }`.
+ * Read and written only through server/settings.js, which validates every
+ * change and resolves the effective settings.
+ */
+export function getSettingsRecord() {
+  return db().settings;
+}
+
+export function setSettingsRecord({ overrides, revision, updatedAt, updatedBy }) {
+  db().settings = normalizeSettingsRecord({ overrides, revision, updatedAt, updatedBy });
+  persist();
+  return db().settings;
+}
+
+/* --------------------------------------------------------------- activity */
+
+/** A learner's activity log as stored, or null when they have none yet. Own-property lookup only. */
+export function getActivity(userId) {
+  return ownEntry(db().activity, String(userId ?? ''));
+}
+
+/** Replace a learner's activity log (built and bounded by server/activity.js). */
+export function putActivity(userId, record) {
+  defineEntry(db().activity, String(userId), record);
+  persist();
+  return record;
+}
+
+/** Every stored log, keyed by user id - for the admin's analytics. */
+export function allActivity() {
+  return db().activity;
+}
+
+export function deleteActivity(userId) {
+  const id = String(userId ?? '');
+  if (!Object.hasOwn(db().activity, id)) return false;
+  delete db().activity[id];
   persist();
   return true;
 }

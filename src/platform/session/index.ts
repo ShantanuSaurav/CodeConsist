@@ -1,4 +1,6 @@
 export { SessionProvider, useSession } from './SessionProvider';
-export type { SessionContextType, SolveOptions, ServerStatus, LanguageTrackProgress } from './SessionProvider';
+export type { SessionContextType, SolveOptions, ServerStatus, LanguageTrackProgress, MissSubmission } from './SessionProvider';
+export { useLeveling } from './useLeveling';
+export type { Leveling } from './useLeveling';
 export { groupIntoStages, makeBundle, loadFromApi } from './content';
 export type { ContentBundle } from './content';

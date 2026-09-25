@@ -1,0 +1,293 @@
+/**
+ * The progress routes at the HTTP boundary, after their move out of
+ * server/index.js into server/progress-routes.js.
+ *
+ * The first block pins what the routes did BEFORE the move (and must keep
+ * doing): the characterization. The rest covers what Phase 1 changed - the
+ * first-solve time is kept, the day row counts only awarded XP, the rules
+ * come from the settings store, and a merge carries activity idempotently.
+ *
+ * Real server/db.js with node:fs/promises stubbed (as in drafts.test.mjs),
+ * the real shared rules, the real settings and activity services.
+ */
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node:fs/promises', () => ({
+  readFile: async () => '{}',
+  writeFile: async () => {},
+  rename: async () => {},
+  mkdir: async () => {}
+}));
+
+import * as store from '../db.js';
+import { PASSING_CODE, resetStore, startLearnerApp } from './learning-fixture.mjs';
+
+let app;
+
+beforeAll(async () => {
+  await store.load();
+  app = await startLearnerApp(store);
+});
+
+afterAll(async () => {
+  await app.close();
+});
+
+beforeEach(() => {
+  resetStore(store);
+  app.cleared.length = 0;
+});
+
+const solve = (body, extra = {}) => app.call('POST', '/progress/solve', { user: 'u1', body, ...extra });
+
+/* -------------------------------------------------------- characterization */
+
+describe('characterization: what the routes did before the move', () => {
+  it('404s for a challenge the server does not have', async () => {
+    const res = await solve({ challengeId: 'nope', answer: 1 });
+    expect(res.status).toBe(404);
+    expect(res.json.error).toBe('Unknown challenge.');
+  });
+
+  it('needs a signed-in learner', async () => {
+    expect((await app.call('POST', '/progress/solve', { body: { challengeId: 'q-quiz', answer: 1 } })).status).toBe(401);
+    expect((await app.call('GET', '/progress')).status).toBe(401);
+    expect((await app.call('POST', '/progress/merge', { body: {} })).status).toBe(401);
+    expect((await app.call('POST', '/progress/reset')).status).toBe(401);
+  });
+
+  it('422s a wrong answer and records nothing', async () => {
+    const res = await solve({ challengeId: 'q-quiz', answer: 0 });
+    expect(res.status).toBe(422);
+    expect(res.json.error).toBe('That submission does not solve the challenge.');
+    expect(store.getProgress('u1').completedChallenges).toEqual([]);
+  });
+
+  it('422s a correct answer below the pass mark', async () => {
+    const res = await solve({ challengeId: 'q-quiz', answer: 1, attempts: 6 });
+    expect(res.status).toBe(422);
+    expect(res.json).toMatchObject({ reason: 'below-pass-mark', score: 50 });
+    expect(res.json.error).toBe('Correct, but below the pass mark of 60%. Retry the lesson for a fresh attempt.');
+    expect(store.getProgress('u1').xp).toBe(0);
+  });
+
+  it('pays XP once, from its own maths, and ignores any XP the client claims', async () => {
+    const first = await solve({ challengeId: 'q-quiz', answer: 1, attempts: 3, xp: 99999, awardedXp: 5000 });
+    expect(first.status).toBe(200);
+    expect(first.json).toMatchObject({ awardedXp: 32, score: 80, firstSolve: true, verified: true });
+    expect(first.json.progress).toMatchObject({ xp: 32, level: 1, streak: 1, bestStreak: 1, completedChallenges: ['q-quiz'] });
+    expect(first.json.progress.attempts['q-quiz']).toMatchObject({ challengeId: 'q-quiz', score: 80, attempts: 3, hintsUsed: 0 });
+
+    const again = await solve({ challengeId: 'q-quiz', answer: 1 });
+    expect(again.json).toMatchObject({ awardedXp: 0, score: 100, firstSolve: false });
+    expect(again.json.progress.xp).toBe(32);
+    // The best score is kept, the tries add up.
+    expect(again.json.progress.attempts['q-quiz']).toMatchObject({ score: 100, attempts: 4 });
+  });
+
+  it('clamps tries and hints like it always did', async () => {
+    const res = await solve({ challengeId: 'q-quiz', answer: 1, attempts: 'lots', hintsUsed: -4 });
+    expect(res.json).toMatchObject({ awardedXp: 40, score: 100 });
+  });
+
+  it('verifies code, and drops the draft on a solve', async () => {
+    expect((await solve({ challengeId: 'q-code', code: 'nope' })).status).toBe(422);
+    const res = await solve({ challengeId: 'q-code', code: PASSING_CODE });
+    expect(res.json.awardedXp).toBe(70);
+    expect(app.cleared).toEqual([['u1', 'q-code']]);
+  });
+
+  it('re-prices a merge from the server’s own content', async () => {
+    const res = await app.call('POST', '/progress/merge', {
+      user: 'u1',
+      body: {
+        progress: {
+          xp: 99999,
+          level: 80,
+          streak: 3,
+          bestStreak: 5000,
+          lastActiveDay: '2026-01-01',
+          completedChallenges: ['q-quiz', 'q-blank', 'not-a-challenge'],
+          attempts: { 'q-quiz': { attempts: 3, hintsUsed: 0 }, 'q-blank': { attempts: 1, hintsUsed: 1 } }
+        }
+      }
+    });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ mergedChallenges: 2, awardedXp: 32 + 54 });
+    // Stored as before the move. The response now reports the streak as it
+    // stands on the learner's today, like GET /progress and /auth/me (the
+    // browser adopts it as it is): last active on 1 January, it is over.
+    expect(store.getProgress('u1')).toMatchObject({ xp: 86, level: 1, streak: 3, bestStreak: 400 });
+    expect(res.json.progress).toMatchObject({ xp: 86, level: 1, streak: 0, bestStreak: 400 });
+    expect(res.json.progress.completedChallenges).toEqual(['q-quiz', 'q-blank']);
+
+    // Already paid: a second merge of the same ids pays nothing.
+    const again = await app.call('POST', '/progress/merge', { user: 'u1', body: { progress: { completedChallenges: ['q-quiz'] } } });
+    expect(again.json).toMatchObject({ mergedChallenges: 0, awardedXp: 0 });
+    expect(again.json.progress.xp).toBe(86);
+  });
+
+  it('reset starts the row over', async () => {
+    await solve({ challengeId: 'q-quiz', answer: 1 });
+    const res = await app.call('POST', '/progress/reset', { user: 'u1' });
+    expect(res.json.progress).toEqual({ xp: 0, level: 1, streak: 0, bestStreak: 0, lastActiveDay: null, completedChallenges: [], completedStages: [], attempts: {} });
+    expect(store.getProgress('u1').xp).toBe(0);
+  });
+
+  it('GET /progress reports level and streak as they stand', async () => {
+    store.setProgress('u1', { ...store.getProgress('u1'), xp: 1000, level: 1, streak: 9, lastActiveDay: '2020-01-01' });
+    const res = await app.call('GET', '/progress', { user: 'u1' });
+    expect(res.json.progress).toMatchObject({ xp: 1000, level: 5, streak: 0 });
+  });
+});
+
+/* --------------------------------------------------------------- phase 1 */
+
+describe('first-solve time', () => {
+  it('a re-solve keeps solvedAt and moves lastSolvedAt', async () => {
+    const first = await solve({ challengeId: 'q-quiz', answer: 1 });
+    const firstAt = first.json.progress.attempts['q-quiz'].solvedAt;
+    expect(first.json.progress.attempts['q-quiz']).toMatchObject({ solvedAt: firstAt, lastSolvedAt: firstAt, solves: 1 });
+
+    await new Promise((r) => setTimeout(r, 5));
+    const again = await solve({ challengeId: 'q-quiz', answer: 1 });
+    const row = again.json.progress.attempts['q-quiz'];
+    expect(row.solvedAt).toBe(firstAt);
+    expect(row.lastSolvedAt > firstAt).toBe(true);
+    expect(row.solves).toBe(2);
+  });
+
+  it('counts a row written before `solves` existed as solved once', async () => {
+    const old = { challengeId: 'q-quiz', score: 100, attempts: 1, hintsUsed: 0, solvedAt: '2026-01-02T10:00:00.000Z' };
+    store.setProgress('u1', { ...store.getProgress('u1'), completedChallenges: ['q-quiz'], attempts: { 'q-quiz': old } });
+    const res = await solve({ challengeId: 'q-quiz', answer: 1 });
+    expect(res.json.progress.attempts['q-quiz']).toMatchObject({ solvedAt: '2026-01-02T10:00:00.000Z', solves: 2 });
+  });
+});
+
+describe('the day row', () => {
+  it('counts only XP that was awarded', async () => {
+    const first = await solve({ challengeId: 'q-quiz', answer: 1 }, { zone: 'UTC' });
+    expect(first.json.today).toMatchObject({ xp: 40, lessons: 1, reSolves: 0, tests: 0 });
+    const again = await solve({ challengeId: 'q-quiz', answer: 1 }, { zone: 'UTC' });
+    expect(again.json.today).toMatchObject({ xp: 40, lessons: 1, reSolves: 1 });
+    const test = await solve({ challengeId: 't-test', answer: 0 }, { zone: 'UTC' });
+    expect(test.json.today).toMatchObject({ xp: 190, lessons: 1, tests: 1, reSolves: 1 });
+    expect(test.json.today.day).toBe(first.json.progress.lastActiveDay);
+  });
+
+  it('carries the settings revision', async () => {
+    const res = await solve({ challengeId: 'q-quiz', answer: 1 });
+    expect(res.json.settingsRevision).toBe(0);
+  });
+});
+
+describe('rules from the settings store', () => {
+  it('changing xp.passScore moves the 422 threshold at once', async () => {
+    // 4 tries = 70 raw: passes at 60.
+    expect((await solve({ challengeId: 'q-quiz', answer: 1, attempts: 4 })).status).toBe(200);
+
+    const update = app.learningDeps.settings.update({ revision: 0, patch: { xp: { passScore: 70 } }, adminId: 'admin' });
+    expect(update.ok).toBe(true);
+
+    // 5 tries = 60 raw: now below the mark, and the message says so.
+    const below = await solve({ challengeId: 'q-blank', answer: ['x'], attempts: 5 });
+    expect(below.status).toBe(422);
+    expect(below.json.error).toContain('pass mark of 70%');
+    const at = await solve({ challengeId: 'q-blank', answer: ['x'], attempts: 4 });
+    expect(at.status).toBe(200);
+    expect(at.json.settingsRevision).toBe(1);
+  });
+
+  it('prices with the penalties from the store, and levels with its curve', async () => {
+    app.learningDeps.settings.update({ revision: 0, patch: { xp: { retryPenalty: 20 }, levels: { thresholds: [0, 10, 20, 30] } } });
+    const res = await solve({ challengeId: 'q-quiz', answer: 1, attempts: 2 });
+    expect(res.json).toMatchObject({ awardedXp: 32, score: 80 });
+    expect(res.json.progress.level).toBe(4);
+  });
+});
+
+describe('merge with activity', () => {
+  // One guest session, fixed in time, so sending it twice sends the same thing.
+  const NOW = Date.now();
+  const iso = (ago) => new Date(NOW - ago).toISOString();
+  const today = iso(0).slice(0, 10);
+  const guest = () => ({
+    progress: {
+      completedChallenges: ['q-quiz'],
+      attempts: { 'q-quiz': { attempts: 1, hintsUsed: 0, solvedAt: iso(2 * 86_400_000) } }
+    },
+    activity: {
+      days: {},
+      misses: {
+        'q-blank': { count: 2, firstAt: iso(3600_000), lastAt: iso(0), lastDay: today, lastDayCount: 2, open: true, revealed: 0, keys: { 'b0:y': 2 }, lastAnswer: { kind: 'blanks', values: ['y'] } }
+      },
+      missLog: [
+        { challengeId: 'q-blank', at: iso(3600_000), day: today, context: 'lesson', answer: { kind: 'blanks', values: ['y'] }, final: false },
+        // Correct - a forged "miss" that the server re-grades and drops.
+        { challengeId: 'q-blank', at: iso(1800_000), day: today, context: 'lesson', answer: { kind: 'blanks', values: ['x'] }, final: false },
+        // A challenge that does not exist.
+        { challengeId: 'ghost', at: iso(0), day: today, context: 'lesson', answer: null, final: false }
+      ]
+    }
+  });
+
+  it('is idempotent', async () => {
+    const once = await app.call('POST', '/progress/merge', { user: 'u1', zone: 'UTC', body: guest() });
+    expect(once.json.awardedXp).toBe(40);
+    const logAfterOnce = JSON.stringify(store.getActivity('u1'));
+
+    const twice = await app.call('POST', '/progress/merge', { user: 'u1', zone: 'UTC', body: guest() });
+    expect(twice.json.awardedXp).toBe(0);
+    expect(twice.json.progress.xp).toBe(40);
+    expect(JSON.stringify(store.getActivity('u1'))).toBe(logAfterOnce);
+  });
+
+  it('credits the solve on its own day, and keeps only real misses', async () => {
+    const res = await app.call('POST', '/progress/merge', { user: 'u1', zone: 'UTC', body: guest() });
+    const solvedDay = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+    expect(res.json.activity.days[solvedDay]).toMatchObject({ xp: 40, lessons: 1 });
+    expect(res.json.activity.misses['q-blank'].count).toBe(2);
+    const log = store.getActivity('u1');
+    expect(log.missLog).toHaveLength(1);
+    expect(log.missLog[0].answer).toEqual({ kind: 'blanks', values: ['y'] });
+  });
+
+  it('clamps a future or ancient solve time to now', async () => {
+    const before = Date.now();
+    const res = await app.call('POST', '/progress/merge', {
+      user: 'u1',
+      body: {
+        progress: {
+          completedChallenges: ['q-quiz', 'q-blank'],
+          attempts: { 'q-quiz': { solvedAt: '2099-01-01T00:00:00Z' }, 'q-blank': { solvedAt: '2001-01-01T00:00:00Z' } }
+        }
+      }
+    });
+    for (const id of ['q-quiz', 'q-blank']) {
+      const at = Date.parse(res.json.progress.attempts[id].solvedAt);
+      expect(at).toBeGreaterThanOrEqual(before - 1000);
+      expect(at).toBeLessThanOrEqual(Date.now() + 1000);
+    }
+  });
+
+  it('never lets a merged future day become the learner’s day', async () => {
+    const res = await app.call('POST', '/progress/merge', { user: 'u1', zone: 'UTC', body: { progress: { lastActiveDay: '2099-01-01', streak: 3 } } });
+    expect(res.json.progress.lastActiveDay).toBeNull();
+  });
+});
+
+describe('reset and activity', () => {
+  it('clears the misses and keeps the days', async () => {
+    await solve({ challengeId: 'q-quiz', answer: 1 }, { zone: 'UTC' });
+    await app.call('POST', '/activity/misses', { user: 'u1', zone: 'UTC', body: { misses: [{ challengeId: 'q-blank', answer: ['nope'] }] } });
+    const before = store.getActivity('u1');
+    expect(Object.keys(before.misses)).toEqual(['q-blank']);
+
+    await app.call('POST', '/progress/reset', { user: 'u1' });
+    const after = store.getActivity('u1');
+    expect(after.misses).toEqual({});
+    expect(after.missLog).toEqual([]);
+    expect(after.days).toEqual(before.days);
+  });
+});

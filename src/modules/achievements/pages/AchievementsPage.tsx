@@ -1,9 +1,8 @@
 import React, { useMemo } from 'react';
 import { Award, Code2, Flame, Star, Swords } from 'lucide-react';
 import { PageHeader, ProgressBar, SectionHeader, Stat } from '@/ui';
-import { useSession } from '@/platform/session';
-import { levelProgress, xpForLevel } from '@/platform/xp-leveling/leveling';
-import { achievements, rankTitle, relativeDay } from '@/platform/xp-leveling/insights';
+import { useLeveling, useSession } from '@/platform/session';
+import { achievements, relativeDay } from '@/platform/xp-leveling/insights';
 
 /** Display names for the few languages whose slug does not read well capitalised. */
 const LANGUAGE_LABEL: Record<string, string> = { cpp: 'C++', javascript: 'JavaScript', sql: 'SQL', html: 'HTML', css: 'CSS' };
@@ -22,6 +21,7 @@ const ICONS = {
  */
 export const AchievementsPage: React.FC = () => {
   const { stats, stages, allChallenges } = useSession();
+  const { levelProgress, xpForLevel, rankTitle } = useLeveling();
   const level = levelProgress(stats.xp);
   const solved = useMemo(() => new Set(stats.completedChallenges), [stats.completedChallenges]);
 

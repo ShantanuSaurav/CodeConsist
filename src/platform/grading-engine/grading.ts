@@ -176,3 +176,42 @@ export function sameSet(a: number[], b: number[]): boolean {
   const sortedB = [...b].sort((x, y) => x - y);
   return sortedA.every((v, i) => v === sortedB[i]);
 }
+
+/** The parts of a challenge that decide whether a non-code answer is right. */
+export interface GradableChallenge {
+  type: string;
+  correctIndex?: number;
+  correctIndices?: number[];
+  blanks?: { answer: string; alternatives?: string[] }[];
+  pseudocodeLines?: string[];
+}
+
+/**
+ * Is `answer` correct for a non-code challenge? The server's authoritative
+ * check (server/index.js verifies every solve with it, and the activity
+ * routes use it to refuse a "miss" that is actually right). Code challenges
+ * are graded by running their tests, so they are never correct here.
+ */
+export function gradeAnswer(challenge: GradableChallenge, answer: unknown): boolean {
+  switch (challenge.type) {
+    case 'quiz':
+    case 'output_prediction':
+      return Number(answer) === challenge.correctIndex;
+    case 'multi_select':
+      return Array.isArray(answer) && sameSet(answer.map(Number), challenge.correctIndices ?? []);
+    case 'fill_blank':
+      return (
+        Array.isArray(answer) &&
+        answer.length === (challenge.blanks ?? []).length &&
+        (challenge.blanks ?? []).every((b, i) => checkBlank(String(answer[i] ?? ''), b.answer, b.alternatives ?? []))
+      );
+    case 'pseudocode_order':
+      return (
+        Array.isArray(answer) &&
+        answer.length === (challenge.pseudocodeLines ?? []).length &&
+        answer.every((line, i) => String(line) === (challenge.pseudocodeLines ?? [])[i])
+      );
+    default:
+      return false;
+  }
+}

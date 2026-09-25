@@ -1,8 +1,7 @@
 import React from 'react';
 import { Check, Lock } from 'lucide-react';
-import { useSession } from '@/platform/session';
-import { levelProgress } from '@/platform/xp-leveling/leveling';
-import { nextRankLevel, rankTitle, solvedOn } from '@/platform/xp-leveling/insights';
+import { useLeveling, useSession } from '@/platform/session';
+import { dayTotals } from '@/platform/xp-leveling/insights';
 import { ProgressBar, Stat } from '@/ui';
 import { Reveal, useInView } from './Reveal';
 
@@ -10,9 +9,11 @@ const DAILY_GOAL = 3;
 
 /** "Progress you can see" - every figure here is the visitor's real number. */
 export const Gamification: React.FC = () => {
-  const { stats, stages } = useSession();
+  const { stats, stages, activity, todayKey } = useSession();
+  const { levelProgress, nextRankLevel, rankTitle } = useLeveling();
   const level = levelProgress(stats.xp);
-  const today = solvedOn(stats).length;
+  // Every solve today, re-solves included - from the day log, in the learner's own zone.
+  const today = dayTotals(activity, todayKey).solves;
   const goalPercent = Math.min(100, Math.round((today / DAILY_GOAL) * 100));
   const nextRank = nextRankLevel(level.level);
   const shown = stages.slice(0, 5);

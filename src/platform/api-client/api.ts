@@ -4,8 +4,11 @@
  * Every call degrades gracefully: if the server is not running the app keeps
  * working against localStorage, it just says so instead of silently pretending.
  */
-import { Challenge, CodeDraft, ExecutionResult, LeaderboardEntry, TestCase, UserProfile, UserStats } from '@/types';
+import { ActivityContext, ActivityLog, Challenge, CodeDraft, DayRecord, ExecutionResult, LeaderboardEntry, MissSummary, TestCase, UserProfile, UserStats } from '@/types';
 import { STORAGE_KEYS, readString, remove, writeString } from '../storage/storage';
+import { browserTimeZone } from '../time/days';
+import type { ActivityView } from '../activity/log';
+import type { PublicSettings } from '../settings/types';
 
 const BASE = '/api';
 
@@ -50,6 +53,15 @@ async function request<T>(
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const token = auth ? getToken() : null;
   if (token) headers.Authorization = `Bearer ${token}`;
+  // The learner's own zone, so the server counts their days in it (the write
+  // routes store it on the account). A browser whose Intl will not say, or
+  // throws, simply sends nothing - it must never break the request.
+  try {
+    const zone = browserTimeZone();
+    if (zone) headers['X-Time-Zone'] = zone;
+  } catch {
+    /* no zone header */
+  }
 
   // The timer covers headers AND body. Clearing it as soon as headers arrived
   // left the body read unbounded, and a connection dropped mid-body surfaced
@@ -168,6 +180,61 @@ export interface HealthResponse {
    * keep working against one - `judge0` above stays the fallback.
    */
   runtimes?: Record<string, RuntimeInfo>;
+  /**
+   * The revision of the admin's learning rules. When it differs from the
+   * cached one the client refetches `GET /api/settings`. Absent from an older
+   * server, which means "use the defaults".
+   */
+  settingsRevision?: number;
+}
+
+/** What `GET /api/settings` returns: the learner-facing rules and their revision. */
+export interface SettingsResponse {
+  revision: number;
+  settings: PublicSettings;
+}
+
+/** The day a solve or a miss landed on, as the server recorded it. */
+export type TodayRow = DayRecord & { day: string };
+
+export interface SolveResponse {
+  progress: ServerProgress;
+  awardedXp: number;
+  score: number;
+  firstSolve: boolean;
+  verified: boolean;
+  /** Absent from an older server. */
+  settingsRevision?: number;
+  today?: TodayRow;
+}
+
+export interface MergeResponse {
+  progress: ServerProgress;
+  mergedChallenges?: number;
+  awardedXp?: number;
+  /** The account's activity after the merge. Absent from an older server. */
+  activity?: ActivityView;
+}
+
+/** One wrong answer on its way to `POST /api/activity/misses`. */
+export interface MissUpload {
+  challengeId: string;
+  /** The answer as the practice modal holds it (non-code challenges). */
+  answer?: unknown;
+  /** Pass counts of a failed run (code challenges). */
+  code?: { passed: number; total: number };
+  context?: ActivityContext;
+  /** The answer was shown after this miss. */
+  final?: boolean;
+  /** When it happened, if it was queued. */
+  at?: string;
+}
+
+export interface MissesResponse {
+  accepted: number;
+  dropped: number;
+  today: TodayRow;
+  misses: Record<string, MissSummary>;
 }
 
 /* ----------------------------------------------------------------- billing */
@@ -395,22 +462,51 @@ export const api = {
     challengeId: string,
     attempts: number,
     hintsUsed: number,
-    submission: { answer?: unknown; code?: string } = {}
-  ): Promise<{
-    progress: ServerProgress;
-    awardedXp: number;
-    score: number;
-    firstSolve: boolean;
-    verified: boolean;
-  }> {
+    submission: { answer?: unknown; code?: string; context?: ActivityContext } = {}
+  ): Promise<SolveResponse> {
     return request('/progress/solve', {
       method: 'POST',
       body: { challengeId, attempts, hintsUsed, ...submission }
     });
   },
 
-  async mergeProgress(progress: Partial<ServerProgress>): Promise<{ progress: ServerProgress }> {
-    return request('/progress/merge', { method: 'POST', body: { progress } });
+  /**
+   * Carry local progress into the account: a guest's on sign-in, or this
+   * account's own offline copy. `activity` (days, miss summaries, recent
+   * misses - trimmed by the caller to stay under the 256 kB body limit) is
+   * merged idempotently, so sending it twice never counts anything twice.
+   *
+   * Should the body still be too large (413), the progress goes up again on
+   * its own: the solves are what a sign-in or a sign-out must not lose, and
+   * the log is only history.
+   */
+  async mergeProgress(
+    progress: Partial<ServerProgress>,
+    activity?: Pick<ActivityLog, 'days' | 'misses' | 'missLog'>
+  ): Promise<MergeResponse> {
+    try {
+      return await request<MergeResponse>('/progress/merge', { method: 'POST', body: activity ? { progress, activity } : { progress } });
+    } catch (err) {
+      if (activity && err instanceof ApiError && err.status === 413) {
+        return request<MergeResponse>('/progress/merge', { method: 'POST', body: { progress } });
+      }
+      throw err;
+    }
+  },
+
+  /** The learner-facing rules. Public: guests play by the same rules. */
+  async settings(): Promise<SettingsResponse> {
+    return request('/settings', { auth: false, timeoutMs: 10000 });
+  },
+
+  /** The account's days from `from` (default: the last 14 weeks) and its miss summaries. */
+  async activity(from?: string): Promise<ActivityView> {
+    return request(`/activity${from ? `?from=${encodeURIComponent(from)}` : ''}`);
+  },
+
+  /** Record wrong answers (1-50). `keepalive` lets the request outlive a closing tab. */
+  async recordMisses(misses: MissUpload[], options: { keepalive?: boolean } = {}): Promise<MissesResponse> {
+    return request('/activity/misses', { method: 'POST', body: { misses }, keepalive: options.keepalive });
   },
 
   async resetProgress(): Promise<{ progress: ServerProgress }> {

@@ -13,3 +13,4 @@ numbered file rather than editing history; supersede with a note.
 | [0005](0005-challenge-type-registry.md) | Challenge types are a registry, not a switch |
 | [0006](0006-code-splitting-and-async-content.md) | Every screen is a chunk; the content bank loads after the shell paints |
 | [0007](0007-tracks-learning-modes-admin.md) | Language tracks, Learn/Practice modes, server-side Judge0 and the admin console |
+| [0008](0008-settings-store-and-activity-log.md) | One settings store for every learning rule; a daily activity log in the learner's own time zone |
