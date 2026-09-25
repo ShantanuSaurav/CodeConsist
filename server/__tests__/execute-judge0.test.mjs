@@ -21,7 +21,8 @@ import {
   javaEntryPoint,
   judge0Headers,
   resolveJudge0Config,
-  runJudge0Submission
+  runJudge0Submission,
+  runtimeUnavailableMessage
 } from '../judge0.js';
 
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
@@ -453,6 +454,15 @@ describe('failures that will actually happen', () => {
     // and it is the one that costs a signup and a rate limit.
     expect(result.stderr).toContain('docs/RUNNING-JAVA-C-CPP.md');
     expect(result.stderr.indexOf('Docker')).toBeLessThan(result.stderr.indexOf('RapidAPI'));
+  });
+
+  it('has a learner-facing sentence for the same situation, with no setup steps in it', () => {
+    // /api/execute sends this as stderr and the setup hint above as devHint,
+    // which only a development build of the client shows.
+    for (const language of ['java', 'c', 'cpp', 'go']) {
+      expect(runtimeUnavailableMessage(language)).not.toMatch(/npm run|\.env|Docker|Judge0|JUDGE0/);
+    }
+    expect(runtimeUnavailableMessage('cpp')).toContain('C++');
   });
 });
 

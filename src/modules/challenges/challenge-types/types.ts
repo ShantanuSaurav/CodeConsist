@@ -9,6 +9,12 @@ export interface AnswerRendererProps {
   onAnswer: (answer: Answer) => void;
   checked: boolean;
   locked: boolean;
+  /**
+   * May a wrong check show the right answer (expected blanks, the correct
+   * option, the correct order)? False on stage tests - see session/rules.ts.
+   * Wrong positions are still marked either way.
+   */
+  reveal: boolean;
 }
 
 /** Props for code-style renderers (write the code, fix the bug). */

@@ -45,7 +45,8 @@ import {
   buildRuntimes,
   judge0SetupHint,
   resolveJudge0Config,
-  runJudge0Submission
+  runJudge0Submission,
+  runtimeUnavailableMessage
 } from './judge0.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -838,6 +839,12 @@ app.post(
   asyncRoute(async (req, res) => {
     const challenge = getChallengeMerged(String(req.body?.challengeId ?? ''));
     if (!challenge) return res.status(404).json({ error: 'Unknown challenge.' });
+    // A public route that answers right/wrong plus the explanation, for free
+    // and as often as asked, is an answer key for the stage tests - which are
+    // the gate between stages. They are graded only by a real solve.
+    if (challenge.isStageTest) {
+      return res.status(400).json({ error: 'Stage tests are graded when you submit them.', reason: 'stage-test' });
+    }
     if (challenge.type === 'code_runner' || challenge.type === 'debug') {
       return res.status(400).json({ error: `${challenge.type} is graded by running its tests.` });
     }
@@ -1053,12 +1060,16 @@ app.post(
       if (!JUDGE0_CONFIGURED) {
         // Be honest rather than pretending to compile. JavaScript and Python
         // keep working with zero setup; this is the one thing that genuinely
-        // needs a sandbox we do not own. The hint leads with the free local
-        // judge - see server/judge0.js.
+        // needs a sandbox we do not own. `stderr` is what a learner reads;
+        // the setup steps (which lead with the free local judge - see
+        // server/judge0.js) travel as `devHint`, which the client shows in a
+        // development build only.
         return res.status(501).json({
           status: 'error',
           engine: 'none',
-          stderr: judge0SetupHint(language),
+          reason: 'runtime-unavailable',
+          stderr: runtimeUnavailableMessage(language),
+          devHint: judge0SetupHint(language),
           testResults: []
         });
       }

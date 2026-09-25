@@ -35,7 +35,7 @@ export const VerifyPage: React.FC = () => {
         if (cancelled) return;
         setState({
           kind: 'error',
-          message: err instanceof OfflineError ? 'The API server is not reachable, so the code cannot be checked right now.' : err instanceof Error ? err.message : 'Could not check that code.'
+          message: err instanceof OfflineError ? 'Certificate checks are temporarily unavailable. Please try again in a little while.' : err instanceof Error ? err.message : 'Could not check that code.'
         });
       });
     return () => {

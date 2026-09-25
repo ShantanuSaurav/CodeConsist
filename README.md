@@ -1,12 +1,16 @@
 # CodeConsist
 
-The developer training environment. 232 hand-checked lessons across 12 stages
-on three tracks - the ten-stage developer path plus C and C++ - each stage
-capped by a mandatory test, all graded for real. Two ways through: **Learn
-mode** teaches each new idea before asking about it (theory → example → try it
-→ quick check → practice); **Practice mode** goes straight to the questions.
-Wrapped in a landing page, a dashboard with XP, streaks, ten roadmap.sh-style
-roadmaps, a reading article per stage, a leaderboard and an admin console.
+The developer training environment. Hand-checked lessons on a staged path -
+the ten-stage developer path plus C and C++ tracks - each stage capped by a
+mandatory test, all graded for real. Two ways through: **Learn mode** teaches
+each new idea before asking about it (theory → example → try it → quick check
+→ practice); **Practice mode** goes straight to the questions. Wrapped in a
+landing page, a dashboard with XP, streaks, ten roadmap.sh-style roadmaps, a
+reading article per stage, a leaderboard and an admin console.
+
+<!-- content-stats:start -->
+**234 lessons and 12 stage tests across 12 stages on 3 tracks** (10 free, 2 premium) - Developer path: 204 lessons in 10 stages · C: 15 lessons in 1 stage · C++: 15 lessons in 1 stage.
+<!-- content-stats:end -->
 
 Everything runs on your machine. No cloud account, no Docker, no native build step.
 
@@ -44,7 +48,7 @@ npm start          # app + API together on http://localhost:4000
 | `/` | Landing page - hero, how it works, a real challenge to try, your own streak and level |
 | `/dashboard` | Streak, XP, level, "continue learning", activity heatmap, daily goals, achievements |
 | `/dashboard/learn` | Pick a track (developer path, C, C++), choose Learn or Practice, and work the stages and their tests |
-| `/dashboard/challenges` | Search and filter all 244 challenges, by track, stage, type, difficulty and status |
+| `/dashboard/challenges` | Search and filter every challenge, by track, stage, type, difficulty and status |
 | `/dashboard/practice` | Playground - run JavaScript or Python for real; Java, C and C++ through Judge0 when configured |
 | `/dashboard/roadmap` | Developer roadmaps (roadmap.sh-style) plus your track as one connected path |
 | `/dashboard/roadmap/:slug` | One roadmap: topic graph, per-topic notes and links, done/learning/skip tracking |
@@ -59,9 +63,8 @@ into an account when you sign in. Light and dark themes throughout.
 
 ## What is in the box
 
-**232 lessons** (the ten core stages have 20 each - Stage 1 opens with two
-extra concept-led lessons - and the C and C++ stages 15 each), in seven
-formats, plus one stage test per stage:
+**The lessons** (counted at the top of this file; Stage 1 opens with two extra
+concept-led lessons) come in seven formats, plus one stage test per stage:
 
 | Type | What you do |
 | --- | --- |
@@ -190,7 +193,8 @@ admin record on each request; nothing in the browser is the gate.
 | `npm run content:validate` | Correctness check: structure (incl. concepts and tracks) + really run every solution |
 | `npm run content:lint` | Quality check: leaked hints, duplicate options, answer bias |
 | `npm run content:extras` | Validate the articles and roadmaps (sections, tags, node ids, URLs) |
-| `npm run content:links` | The same, plus a live check of every external link |
+| `npm run content:stats` | Check that the content counts in this README and the `package.json` description match the bank; `node scripts/content-stats.mjs --write` updates them |
+| `npm run content:links` | The same as `content:extras`, plus a live check of every external link (not part of `check`: it needs the network) |
 
 ## Adding challenges
 

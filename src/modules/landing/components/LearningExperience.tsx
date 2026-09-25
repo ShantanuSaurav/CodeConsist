@@ -10,7 +10,8 @@ const FORMATS = [
   ['Quiz & output prediction', 'Read a snippet, say exactly what it prints.'],
   ['Fill the blanks & ordering', 'Complete code inline, or put pseudocode in the right order.'],
   ['Code & debug', 'Write the function or fix the planted bug. Graded by real test runs.'],
-  ['Stage tests', 'One coding problem with hidden cases at the end of every stage.']
+  // Not "a coding problem with hidden cases": the C and C++ stage tests are fill-in-the-blank.
+  ['Stage tests', 'One mandatory test at the end of every stage.']
 ];
 
 /** Short code challenges only, so the starter code fits the panel. */

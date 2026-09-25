@@ -4,7 +4,7 @@ import { Menu, X } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
-import { DevlingoLogo, PageSkeleton } from '@/ui';
+import { DevHint, DevlingoLogo, PageSkeleton } from '@/ui';
 
 /**
  * The app shell: fixed sidebar on desktop, a drawer on small screens.
@@ -75,9 +75,17 @@ export const DashboardLayout: React.FC = () => {
         {isGuest && (
           <div className="px-4 sm:px-8 h-10 text-sm bg-surface border-b border-border text-fg-secondary flex items-center justify-between gap-3">
             <span className="truncate">
-              Practising as a guest — progress is saved in this browser
-              {stats.completedChallenges.length > 0 ? ` (${stats.completedChallenges.length} solved so far)` : ''}.
-              {serverStatus === 'offline' && ' The API is offline, so accounts are unavailable right now.'}
+              {serverStatus === 'offline' ? (
+                <>
+                  Sync is temporarily unavailable - your progress is saved on this device.
+                  <DevHint> The API is offline: start it with npm run dev:api.</DevHint>
+                </>
+              ) : (
+                <>
+                  Practising as a guest — progress is saved in this browser
+                  {stats.completedChallenges.length > 0 ? ` (${stats.completedChallenges.length} solved so far)` : ''}.
+                </>
+              )}
             </span>
             {serverStatus !== 'offline' && (
               <button type="button" onClick={openAuthModal} className="shrink-0 font-medium text-fg hover:text-accent">

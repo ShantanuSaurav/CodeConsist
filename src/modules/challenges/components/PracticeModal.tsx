@@ -8,6 +8,7 @@ import { PASS_SCORE, isPassingSolve, rawScore } from '@/platform/xp-leveling/lev
 import { CodeBlock, LearningModeSwitch, useBodyScrollLock, useFocusTrap } from '@/ui';
 import { checkAnswer, definitionFor, emptyAnswer, isAnswerComplete, isCodeChallenge, typeLabel } from '../challenge-types';
 import { usePracticeSession } from '../session/PracticeSessionProvider';
+import { canRevealSolution, contextForMode, revealsAnswers } from '../session/rules';
 import { ConceptTeaching, LessonComplete, PracticeExercise } from './lesson';
 import { LearningModeChooser } from './LearningModeChooser';
 
@@ -51,6 +52,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   useBodyScrollLock(Boolean(activeStage));
 
   const isTestMode = activeMode === 'test';
+  const answerContext = contextForMode(activeMode);
   const challenges = activeChallenges;
   const challenge: Challenge | undefined = challenges[activeChallengeIndex];
 
@@ -496,6 +498,12 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const nextStage = trackStages[trackStages.findIndex((s) => s.id === activeStage.id) + 1];
   const canCheck = isAnswerComplete(challenge, currentAnswer);
   const alreadySolved = stats.completedChallenges.includes(challenge.id);
+  // A stage test (or anything taken as a test) never shows its answer: no
+  // expected blanks, no correct option, no explanation after a wrong try and
+  // no worked solution. Otherwise one wrong check hands over the answer and
+  // the retry passes.
+  const reveal = revealsAnswers(answerContext, challenge);
+  const solutionOffered = isCodeType(challenge) && canRevealSolution({ challenge, context: answerContext, isCorrect, attempts });
 
   // One quiet line under the editor, so nobody has to wonder whether their
   // work is safe. Empty until there is something true to say.
@@ -754,6 +762,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       onAnswer={handleAnswer}
                       checked={checked}
                       locked={checked && isCorrect}
+                      reveal={reveal}
                     />
                   );
                 }
@@ -784,7 +793,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       progressMessage={progressMessage}
                       result={execResult}
                       locked={checked && isCorrect}
-                      showSolution={showSolution}
+                      showSolution={showSolution && reveal}
                       onReset={startFromScratch}
                     />
                   </>
@@ -869,26 +878,28 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       in full - never just "wrong, try again" - and names the
                       option that was picked so it is clear why THAT fails too.
                       Practice mode keeps the question a question: one more
-                      look before the explanation is given away.
+                      look before the explanation is given away. A stage test
+                      never explains a wrong answer - the explanation is the
+                      answer.
                     */}
                     {failedPass !== null ? (
                       <span>
                         That took too many tries or hints to count. The lesson is not marked done - retry it for a fresh attempt.
                       </span>
-                    ) : learnMode ? (
+                    ) : learnMode && (isCorrect || reveal) ? (
                       <>
                         {!isCorrect && selectedOptionText && <span>You answered "{selectedOptionText}". </span>}
                         <span>{challenge.explanation}</span>
                       </>
                     ) : (
-                      <span>{isCorrect || attempts >= 2 ? challenge.explanation : 'Have another look.'}</span>
+                      <span>{isCorrect || (reveal && attempts >= 2) ? challenge.explanation : 'Have another look.'}</span>
                     )}
                   </div>
                 </div>
               )}
 
-              {/* Only offered once they have genuinely tried. */}
-              {isCodeType(challenge) && !isCorrect && attempts >= 2 && challenge.solutionCode && (
+              {/* Only offered once they have genuinely tried - and never on a stage test. */}
+              {solutionOffered && (
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"

@@ -24,6 +24,7 @@ import { BadgeToaster } from '@/modules/achievements';
 import { DashboardLayout } from './layout/DashboardLayout';
 import { useContentBundle } from './content';
 import { lazyPage } from './lazy';
+import { NotFoundRoute } from './routes/NotFoundRoute';
 
 /* Screens - one chunk each; screens that compose two modules live in ./routes. */
 const Landing = lazyPage(() => import('@/modules/landing'), 'Landing');
@@ -103,6 +104,8 @@ const AppRoutes: React.FC = () => (
       <Route path="leaderboard" element={<LeaderboardPage />} />
       <Route path="achievements" element={<AchievementsPage />} />
       <Route path="settings" element={<SettingsPage />} />
+      {/* A dead link under /dashboard keeps the sidebar. */}
+      <Route path="*" element={<NotFoundRoute inFrame />} />
     </Route>
 
     <Route
@@ -146,7 +149,9 @@ const AppRoutes: React.FC = () => (
       }
     />
 
-    <Route path="*" element={<Navigate to={ROUTES.landing} replace />} />
+    {/* A real "not found" page rather than a silent redirect home, which made
+        a mistyped or outdated link look like the site had lost its place. */}
+    <Route path="*" element={<NotFoundRoute />} />
   </Routes>
 );
 

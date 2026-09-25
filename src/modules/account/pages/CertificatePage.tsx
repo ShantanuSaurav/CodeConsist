@@ -45,7 +45,7 @@ export const CertificatePage: React.FC = () => {
       .catch((err) => {
         if (cancelled) return;
         if (err instanceof ApiError && (err.status === 404 || err.status === 401)) setState({ kind: 'missing' });
-        else if (err instanceof OfflineError) setState({ kind: 'error', message: 'The API server is not reachable.' });
+        else if (err instanceof OfflineError) setState({ kind: 'error', message: 'CodeConsist is temporarily unavailable. Please try again in a little while.' });
         else setState({ kind: 'error', message: err instanceof Error ? err.message : 'Could not load the certificate.' });
       });
     return () => {

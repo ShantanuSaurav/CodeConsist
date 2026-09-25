@@ -114,7 +114,7 @@ function nameFromUsername(username: string | undefined): string {
 }
 
 function messageOf(err: unknown, fallback: string): string {
-  if (err instanceof OfflineError) return 'The API server is not reachable, so nothing can be bought right now.';
+  if (err instanceof OfflineError) return 'Checkout is temporarily unavailable. Please try again in a little while.';
   if (err instanceof ApiError || err instanceof Error) return err.message || fallback;
   return fallback;
 }

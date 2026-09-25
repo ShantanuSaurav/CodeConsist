@@ -160,9 +160,22 @@ content loaders agree (`content:parity`), runs `validate-content.mjs`
 (correctness: the zod schema, plus really executing every JavaScript and Python
 solution), `lint-content.mjs` (quality: hints that leak the answer, duplicate
 options, near-duplicate challenges, thin explanations, answer-position bias),
-`validate-extras.mjs` (articles and roadmaps) and the unit tests. A stage
-without an article is reported as a warning (its card simply offers no "Read
-first"); the C and C++ tracks are in that state today.
+`validate-extras.mjs` (articles and roadmaps), `content-stats.mjs --check`
+(`content:stats`: the lesson, stage-test, stage and track counts written in
+`README.md` and the `package.json` description still match the bank) and the
+unit tests. A stage without an article is reported as a warning (its card
+simply offers no "Read first"); the C and C++ tracks are in that state today.
+
+Adding or removing a lesson, a stage or a track fails `content:stats` until the
+written numbers catch up. Do not edit them by hand - run
+
+```bash
+node scripts/content-stats.mjs --write
+```
+
+and commit the `README.md` and `package.json` changes with your content. The
+meta description in `index.html` needs nothing: the build fills it from the
+bank.
 
 While `npm run dev` is running you get the same message two ways: the API
 refuses to restart on a bad file (its terminal shows the path and the field),

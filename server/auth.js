@@ -17,7 +17,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'node:url';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -44,14 +44,21 @@ export async function initAuthSecret() {
     SECRET = process.env.JWT_SECRET;
     return SECRET;
   }
-  const file = path.join(HERE, 'data', '.jwt-secret');
+  // Same folder as the database (server/db.js): DATA_DIR when set, otherwise
+  // server/data. Writing to server/data regardless crashed any server started
+  // with DATA_DIR pointing elsewhere, because server/data did not exist.
+  const dataDir = process.env.DATA_DIR
+    ? path.resolve(path.join(HERE, '..'), process.env.DATA_DIR)
+    : path.join(HERE, 'data');
+  const file = path.join(dataDir, '.jwt-secret');
   if (existsSync(file)) {
     SECRET = (await readFile(file, 'utf8')).trim();
     return SECRET;
   }
   const generated = crypto.randomBytes(48).toString('hex');
+  await mkdir(dataDir, { recursive: true });
   await writeFile(file, generated, 'utf8');
-  console.log('[auth] generated a new JWT secret at server/data/.jwt-secret');
+  console.log(`[auth] generated a new JWT secret at ${file}`);
   SECRET = generated;
   return SECRET;
 }

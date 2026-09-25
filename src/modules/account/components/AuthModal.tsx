@@ -5,6 +5,7 @@ import { oauthStartUrl } from '@/platform/api-client/api';
 import { useFocusTrap } from '@/ui/hooks/useFocusTrap';
 import { Button } from '@/ui/primitives/Button';
 import { DevlingoLogo } from '@/ui/primitives/DevlingoLogo';
+import { DevHint } from '@/ui/primitives/DevHint';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -153,8 +154,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         <div className="modal-body">
           {offline && (
             <div className="notice notice-warn">
-              The API server is not running, so accounts are unavailable. Start it with <code>npm run dev:api</code>, or keep
-              practising as a guest — progress is saved in this browser either way.
+              Accounts are temporarily unavailable. Keep practising as a guest - your progress is saved on this device.
+              <DevHint>
+                {' '}
+                The API server is not running: start it with <code>npm run dev:api</code>.
+              </DevHint>
             </div>
           )}
 

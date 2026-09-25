@@ -10,6 +10,8 @@ interface Props {
   onAnswer: (answer: Answer) => void;
   checked: boolean;
   locked: boolean;
+  /** Show the correct order after a wrong check. Never on a stage test. */
+  reveal: boolean;
 }
 
 /**
@@ -25,7 +27,8 @@ export const PseudocodeOrderChallenge: React.FC<Props> = ({
   answer,
   onAnswer,
   checked,
-  locked
+  locked,
+  reveal
 }) => {
   // Defensive, for the same reason as FillBlankChallenge: an answer of the
   // wrong shape must degrade to an empty list, never throw mid-render.
@@ -129,7 +132,7 @@ export const PseudocodeOrderChallenge: React.FC<Props> = ({
         })}
       </ol>
 
-      {checked && wrong.size > 0 && (
+      {checked && reveal && wrong.size > 0 && (
         <div className="pseudo-solution">
           <strong>The correct order:</strong>
           <ol>

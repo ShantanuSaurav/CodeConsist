@@ -7,7 +7,7 @@ export const PlaygroundPage: React.FC = () => (
     <PageHeader
       eyebrow="Playground"
       title="Scratchpad"
-      description="HTML, CSS and JavaScript render in a sandboxed frame in this browser. JavaScript runs in a sandboxed Node process (or a Web Worker when the API is offline). Python is CPython compiled to WebAssembly. Java, C and C++ compile through Judge0 when the server has one. Nothing is simulated."
+      description="HTML, CSS and JavaScript render in a sandboxed frame in this browser. JavaScript runs in a sandbox on the CodeConsist server, or right here in your browser when the server is unavailable. Python is CPython compiled to WebAssembly. Java, C and C++ compile on the server when a compiler is set up for them. Nothing is simulated."
     />
     <Playground />
   </div>

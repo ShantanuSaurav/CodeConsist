@@ -77,6 +77,13 @@ export interface ExecutionResult {
   /** Which engine actually ran the code — never lie about this. */
   engine?: string;
   testResults?: TestResult[];
+  /** Why nothing ran, when the server says: 'runtime-unavailable' means it has no engine for this language. */
+  reason?: string;
+  /**
+   * Setup instructions for whoever runs the server (the Judge0 steps). Shown
+   * in development builds only; `stderr` is the sentence a learner reads.
+   */
+  devHint?: string;
 }
 
 /* ==========================================================================

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/platform/session';
-import { Badge, Button, Dropdown, LearningModeSwitch, PageHeader, Switch } from '@/ui';
+import { Badge, Button, DevHint, Dropdown, LearningModeSwitch, PageHeader, Switch } from '@/ui';
 import type { BadgeTone } from '@/ui';
 import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
@@ -230,15 +230,28 @@ export const SettingsPage: React.FC = () => {
             Unlock stages &amp; certificates
           </Button>
         </Row>
-        <Row title="API server">
+        <Row title="Sync">
           <span
-            className={`inline-flex items-center gap-1.5 font-mono text-sm ${
-              serverStatus === 'online' ? 'text-success' : serverStatus === 'checking' ? 'text-fg-muted' : 'text-error'
+            className={`inline-flex items-center gap-1.5 text-sm ${
+              serverStatus === 'checking'
+                ? 'text-fg-muted'
+                : serverStatus !== 'online'
+                  ? 'text-warning'
+                  : signedIn
+                    ? 'text-success'
+                    : 'text-fg-muted'
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden="true" />
-            {serverStatus === 'online' ? 'connected' : serverStatus === 'checking' ? 'checking…' : 'offline'}
+            {serverStatus === 'checking'
+              ? 'Checking…'
+              : serverStatus !== 'online'
+                ? 'Sync paused - saved on this device'
+                : signedIn
+                  ? 'Synced'
+                  : 'Guest - saved on this device'}
           </span>
+          <DevHint className="font-mono text-xs text-fg-muted">API server: {serverStatus === 'online' ? 'connected' : serverStatus}</DevHint>
         </Row>
       </Section>
 

@@ -12,9 +12,10 @@
     "start": "node server/index.js",
     "typecheck": "tsc --noEmit",
     "content:validate": "node scripts/validate-content.mjs",
-    "check": "npm run typecheck && npm run lint:boundaries && npm run content:parity && npm run content:validate && npm run content:lint && npm run content:extras && npm run test",
+    "check": "npm run typecheck && npm run lint:boundaries && npm run content:parity && npm run content:validate && npm run content:lint && npm run content:extras && npm run content:stats && npm run test",
     "content:lint": "node scripts/lint-content.mjs",
     "content:extras": "node scripts/validate-extras.mjs",
+    "content:stats": "node scripts/content-stats.mjs --check",
     "content:links": "node scripts/validate-extras.mjs --links",
     "content:parity": "node scripts/check-content-parity.mjs",
     "lint:boundaries": "node scripts/check-boundaries.mjs",
@@ -47,7 +48,7 @@
     "vite": "^6.2.0",
     "vitest": "^3.2.7"
   },
-  "description": "CodeConsist - the developer training environment. 232 lessons and 12 stage tests across three tracks, guided Learn mode, articles, roadmaps, real code execution and an admin console. Runs end to end on localhost.",
+  "description": "CodeConsist - the developer training environment. 234 lessons and 12 stage tests across 3 tracks, guided Learn mode, articles, roadmaps, real code execution and an admin console. Runs end to end on localhost.",
   "engines": {
     "node": ">=22.9"
   }

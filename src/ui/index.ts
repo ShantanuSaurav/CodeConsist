@@ -7,6 +7,7 @@ export { CodeEditor } from './primitives/CodeEditor';
 export { PageHeader } from './primitives/PageHeader';
 export { LearningModeSwitch } from './primitives/LearningModeSwitch';
 export { ErrorBoundary } from './primitives/ErrorBoundary';
+export { DevHint } from './primitives/DevHint';
 export { ToastProvider, Toasts, useToast } from './primitives/toast';
 export type { Toast, ToastTone } from './primitives/toast';
 export { useFocusTrap } from './hooks/useFocusTrap';

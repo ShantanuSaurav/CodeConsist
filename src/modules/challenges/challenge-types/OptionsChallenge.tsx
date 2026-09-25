@@ -9,10 +9,12 @@ interface Props {
   onAnswer: (answer: Answer) => void;
   checked: boolean;
   locked: boolean;
+  /** Mark the correct option(s) after a wrong check. Never on a stage test. */
+  reveal: boolean;
 }
 
 /** quiz, output_prediction (single choice) and multi_select (several). */
-export const OptionsChallenge: React.FC<Props> = ({ challenge, answer, onAnswer, checked, locked }) => {
+export const OptionsChallenge: React.FC<Props> = ({ challenge, answer, onAnswer, checked, locked, reveal }) => {
   const multi = challenge.type === 'multi_select';
   const selected: number[] = multi
     ? ((answer as number[]) ?? [])
@@ -21,6 +23,11 @@ export const OptionsChallenge: React.FC<Props> = ({ challenge, answer, onAnswer,
       : [];
 
   const correctSet = new Set(multi ? challenge.correctIndices ?? [] : [challenge.correctIndex ?? -1]);
+  // A right answer shows itself as right. A wrong one points at the correct
+  // option only where this question may give it away; otherwise only the
+  // learner's wrong picks are marked.
+  const answeredRight = selected.length === correctSet.size && selected.every((i) => correctSet.has(i));
+  const showCorrect = reveal || answeredRight;
 
   // Display order only - `index` below stays the ORIGINAL index everywhere else.
   const order = useMemo(() => optionOrder(challenge), [challenge]);
@@ -61,8 +68,9 @@ export const OptionsChallenge: React.FC<Props> = ({ challenge, answer, onAnswer,
         const classes = ['option-btn'];
         if (isSelected && !checked) classes.push('selected');
         if (checked) {
-          if (isCorrect) classes.push('correct');
-          else if (isSelected) classes.push('incorrect');
+          if (isCorrect && showCorrect) classes.push('correct');
+          else if (isSelected && !isCorrect) classes.push('incorrect');
+          else if (isSelected) classes.push('selected');
           else classes.push('muted');
         }
 
@@ -80,7 +88,7 @@ export const OptionsChallenge: React.FC<Props> = ({ challenge, answer, onAnswer,
               {multi ? (isSelected ? <Check size={12} strokeWidth={3} /> : '') : String.fromCharCode(65 + position)}
             </span>
             <span className="option-text">{option}</span>
-            {checked && isCorrect && <span className="option-flag">correct</span>}
+            {checked && isCorrect && showCorrect && <span className="option-flag">correct</span>}
           </button>
         );
       })}

@@ -10,13 +10,15 @@ interface Props {
   onAnswer: (answer: Answer) => void;
   checked: boolean;
   locked: boolean;
+  /** Show the expected blanks after a wrong check. Never on a stage test. */
+  reveal: boolean;
 }
 
 /**
  * Fill in the `___` holes. The inputs sit inline inside the rendered snippet,
  * so the learner reads the code exactly as it will end up.
  */
-export const FillBlankChallenge: React.FC<Props> = ({ challenge, answer, onAnswer, checked, locked }) => {
+export const FillBlankChallenge: React.FC<Props> = ({ challenge, answer, onAnswer, checked, locked, reveal }) => {
   const blanks = challenge.blanks ?? [];
   // Defensive: every answer type has a different shape, and a number or null
   // here used to throw on .slice() and take the whole app down. The modal now
@@ -85,7 +87,9 @@ export const FillBlankChallenge: React.FC<Props> = ({ challenge, answer, onAnswe
         showLineNumbers
       />
 
-      {checked && wrong.size > 0 && (
+      {/* The wrong blanks are marked above either way; the answers themselves
+          only where this question may give them away. */}
+      {checked && reveal && wrong.size > 0 && (
         <div className="blank-answers">
           <strong>Expected:</strong>{' '}
           {blanks.map((b, i) => (

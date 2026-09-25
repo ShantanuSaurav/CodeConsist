@@ -26,8 +26,55 @@
  * name and a version, never a URL or a host.
  */
 import { ExecutionResult, SupportedLanguage, TestCase, TestResult } from '@/types';
-import { api, RuntimeInfo } from '../api-client/api';
+import { ENV } from '@/config/env';
+import { api, OfflineError, RuntimeInfo } from '../api-client/api';
 import { displayValue, matchesExpected } from '../grading-engine/grading';
+
+/** Names for the languages the server compiles, for the sentences a learner reads. */
+const SERVER_LANGUAGE_NAMES: Partial<Record<SupportedLanguage, string>> = {
+  java: 'Java',
+  c: 'C',
+  cpp: 'C++',
+  go: 'Go'
+};
+
+/**
+ * What a run says when the server that compiles this language cannot be
+ * reached. A visitor gets plain words; a development build keeps the
+ * instruction for whoever is running the app locally.
+ */
+function serverUnreachableMessage(language: SupportedLanguage): string {
+  if (ENV.isDev) {
+    return (
+      `Could not reach the local API server to run ${language}. Start it with ` +
+      '`npm run dev:api` (or `npm run dev`, which starts both).'
+    );
+  }
+  const name = SERVER_LANGUAGE_NAMES[language] ?? language;
+  return (
+    `${name} runs on the CodeConsist server, which is not reachable right now. Please try again in a little ` +
+    'while - JavaScript and Python still run in your browser.'
+  );
+}
+
+/**
+ * What a production build calls a language with no engine, wherever it names
+ * one: the engine line (`engineFor`) and the Playground's language picker.
+ * Development builds keep the setup wording ("needs Judge0", "needs setup").
+ */
+export const RUNTIME_UNAVAILABLE_LABEL = 'not available here';
+
+/**
+ * A server answer can carry a `devHint` (the Judge0 setup steps behind a
+ * `runtime-unavailable`). It is appended to the message in development and
+ * dropped everywhere else - `stderr` alone is the friendly sentence.
+ */
+function withDevHint(result: ExecutionResult): ExecutionResult {
+  if (!result?.devHint) return result;
+  const { devHint, ...rest } = result;
+  if (!ENV.isDev) return rest;
+  return { ...rest, stderr: [rest.stderr, devHint].filter(Boolean).join('\n\n') };
+}
 
 let remoteCompilerConfigured = false;
 let remoteCompilerLanguages: SupportedLanguage[] = [];
@@ -464,6 +511,13 @@ export const compilerService = {
 
   /** Which engine will handle a language, for display in the UI. */
   engineFor(language: SupportedLanguage): string {
+    // A visitor can do nothing about a missing engine, so a production build
+    // only says that it is missing: "needs Judge0" and "requires Judge0
+    // configuration" are instructions for whoever runs the app, and read as a
+    // broken site to anyone else. Decided by runtimeAvailable, so this line and
+    // the Playground's availability hint cannot disagree about a language.
+    if (!ENV.isDev && !this.runtimeAvailable(language)) return RUNTIME_UNAVAILABLE_LABEL;
+
     // The server's own label wins for anything the server runs: it is the only
     // side that knows whether its Judge0 is self-hosted, hosted or absent, and
     // guessing "requires Judge0 configuration" at somebody with Docker already
@@ -560,15 +614,15 @@ export const compilerService = {
     try {
       // stdin only goes on this path: it is the Judge0 languages that read it,
       // and sending it to a Node-VM run that has no stdin would be noise.
-      return await api.execute({ language, code, entryFunction, testCases, stdin });
-    } catch (e: any) {
+      return withDevHint(await api.execute({ language, code, entryFunction, testCases, stdin }));
+    } catch (e: unknown) {
+      // Unreachable is said in this module's own words, in the language's
+      // terms; any other failure (a 413, a 5xx) already carries the server's.
+      const unreachable = e instanceof OfflineError || !(e instanceof Error) || !e.message;
       return {
         status: 'error',
         engine: 'none',
-        stderr:
-          e?.message ??
-          `Could not reach the local API server to run ${language}. Start it with ` +
-            '`npm run dev:api` (or `npm run dev`, which starts both).',
+        stderr: unreachable ? serverUnreachableMessage(language) : (e as Error).message,
         testResults: []
       };
     }

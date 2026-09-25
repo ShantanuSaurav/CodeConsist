@@ -7,3 +7,7 @@ lazy-loaded straight from its module barrel and has no file here.
 
 Composition happens by passing functions as props (`readingFor`,
 `relatedFor`) - the modules still never import each other.
+
+`NotFoundRoute` is the one exception: it belongs to no module, and `App.tsx`
+imports it statically because it is tiny and a dead link should not wait on a
+chunk download.

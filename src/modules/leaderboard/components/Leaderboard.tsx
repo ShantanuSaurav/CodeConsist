@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { useAppEvent } from '@/platform/events';
-import { Button, EmptyState } from '@/ui';
+import { Button, DevHint, EmptyState } from '@/ui';
 
 /** Top accounts by XP, from the local API. A table, not a stack of cards. */
 export const Leaderboard: React.FC = () => {
@@ -17,16 +17,17 @@ export const Leaderboard: React.FC = () => {
     if (serverStatus === 'online') refreshLeaderboard();
   });
 
+  if (serverStatus === 'checking') {
+    return <EmptyState title="Loading the leaderboard…">Connecting…</EmptyState>;
+  }
+
   if (serverStatus !== 'online') {
     return (
-      <EmptyState title="The leaderboard needs the local API.">
-        {serverStatus === 'checking' ? (
-          'Connecting…'
-        ) : (
-          <>
-            Start it with <code className="font-mono text-fg">npm run dev:api</code>.
-          </>
-        )}
+      <EmptyState title="The leaderboard is temporarily unavailable.">
+        Please check back in a little while - your own progress is saved on this device.
+        <DevHint as="div" className="mt-1">
+          The API server is not running: start it with <code className="font-mono text-fg">npm run dev:api</code>.
+        </DevHint>
       </EmptyState>
     );
   }

@@ -177,7 +177,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
               <span>{stats.xp.toLocaleString()} XP</span>
               <span
                 className={`ml-auto ${serverStatus === 'online' ? 'text-fg-muted' : 'text-warning'}`}
-                title={serverStatus === 'online' ? 'Connected to the API' : 'API offline - progress is saved in this browser'}
+                title={
+                  serverStatus === 'online'
+                    ? signedIn
+                      ? 'Synced'
+                      : 'Guest - saved on this device'
+                    : serverStatus === 'checking'
+                      ? 'Checking…'
+                      : 'Sync paused - saved on this device'
+                }
               >
                 {serverStatus === 'online' ? <Wifi size={11} /> : <WifiOff size={11} />}
               </span>

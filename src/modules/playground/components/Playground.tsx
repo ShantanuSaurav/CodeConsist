@@ -3,8 +3,9 @@ import { Play, RotateCcw, Trash2 } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ExecutionResult, SupportedLanguage } from '@/types';
-import { Button, CodeEditor, Dropdown } from '@/ui';
-import { compilerService } from '@/platform/execution/compilerService';
+import { Button, CodeEditor, DevHint, Dropdown } from '@/ui';
+import { ENV } from '@/config/env';
+import { compilerService, RUNTIME_UNAVAILABLE_LABEL } from '@/platform/execution/compilerService';
 import { STORAGE_KEYS, readJson, writeJson } from '@/platform/storage/storage';
 import { WebPlayground } from './WebPlayground';
 
@@ -151,6 +152,14 @@ const FILE_NAMES: Partial<Record<SupportedLanguage, string>> = {
 const ALWAYS_AVAILABLE: SupportedLanguage[] = ['javascript', 'python'];
 
 /**
+ * How the language picker and the console status name a language with no
+ * engine. "needs setup" is advice for whoever runs the app; a visitor cannot
+ * set anything up, so a production build only says it is not available.
+ */
+const UNAVAILABLE_HINT = ENV.isDev ? 'needs setup' : RUNTIME_UNAVAILABLE_LABEL;
+const UNAVAILABLE_STATUS = ENV.isDev ? 'needs setup' : 'unavailable';
+
+/**
  * Languages whose programs read standard input.
  *
  * The first Java or C program most people write asks for a number with
@@ -226,7 +235,7 @@ export const Playground: React.FC = () => {
    * The rule itself lives in compilerService, because it is the same rule that
    * picks the engine line two lines below - and the same health probe feeds
    * both. Asking it here rather than re-deriving it from `runtimes` is what
-   * keeps the selector's "needs setup" hint and `engineFor`'s label from ever
+   * keeps the selector's availability hint and `engineFor`'s label from ever
    * disagreeing about the same language.
    *
    * `runtimes` and `judge0Configured` are in the dependency list and nowhere in
@@ -319,7 +328,7 @@ export const Playground: React.FC = () => {
           value: mode,
           label: LANGUAGE_LABELS[mode],
           // The web mode runs in this browser, so it can never need setup.
-          hint: mode !== 'web' && !isAvailable(mode) ? 'needs setup' : undefined
+          hint: mode !== 'web' && !isAvailable(mode) ? UNAVAILABLE_HINT : undefined
         }))}
         ariaLabel="Programming Language"
       />
@@ -351,7 +360,7 @@ export const Playground: React.FC = () => {
   const errored = result?.status === 'error' || Boolean(result?.stderr);
   const needsSetup = !isAvailable(language);
 
-  const statusLabel = isRunning ? 'running' : errored ? 'error' : needsSetup ? 'needs setup' : 'ready';
+  const statusLabel = isRunning ? 'running' : errored ? 'error' : needsSetup ? UNAVAILABLE_STATUS : 'ready';
   const statusClass = isRunning ? 'text-info' : errored ? 'text-error' : needsSetup ? 'text-warning' : 'text-success';
 
   const consoleText = isRunning
@@ -395,9 +404,17 @@ export const Playground: React.FC = () => {
 
         {needsSetup && serverStatus !== 'offline' && (
           <div className="notice notice-warn m-3 mb-0 text-xs">
-            {LANGUAGE_LABELS[language]} needs a Judge0 sandbox on the API server — free to run locally in Docker, with no
-            account, no key and no code leaving this machine. <code>docs/RUNNING-JAVA-C-CPP.md</code> has the steps.
-            HTML/CSS/JS, JavaScript and Python need no setup; Run still works and will explain this again if you try it.
+            {ENV.isDev ? (
+              <>
+                {LANGUAGE_LABELS[language]} needs a Judge0 sandbox on the API server — free to run locally in Docker, with no
+                account, no key and no code leaving this machine. <code>docs/RUNNING-JAVA-C-CPP.md</code> has the steps.
+                HTML/CSS/JS, JavaScript and Python need no setup; Run still works and will explain this again if you try it.
+              </>
+            ) : (
+              <>
+                {LANGUAGE_LABELS[language]} can't run here right now. HTML/CSS/JS, JavaScript and Python work as usual.
+              </>
+            )}
           </div>
         )}
 
@@ -483,14 +500,22 @@ export const Playground: React.FC = () => {
 
         {serverStatus === 'offline' && language === 'javascript' && (
           <p className="px-4 pb-3 text-xs text-fg-muted">
-            The API server is not running, so this uses the in-browser sandbox. Start it with <code>npm run dev:api</code> for the
-            Node sandbox.
+            Running in this browser while the CodeConsist server is unavailable.
+            <DevHint>
+              {' '}
+              The API server is not running: start it with <code>npm run dev:api</code> for the Node sandbox.
+            </DevHint>
           </p>
         )}
         {serverStatus === 'offline' && !ALWAYS_AVAILABLE.includes(language) && (
           <p className="px-4 pb-3 text-xs text-fg-muted">
-            The API server is not running, so {LANGUAGE_LABELS[language]} cannot run right now: it compiles through the
-            server's Judge0 sandbox, not in this browser. Start it with <code>npm run dev:api</code>.
+            {LANGUAGE_LABELS[language]} runs on the CodeConsist server, which is not reachable right now. Please try again in a
+            little while - JavaScript and Python still run in your browser.
+            <DevHint>
+              {' '}
+              The API server is not running, and {LANGUAGE_LABELS[language]} compiles through its Judge0 sandbox. Start it with{' '}
+              <code>npm run dev:api</code>.
+            </DevHint>
           </p>
         )}
 

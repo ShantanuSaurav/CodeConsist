@@ -131,7 +131,7 @@ export function achievements(stats: UserStats, stages: Stage[]): Achievement[] {
       kind: 'stage',
       // Core stages keep their number; a track stage (C, C++) is named, since
       // every track starts again at 01.
-      title: /^stage-d+$/.test(stage.id) ? `Stage ${stage.index} cleared` : `${stage.name} cleared`,
+      title: /^stage-\d+$/.test(stage.id) ? `Stage ${stage.index} cleared` : `${stage.name} cleared`,
       detail: test ? `Passed "${test.title}"` : stage.name,
       earnedAt: stage.state === 'Completed' ? passed?.solvedAt ?? attempts[attempts.length - 1]?.solvedAt ?? null : null
     });

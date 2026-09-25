@@ -245,6 +245,19 @@ export function judge0SetupHint(language) {
   );
 }
 
+const LANGUAGE_NAMES = { java: 'Java', c: 'C', cpp: 'C++', go: 'Go' };
+
+/**
+ * The same situation in words for a learner, who can do nothing about a
+ * missing Judge0 and should not be told about .env files. /api/execute sends
+ * this as `stderr` and the setup hint above as `devHint`, which the client
+ * shows in development builds only.
+ */
+export function runtimeUnavailableMessage(language) {
+  const name = LANGUAGE_NAMES[language] ?? language;
+  return `${name} can't run here right now - this server has no compiler for it yet. JavaScript and Python work as usual.`;
+}
+
 /* ------------------------------------------------------------------ Java */
 
 /**
