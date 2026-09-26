@@ -218,6 +218,26 @@ export function applyStageOverride(stage, stageOverrides) {
   };
 }
 
+/** The only fields a locked stub carries - enough to list, count and label it. */
+const STUB_FIELDS = ['id', 'stageId', 'type', 'title', 'difficulty', 'xpReward', 'language', 'isStageTest', 'tags'];
+
+/**
+ * What `/api/content` sends for a challenge in a premium stage the viewer
+ * has not unlocked: its place in the path and nothing that answers it. The
+ * prompt, options, correct answers, blanks, line order, starter code, test
+ * cases, solution, hints, explanation and concept are all left out, and
+ * `locked: true` tells the client not to open it. An allow-list, so a field
+ * added to challenges later is left out by default.
+ */
+export function lockedStub(challenge) {
+  const stub = {};
+  for (const field of STUB_FIELDS) {
+    if (challenge?.[field] !== undefined) stub[field] = challenge[field];
+  }
+  stub.locked = true;
+  return stub;
+}
+
 /**
  * Applies one challenge's safe, presentational override fields, if any.
  * Deliberately excludes the question's logic (options, correct answers, test

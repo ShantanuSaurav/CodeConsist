@@ -115,6 +115,8 @@ export interface AdminUserRow {
   identities: string[];
   hasPassword: boolean;
   lastLoginAt: string | null;
+  /** A password reset link that is live right now, and until when - never the link itself. Absent from an older server. */
+  activeResetLink?: { expiresAt: string } | null;
 }
 
 export interface AdminStageRow {
@@ -511,6 +513,76 @@ export interface CredentialsChangeResult {
   message: string;
 }
 
+/* ------------------------------------------------------- limits & access */
+
+/** One rate-limit bucket's live counters (in memory since the server started). */
+export interface RateLimitBucketStatus {
+  /** Requests refused (or, logging only, that would have been) since boot. */
+  blocked: number;
+  lastBlockedAt: string | null;
+  /** Keys with a live window. */
+  keys: number;
+  /** The busiest keys: an address, an account id or an email - with the username when it is an account. */
+  top: { key: string; count: number; resetsInSeconds: number; username: string | null }[];
+  /** Its settings key under `access.rateLimit`, and the rule in force. */
+  setting: string;
+  rule: { limit: number; windowSeconds: number } | null;
+}
+
+/** GET /api/admin/access/status: what the Limits & access page shows live. */
+export interface AccessStatus {
+  /** The server's view of the admin's own request, to check the trusted hop count against. */
+  ip: {
+    socket: string | null;
+    forwardedFor: string[];
+    hops: number;
+    derived: string | null;
+    trustworthy: boolean;
+    notes: string[];
+  };
+  limiter: { mode: string; trackedKeys: number; buckets: Record<string, RateLimitBucketStatus> };
+  slots: {
+    running: number;
+    queued: number;
+    maxConcurrent: number;
+    maxQueued: number;
+    queueWaitMs: number;
+    completed: number;
+    queueFull: number;
+    timedOut: number;
+    peakQueued: number;
+    lastBusyAt: string | null;
+  } | null;
+  cors: {
+    mode: string;
+    allowed: { origin: string; source: 'APP_ORIGIN' | 'env' | 'admin' | 'dev' }[];
+    recent: { origin: string; count: number; firstAt: string; lastAt: string; method: string; path: string; refused: boolean }[];
+  } | null;
+  premium: { mode: string; blocked: number; wouldBlock: number; lastAt: string | null; byRoute: Record<string, number> };
+  bootedAt: string | null;
+}
+
+/* ------------------------------------------------------- password resets */
+
+/** POST /api/admin/users/:id/password-reset - the token is in this answer and nowhere else, ever. */
+export interface PasswordResetIssued {
+  reset: { id: string; createdAt: string; expiresAt: string };
+  token: string;
+  /** `/reset-password#token=...` - the token rides in the fragment, which never reaches a server. */
+  path: string;
+  /** The full link when the server knows its public origin (APP_ORIGIN), else null. */
+  url: string | null;
+}
+
+export interface PasswordResetRow {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+  revokedAt: string | null;
+  status: 'active' | 'used' | 'expired' | 'revoked';
+}
+
 /* ----------------------------------------------------------------- methods */
 
 export const adminApi = {
@@ -574,6 +646,31 @@ export const adminApi = {
 
   async settingsContext(): Promise<SettingsContext> {
     return request('/admin/settings/context');
+  },
+
+  /* Limits & access: the live side of the `access` settings (in memory on the server; a restart clears it). */
+
+  async accessStatus(): Promise<AccessStatus> {
+    return request('/admin/access/status');
+  },
+
+  /** Unblock: forget one key's count in a rate-limit bucket, or the whole bucket when `key` is left out. */
+  async resetRateLimit(input: { bucket: string; key?: string }): Promise<{ ok: true; cleared: number }> {
+    return request('/admin/access/rate-limits/reset', { method: 'POST', body: input });
+  },
+
+  /* Password reset links. The token comes back once, from the issue call, and is never stored or logged. */
+
+  async issuePasswordReset(userId: string): Promise<PasswordResetIssued> {
+    return request(`/admin/users/${encodeURIComponent(userId)}/password-reset`, { method: 'POST' });
+  },
+
+  async passwordResets(userId: string): Promise<{ resets: PasswordResetRow[] }> {
+    return request(`/admin/users/${encodeURIComponent(userId)}/password-resets`);
+  },
+
+  async revokePasswordReset(id: string): Promise<{ reset: PasswordResetRow }> {
+    return request(`/admin/password-resets/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
   },
 
   async auditLog(limit = 100): Promise<{ entries: AuditEntry[] }> {

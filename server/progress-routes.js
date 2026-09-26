@@ -6,12 +6,15 @@
  * The rules themselves are in server/progress-rules.js; this file is the
  * order they run in:
  *
- *   solve:  parse + clamp -> unknown? 404 -> verify the submission (the only
- *           await) -> pass mark? 422 -> capture the zone, pick the learner's
- *           day -> score, pay, record -> the day row -> streak -> level ->
- *           persist, drop the draft, Excel
- *   merge:  capture the zone -> re-price the new ids -> merge the activity
- *           log -> clamp the streak -> level -> persist
+ *   solve:  rate limit (solve.account) -> parse + clamp -> unknown? 404 ->
+ *           may this learner solve it at all (premium)? 403 - before any
+ *           code runs -> verify the submission (the only await; code runs in
+ *           an execution slot, 503 when they are all busy) -> pass mark? 422
+ *           -> capture the zone, pick the learner's day -> score, pay, record
+ *           -> the day row -> streak -> level -> persist, drop the draft, Excel
+ *   merge:  premium filter on the new ids (-> skippedLocked) -> capture the
+ *           zone -> re-price the new ids -> merge the activity log -> clamp
+ *           the streak -> level -> persist
  *
  * Everything after the last `await` is synchronous, so progress and the
  * activity log are written in the same tick and two requests cannot
@@ -22,6 +25,15 @@
  */
 import express from 'express';
 import { applySolveCore, mergeCore, parseSolveBody, recalcProgress, resetProgress } from './progress-rules.js';
+import { BusyError } from './rate-limit.js';
+
+const passThrough = (_req, _res, next) => next();
+
+/** A piece of site copy from the settings service, or the given words before it exists. */
+function copyOr(learningDeps, key, vars, fallback) {
+  const text = learningDeps.settings?.copyText?.(key, vars);
+  return text || fallback;
+}
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -44,6 +56,11 @@ export function recalcForUser({ store, learningDeps }, user, now = new Date()) {
  * @param {(ids: string[]) => string[]} deps.completedStagesFor
  * @param {(userId: string, challengeId: string) => void} deps.clearDraftForSolve
  * @param {(user, progress) => void} [deps.onProgress]  after a solve is stored (the Excel mirror)
+ * @param {Function} [deps.solveLimit]  the `solve.account` rate limit (server/rate-limit.js)
+ * @param {(user, challenge) => { ok: boolean, reason?: string, stageId?: string }} [deps.checkSolveAccess]
+ *   server/progression.js: may this learner solve it at all? Checked before any code runs.
+ * @param {(user) => { allows: (challenge) => boolean } | null} [deps.mergeAccess]
+ *   server/progression.js: which merged ids may be credited (the rest come back as `skippedLocked`).
  */
 export function createProgressRouter({
   requireAuth,
@@ -54,7 +71,10 @@ export function createProgressRouter({
   verifySubmission,
   completedStagesFor,
   clearDraftForSolve,
-  onProgress = () => {}
+  onProgress = () => {},
+  solveLimit = passThrough,
+  checkSolveAccess = () => ({ ok: true }),
+  mergeAccess = () => null
 }) {
   const router = express.Router();
 
@@ -70,6 +90,7 @@ export function createProgressRouter({
   router.post(
     '/progress/solve',
     requireAuth,
+    solveLimit,
     asyncRoute(async (req, res) => {
       const { lib, settings, activity } = learningDeps;
       const input = parseSolveBody(req.body, settings.current().xp);
@@ -77,7 +98,26 @@ export function createProgressRouter({
       const challenge = getChallengeMerged(input.challengeId);
       if (!challenge) return res.status(404).json({ error: 'Unknown challenge.' });
 
-      const verdict = await verifySubmission(challenge, req.body ?? {});
+      // A premium lesson this learner has not unlocked is refused before any
+      // of their code is run.
+      const access = checkSolveAccess(req.user, challenge);
+      if (!access.ok) {
+        return res.status(403).json({
+          error: copyOr(learningDeps, 'premium.lockedSolve', {}, 'This lesson is part of a premium stage.'),
+          reason: access.reason ?? 'premium-locked',
+          stageId: access.stageId ?? challenge.stageId
+        });
+      }
+
+      let verdict;
+      try {
+        verdict = await verifySubmission(challenge, req.body ?? {});
+      } catch (err) {
+        if (!(err instanceof BusyError)) throw err;
+        // Every code-runner slot is taken. Nothing was recorded; the learner
+        // can submit again in a moment.
+        return res.status(503).json({ error: copyOr(learningDeps, 'limits.busy', {}, 'The code runner is busy - try again in a moment.'), reason: 'busy' });
+      }
       if (!verdict.ok) {
         return res.status(422).json({ error: 'That submission does not solve the challenge.', reason: verdict.reason });
       }
@@ -145,18 +185,21 @@ export function createProgressRouter({
    * Merge a guest's local progress (and activity) into the account they just
    * signed into - or this account's own offline copy. Body:
    * `{ progress, activity? }`; see progress-rules.js's mergeCore for what is
-   * and is not believed.
+   * and is not believed. A solve in a premium stage this account has not
+   * unlocked is not credited; its id comes back in `skippedLocked`.
    */
   router.post('/progress/merge', requireAuth, (req, res) => {
     const { lib, settings, activity } = learningDeps;
     const rules = settings.current();
     const now = new Date();
 
+    const gate = mergeAccess(req.user);
+
     activity.captureZone(req, req.user, now);
     const current = store.getProgress(req.user.id);
     const today = activity.todayFor(req.user, current, now);
 
-    const { merged, newIds, awarded, credits } = mergeCore({
+    const { merged, newIds, awarded, credits, skippedLocked } = mergeCore({
       current,
       incoming: req.body?.progress,
       lib,
@@ -166,7 +209,8 @@ export function createProgressRouter({
       completedStagesFor,
       zone: activity.zoneFor(req.user),
       today,
-      now
+      now,
+      allows: gate ? (challenge) => gate.allows(challenge) : undefined
     });
 
     activity.merge(req.user, req.body?.activity, { credits, today, now });
@@ -179,7 +223,8 @@ export function createProgressRouter({
       progress: recalcForUser({ store, learningDeps }, req.user, now),
       mergedChallenges: newIds.length,
       awardedXp: awarded,
-      activity: activity.view(req.user, { now })
+      activity: activity.view(req.user, { now }),
+      ...(skippedLocked.length ? { skippedLocked } : {})
     });
   });
 

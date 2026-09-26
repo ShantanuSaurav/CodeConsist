@@ -13,10 +13,20 @@ import { tokensIn } from './copy';
 import { DEFAULT_SETTINGS } from './defaults';
 import { SECTION_META, SETTING_META, metaFor, sectionOfPath } from './meta';
 import type { RowFieldMeta, SettingMeta } from './meta';
-import { defaultsWithEnv, getPath, isPlainObject, mergeSettings, overrideLeaves } from './merge';
+import { defaultsWithEnv, getPath, isPlainObject, mergeSettings, normalizeOrigin, overrideLeaves } from './merge';
 import type { Settings, SettingsIssue } from './types';
 
 const ORIGIN_RE = /^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/;
+
+/** One allowed origin: exactly the form a browser sends (see merge.ts normalizeOrigin). */
+const originSchema = z.string({ invalid_type_error: 'Must be an origin such as https://example.com.' }).superRefine((value, ctx) => {
+  const normal = normalizeOrigin(value);
+  if (normal === null || !ORIGIN_RE.test(normal)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Must be an exact origin such as https://example.com - no path, no wildcard.' });
+  } else if (normal !== value) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Write it as ${normal} (the form a browser sends).` });
+  }
+});
 
 function intSchema(min?: number, max?: number) {
   let s = z.number({ invalid_type_error: 'Must be a number.', required_error: 'Required.' }).int('Must be a whole number.');
@@ -109,7 +119,13 @@ export function schemaForMeta(meta: SettingMeta): z.ZodTypeAny {
       schema = listBounds(stringSchema(meta.minLength ?? 1, meta.maxLength), meta);
       break;
     case 'origins':
-      schema = listBounds(z.string().regex(ORIGIN_RE, 'Must be an exact origin such as https://example.com.'), meta);
+      schema = listBounds(originSchema, meta).superRefine((list, ctx) => {
+        const seen = new Set<string>();
+        list.forEach((origin, index) => {
+          if (seen.has(origin)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index], message: `${origin} is listed twice.` });
+          seen.add(origin);
+        });
+      });
       break;
     case 'rows': {
       const shape: Record<string, z.ZodTypeAny> = {};

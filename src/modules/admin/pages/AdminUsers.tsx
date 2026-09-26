@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, Search, Trash2 } from 'lucide-react';
+import { Activity, KeyRound, Search, Trash2 } from 'lucide-react';
 import { activityGridFromLog } from '@/platform/activity/log';
 import { AdminUserRow, UserLearning, adminApi } from '../services/adminApi';
 import { AdminPageHeader, Badge, Button, Card, ConfirmDialog, Drawer, EmptyState, ErrorText, Spinner, Table, Toggle } from '../components/ui';
+import { PasswordResetDialog } from '../components/PasswordResetDialog';
 
 const PROVIDER_LABEL: Record<string, string> = { google: 'Google', github: 'GitHub' };
 /* The same heat scale as the learner dashboard. */
@@ -125,6 +126,7 @@ export const AdminUsers: React.FC = () => {
   const [pendingDelete, setPendingDelete] = useState<AdminUserRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [learningFor, setLearningFor] = useState<AdminUserRow | null>(null);
+  const [resetFor, setResetFor] = useState<AdminUserRow | null>(null);
 
   const load = useCallback((q = '') => {
     adminApi
@@ -241,6 +243,11 @@ export const AdminUsers: React.FC = () => {
                       {u.hasPassword === false && (u.identities ?? []).length === 0 && (
                         <span className="text-xs text-fg-muted">—</span>
                       )}
+                      {u.activeResetLink && (
+                        <span title={`Works until ${new Date(u.activeResetLink.expiresAt).toLocaleString()}`}>
+                          <Badge tone="warning">Active reset link</Badge>
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td>
@@ -266,6 +273,16 @@ export const AdminUsers: React.FC = () => {
                     <Button
                       variant="ghost"
                       size="sm"
+                      onClick={() => setResetFor(u)}
+                      title="Reset link"
+                      aria-label={`Password reset link for ${u.username}`}
+                      className="!text-fg-muted hover:!text-fg"
+                    >
+                      <KeyRound size={14} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       disabled={busyId === u.id}
                       onClick={() => setPendingDelete(u)}
                       title="Delete user"
@@ -283,6 +300,8 @@ export const AdminUsers: React.FC = () => {
       </Card>
 
       <LearningDrawer user={learningFor} onClose={() => setLearningFor(null)} />
+      {/* Refresh the list when a link is issued or revoked, for the "Active reset link" badge. */}
+      <PasswordResetDialog user={resetFor} onClose={() => setResetFor(null)} onChanged={() => load(query)} />
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}

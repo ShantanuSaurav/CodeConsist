@@ -40,8 +40,9 @@ import type { ActivityView } from '../activity/log';
 import { isCodeChallengeType, normalizeMissAnswer, rawAnswerFromMiss, wrongAnswerKeys } from '../grading-engine/misses';
 import { gradeAnswer } from '../grading-engine/grading';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
+import { getCopy } from '../settings/store';
 import type { PublicSettings } from '../settings/types';
-import { INITIAL_STATS, adoptAccountProgress, hydrateStats, sessionToday, statsAfterSolve } from './stats';
+import { INITIAL_STATS, adoptAccountProgress, hydrateStats, sessionToday, solveWasDeferred, statsAfterSolve } from './stats';
 import { useSettingsState } from './useSettingsState';
 import { useActivityLog } from './useActivityLog';
 
@@ -215,6 +216,13 @@ export interface SessionContextType {
    * the only source of `isPremium` / `unlockedStages`.
    */
   refreshAccount: () => Promise<void>;
+  /**
+   * Fetch the bank again, as this viewer may see it: a premium stage they
+   * have not unlocked comes back as `locked` stubs. Runs by itself after
+   * every sign-in, sign-out and account refresh; call it when the content
+   * and the entitlements disagree. A no-op while the server is unreachable.
+   */
+  reloadContent: () => Promise<void>;
   resetProgress: () => Promise<void>;
 
   leaderboard: LeaderboardEntry[];
@@ -288,6 +296,17 @@ function readAccountDrafts(userId: string | null): Record<string, CodeDraft> {
 /** The entitlements half of a server profile, in the shape `stats` keeps them. */
 function entitlementsOf(profile: UserProfile): Pick<UserStats, 'isPremium' | 'unlockedStages'> {
   return { isPremium: Boolean(profile.isPremium), unlockedStages: profile.unlockedStages ?? [] };
+}
+
+/**
+ * The one info toast after a merge that left some solves out: they were in
+ * premium stages the account has not unlocked, so the server did not credit
+ * them. Null when there were none.
+ */
+function skippedLockedMessage(skipped: string[] | undefined): string | null {
+  const n = Array.isArray(skipped) ? skipped.length : 0;
+  if (n === 0) return null;
+  return `${n} ${n === 1 ? 'solve was' : 'solves were'} not added to your account: ${n === 1 ? 'it is' : 'they are'} in premium stages this account has not unlocked.`;
 }
 
 function prefersReducedMotion(): boolean {
@@ -685,6 +704,19 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   const contentReady = bundle !== null;
 
+  /**
+   * The server's bank depends on who asks - a premium stage this account has
+   * not unlocked is served as stubs - so it is fetched again whenever that
+   * changes: sign-in, sign-out, a purchase. Unreachable leaves what is there.
+   */
+  const reloadContent = useCallback(async () => {
+    const fresh = await loadFromApi(bundleRef.current?.tracks ?? []);
+    if (fresh) setBundle(fresh);
+  }, []);
+
+  /** `refreshAccount`, for callbacks declared before it (it is assigned below). */
+  const refreshAccountRef = useRef<() => Promise<void>>(async () => {});
+
   /* ------------------------------------------------- activity: bookkeeping */
 
   // The log is tagged with the account it mirrors, exactly like the stats. A
@@ -901,6 +933,8 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
             const merged = await api.mergeProgress(local, logBelongsHere ? activityForMerge(local, { pendingOnly }) : undefined);
             reconciled = merged.progress;
             mergedActivity = merged.activity ?? null;
+            const skipped = skippedLockedMessage(merged.skippedLocked);
+            if (skipped && !cancelled) notify(skipped, 'info');
           } catch {
             // Could not reach the server after all - keep the local copy
             // rather than discarding work.
@@ -1187,6 +1221,30 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
             activityLog.replaceActivity(activityBefore);
             notify('The server did not accept that answer, so no XP was awarded.', 'error');
             return 0;
+          } else if (err instanceof ApiError && err.status === 403 && err.reason === 'premium-locked') {
+            // A premium lesson this account has not unlocked: the server
+            // credits nothing, so neither does this tab - rolled back exactly
+            // like a 422. The entitlements here were out of date (a revoke,
+            // another device): fetch them, and the bank, again.
+            setStats(stats);
+            activityLog.replaceActivity(activityBefore);
+            notify(getCopy('premium.lockedSolve') || err.message, 'error');
+            void refreshAccountRef.current().catch(() => {});
+            return 0;
+          } else if (solveWasDeferred(err)) {
+            // Too many solves in a row, or every code-runner slot busy while
+            // the server re-ran the code: not a verdict on the answer, and
+            // nothing was recorded. It is kept here and goes up with the next
+            // sync, like an offline solve.
+            notify(`${err.message} This solve is saved on this device and will sync later.`, 'info');
+          } else if (err instanceof ApiError && err.status === 401) {
+            // The session ended under this tab - a password reset from a link
+            // signs out every other session. Say so now, the way a restore
+            // does, rather than failing every solve quietly.
+            setToken(null);
+            setUser(null);
+            clearDraftsFromMemory();
+            notify('Your session has ended. Sign in again to keep syncing.', 'info');
           } else {
             notify('Progress saved locally, but the server rejected it.', 'error');
           }
@@ -1195,7 +1253,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
       return awarded;
     },
-    [stats, stages, user, serverStatus, celebrate, notify, settings, settingsRevision, todayKey, activityLog, noteRevision]
+    [stats, stages, user, serverStatus, celebrate, notify, settings, settingsRevision, todayKey, activityLog, noteRevision, clearDraftsFromMemory]
   );
 
   /**
@@ -1342,14 +1400,20 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
           const merged = await api.mergeProgress(guest.stats, guest.activity);
           progress = merged.progress;
           mergedActivity = merged.activity ?? null;
+          const skipped = skippedLockedMessage(merged.skippedLocked);
+          if (skipped) notify(skipped, 'info');
         } catch {
           /* keep the server copy */
         }
       }
       adoptSession(profile, progress);
       await adoptAccountActivity(profile.id, mergedActivity);
+      // The bank as this account may see it: a premium stage it has unlocked
+      // arrives in full, one it has not as stubs. Not awaited - the sign-in
+      // window closes now and the lessons swap in when they land.
+      void reloadContent();
     },
-    [mergeableGuestProgress, adoptSession, adoptAccountActivity]
+    [mergeableGuestProgress, adoptSession, adoptAccountActivity, reloadContent, notify]
   );
 
   const loginWithEmail = useCallback(
@@ -1432,7 +1496,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       try {
         // Their own log sends only what the server has not taken yet - small
         // enough that signing out never trips the body limit.
-        await api.mergeProgress(stats, logIsTheirs ? activityForMerge(stats, { pendingOnly: Boolean(log.ownerId) }) : undefined);
+        const merged = await api.mergeProgress(stats, logIsTheirs ? activityForMerge(stats, { pendingOnly: Boolean(log.ownerId) }) : undefined);
+        const skipped = skippedLockedMessage(merged?.skippedLocked);
+        if (skipped) notify(skipped, 'info');
       } catch {
         synced = false;
       }
@@ -1457,16 +1523,23 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     clearDraftsFromMemory();
     eventBus.emit('auth:signedOut', {});
     notify('Signed out. Your progress is saved to your account.', 'info');
-  }, [user, stats, activityRef, activityForMerge, resetActivity, flushAllDrafts, clearDraftsFromMemory, notify]);
+    // Back to the bank a visitor sees: premium stages as stubs again.
+    void reloadContent();
+  }, [user, stats, activityRef, activityForMerge, resetActivity, flushAllDrafts, clearDraftsFromMemory, notify, reloadContent]);
 
   const refreshAccount = useCallback(async () => {
     // Only a real account has anything to refresh; a guest owns nothing.
     if (!getToken()) return;
     const { user: me } = await api.me();
+    // Content first, then the entitlements: a stage just bought must not
+    // show as unlocked while its lessons are still the stubs from before.
+    await reloadContent();
     setUser(me);
     setStats((prev) => ({ ...prev, ...entitlementsOf(me), ownerId: me.id }));
     await restoreDrafts(me.id);
-  }, [restoreDrafts]);
+  }, [restoreDrafts, reloadContent]);
+  // For completeChallenge, which is declared above and must not depend on it.
+  refreshAccountRef.current = refreshAccount;
 
   const { clearMisses } = activityLog;
   const resetProgress = useCallback(async () => {
@@ -1543,6 +1616,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       oauthProviders,
       adoptToken,
       refreshAccount,
+      reloadContent,
       resetProgress,
       leaderboard,
       refreshLeaderboard,
@@ -1588,6 +1662,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       oauthProviders,
       adoptToken,
       refreshAccount,
+      reloadContent,
       resetProgress,
       leaderboard,
       refreshLeaderboard,

@@ -91,7 +91,8 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
       if (!needle) return true;
       return (
         c.title.toLowerCase().includes(needle) ||
-        c.prompt.toLowerCase().includes(needle) ||
+        // A locked stub (a premium stage not unlocked) has no prompt.
+        (c.prompt ?? '').toLowerCase().includes(needle) ||
         c.language.toLowerCase().includes(needle) ||
         (c.tags ?? []).some((t) => t.toLowerCase().includes(needle))
       );
@@ -196,7 +197,9 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
           <ul className="mt-6 border-t border-border">
             {visible.map((c) => {
               const solved = stats.completedChallenges.includes(c.id);
-              const needsUnlock = premiumStages.has(c.stageId);
+              // The server sent a stub (`locked`): whatever the cached
+              // entitlements say, there is nothing here to open until it is unlocked.
+              const needsUnlock = premiumStages.has(c.stageId) || Boolean(c.locked);
               const stage = stages.find((s) => s.id === c.stageId);
               // A stage test is gated on its lessons, not on the previous stage.
               const testLocked = Boolean(c.isStageTest) && stage ? !stageStatus(stage, stats).testUnlocked : false;
@@ -239,7 +242,15 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                         </button>
                         <span className="font-mono text-[11px] text-fg-muted truncate">{stageName.get(c.stageId)}</span>
                       </div>
-                      <p className="text-sm text-fg-secondary mt-0.5 line-clamp-1">{c.prompt}</p>
+                      <p className="text-sm text-fg-secondary mt-0.5 line-clamp-1">
+                        {c.locked ? (
+                          <span className="inline-flex items-center gap-1 text-fg-muted">
+                            <Lock size={11} className="shrink-0" /> Unlock to view
+                          </span>
+                        ) : (
+                          c.prompt
+                        )}
+                      </p>
                       <div className="mt-2 flex flex-wrap items-center gap-1.5">
                         <Badge mono>{c.language}</Badge>
                         {c.isStageTest ? <Badge tone="info">Stage test</Badge> : <Badge>{TYPE_LABELS[c.type]}</Badge>}

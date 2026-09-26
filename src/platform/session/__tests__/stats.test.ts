@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { INITIAL_STATS, adoptAccountProgress, hydrateStats, sessionToday, statsAfterSolve } from '../stats';
+import { INITIAL_STATS, adoptAccountProgress, hydrateStats, sessionToday, solveWasDeferred, statsAfterSolve } from '../stats';
+import { ApiError, OfflineError } from '../../api-client/api';
 import { nextStreak } from '../../xp-leveling/leveling';
 
 describe('hydrateStats', () => {
@@ -93,5 +94,22 @@ describe('statsAfterSolve', () => {
   it('judges the streak on the server’s day', () => {
     const afterFlip = { ...server, streak: 5, lastActiveDay: '2026-09-27' };
     expect(statsAfterSolve(prev, afterFlip, { rulesChanged: false, curve, serverDay: '2026-09-27' }).streak).toBe(5);
+  });
+});
+
+describe('solveWasDeferred', () => {
+  it('keeps a solve the server turned away unjudged - too many in a row, or the code runner busy', () => {
+    expect(solveWasDeferred(new ApiError('Too many attempts - try again in 2 minutes.', 429, { reason: 'rate-limited', retryAfterSeconds: 90 }))).toBe(true);
+    expect(solveWasDeferred(new ApiError('The code runner is busy - try again in a moment.', 503, { reason: 'busy' }))).toBe(true);
+  });
+
+  it('treats every other refusal as the verdict it is', () => {
+    expect(solveWasDeferred(new ApiError('That submission does not solve the challenge.', 422, { reason: 'tests-failed' }))).toBe(false);
+    expect(solveWasDeferred(new ApiError('This lesson is part of a premium stage.', 403, { reason: 'premium-locked' }))).toBe(false);
+    expect(solveWasDeferred(new ApiError('Server error.', 503))).toBe(false);
+    expect(solveWasDeferred(new ApiError('Session ended.', 401))).toBe(false);
+    // Offline has its own branch (the same outcome, its own sentence).
+    expect(solveWasDeferred(new OfflineError())).toBe(false);
+    expect(solveWasDeferred(new Error('boom'))).toBe(false);
   });
 });

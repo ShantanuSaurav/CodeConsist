@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { intents } from '@/platform/events';
 import { DevHint, DevlingoLogo, PageSkeleton } from '@/ui';
 
@@ -20,6 +21,7 @@ import { DevHint, DevlingoLogo, PageSkeleton } from '@/ui';
 export const DashboardLayout: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { user, stats, serverStatus, contentReady } = useSession();
+  const copy = useCopy();
   const openAuthModal = intents.openAuth;
   const location = useLocation();
   const isGuest = !user || user.provider === 'guest';
@@ -77,7 +79,7 @@ export const DashboardLayout: React.FC = () => {
             <span className="truncate">
               {serverStatus === 'offline' ? (
                 <>
-                  Sync is temporarily unavailable - your progress is saved on this device.
+                  {copy('copy.offline.banner')}
                   <DevHint> The API is offline: start it with npm run dev:api.</DevHint>
                 </>
               ) : (

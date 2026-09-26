@@ -208,6 +208,31 @@ export function patchFromEdits(edits: Record<string, unknown>): Json {
   return patch;
 }
 
+/* ---------------------------------------------------------------- origins */
+
+/**
+ * An allowed-origin entry as the browser sends it in `Origin`: scheme, host
+ * and a non-default port, lower case, no trailing slash - `https://example.com`.
+ * Null for anything that is not one exact http(s) origin: a path, a query, a
+ * wildcard, credentials, another scheme. The admin form normalises what is
+ * typed with this, and the schema refuses a stored value that differs from
+ * its own normal form, so the allow-list only ever holds values that can
+ * match a real `Origin` header.
+ */
+export function normalizeOrigin(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/[^/?#]+$/i.test(text) || text.includes('*') || text.includes('@')) return null;
+  try {
+    const url = new URL(text);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    if (url.pathname !== '/' || url.search || url.hash || !url.hostname) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------ environment */
 
 function parseEnvValue(meta: SettingMeta, raw: string): unknown {

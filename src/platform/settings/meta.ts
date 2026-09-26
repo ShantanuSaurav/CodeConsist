@@ -100,16 +100,190 @@ export const SECTION_META: SectionMeta[] = [
     phase: 'P1'
   },
   {
+    id: 'copy',
+    title: 'Site copy',
+    description:
+      'What visitors read when something is unavailable, the landing page and meta description, and the limit, premium, not-found and error messages. Plain text; each message may use only the {tokens} listed under it.',
+    audience: 'public',
+    phase: 'P1T'
+  },
+  {
     id: 'retention',
     title: 'Data limits',
     description: 'How much activity and how many wrong answers are kept per learner. Never sent to learners.',
     audience: 'admin',
     phase: 'P1'
+  },
+  {
+    id: 'access',
+    title: 'Limits & access',
+    description:
+      'Rate limits, code-runner capacity, the proxy chain, CORS, the server-side premium lock and reset-link lifetime. Applied to the next request. Never sent to learners.',
+    audience: 'admin',
+    phase: 'P1T'
   }
 ];
 
 /** Sections that never leave the server's admin routes. */
 export const ADMIN_ONLY_SECTIONS: readonly string[] = ['retention', 'access'];
+
+/* ------------------------------------------------------------ site copy */
+
+/** The longest any piece of site copy may be. */
+export const COPY_MAX_LENGTH = 300;
+
+/** Example values for every copy token, for the live preview (the admin page swaps in the real counts). */
+export const COPY_SAMPLE: Record<string, string | number> = {
+  language: 'Java',
+  freeStages: 6,
+  premiumStages: 4,
+  stages: 10,
+  lessons: 230,
+  tests: 12,
+  tracks: 3,
+  minutes: 15
+};
+
+function copyMeta(label: string, help: string, tokens: string[] = []): SettingMeta {
+  return { label, help, kind: 'text', minLength: 1, maxLength: COPY_MAX_LENGTH, tokens, sample: COPY_SAMPLE };
+}
+
+const COPY_META: Record<string, SettingMeta> = {
+  'copy.offline.auth': copyMeta('Sign-in unavailable', 'In the sign-in window while accounts cannot be reached.'),
+  'copy.offline.leaderboard': copyMeta('Leaderboard unavailable', 'The heading of the leaderboard while it cannot be loaded.'),
+  'copy.offline.banner': copyMeta('Offline banner', 'The strip across the top of the app while progress cannot sync.'),
+  'copy.offline.generic': copyMeta('Temporarily unavailable', 'Any page that needs the server and cannot reach it (a certificate, a reset link).'),
+  'copy.offline.checkout': copyMeta('Checkout unavailable', 'In the purchase window while payments cannot be reached.'),
+  'copy.offline.verify': copyMeta('Certificate check unavailable', 'On the public certificate check while it cannot be reached.'),
+  'copy.offline.playgroundJs': copyMeta('Playground: JavaScript in the browser', 'Under the Playground console when JavaScript runs in the browser because the server is unavailable.'),
+  'copy.offline.playgroundCompiled': copyMeta(
+    'Playground: compiled language unreachable',
+    'When Java, C or C++ cannot run because the server cannot be reached.',
+    ['language']
+  ),
+  'copy.runtime.unavailable': copyMeta(
+    'Language not available',
+    'When the server has no compiler for a language (the server sends this sentence too).',
+    ['language']
+  ),
+  'copy.sync.online': copyMeta('Sync: synced', 'Settings > Sync and the sidebar, when a signed-in learner is connected.'),
+  'copy.sync.offline': copyMeta('Sync: paused', 'Settings > Sync and the sidebar, while the server cannot be reached.'),
+  'copy.sync.guest': copyMeta('Sync: guest', 'Settings > Sync and the sidebar, for a guest.'),
+  'copy.playground.description': copyMeta('Playground description', 'Under the Playground heading. Say what runs where, without naming infrastructure.'),
+  'copy.landing.heroFootnote': copyMeta('Hero footnote', 'The small line under the landing page buttons.', ['freeStages', 'premiumStages']),
+  'copy.landing.footerBlurb': copyMeta('Footer blurb', 'Under the logo in the landing page footer.'),
+  'copy.landing.howLessons': copyMeta('How it works: Learn', 'The "Learn" step on the landing page.'),
+  'copy.landing.finalCta': copyMeta('Final call to action', 'The heading of the last landing page section.'),
+  'copy.landing.pathLine': copyMeta('How it works: the path', 'The line under the "How it works" heading.', ['stages']),
+  'copy.landing.buildStep': copyMeta('How it works: Build', 'The "Build" step on the landing page. Keep it true: it describes how stages unlock.'),
+  'copy.meta.description': copyMeta(
+    'Meta description',
+    'The page description search engines and link previews show. Set on the landing page once it loads; the built page carries the build-time numbers.',
+    ['lessons', 'tests', 'stages', 'tracks']
+  ),
+  'copy.limits.tooMany': copyMeta('Too many attempts', 'Every "slow down" answer (sign-in, sign-up, running code, solving).', ['minutes']),
+  'copy.limits.busy': copyMeta('Code runner busy', 'When every code-runner slot is taken and the queue is full.'),
+  'copy.premium.lockedSolve': copyMeta('Premium lesson', 'When someone without access tries to solve a lesson in a premium stage.'),
+  'copy.notFound.title': copyMeta('Not found: title', 'The heading of the "page not found" screen.'),
+  'copy.notFound.body': copyMeta('Not found: text', 'The text of the "page not found" screen.'),
+  'copy.error.title': copyMeta('Crash screen: title', 'The heading shown when a page fails to render.'),
+  'copy.error.body': copyMeta('Crash screen: text', 'The text shown when a page fails to render. A reference code is added under it.')
+};
+
+/* -------------------------------------------------------- limits & access */
+
+/** Every rate-limit bucket: its settings key, what it counts, and the bounds of its limit. */
+export const RATE_LIMIT_BUCKETS: Array<{ key: string; label: string; help: string; min: number; max: number }> = [
+  { key: 'loginIp', label: 'Sign-in, per address', help: 'Sign-in attempts from one network address.', min: 5, max: 1000 },
+  { key: 'loginAccount', label: 'Failed sign-ins, per email', help: 'Wrong passwords for one email address. A correct sign-in clears it.', min: 3, max: 100 },
+  { key: 'registerIp', label: 'Sign-ups, per address', help: 'New accounts from one network address.', min: 1, max: 500 },
+  { key: 'registerGlobal', label: 'Sign-ups, everyone', help: 'New accounts in total, from anywhere.', min: 10, max: 10_000 },
+  { key: 'executeAccount', label: 'Code runs, per account', help: 'Run requests from one signed-in learner.', min: 5, max: 1000 },
+  { key: 'executeIp', label: 'Code runs, per address', help: 'Run requests from one network address, signed in or not.', min: 5, max: 2000 },
+  { key: 'solveAccount', label: 'Solves, per account', help: 'Solve submissions from one learner.', min: 10, max: 1000 },
+  { key: 'writeAccount', label: 'Other writes, per account', help: 'Wrong answers recorded and other small writes from one learner.', min: 10, max: 2000 },
+  { key: 'passwordChangeAccount', label: 'Password changes, per account', help: 'Attempts to set or change the password of one account.', min: 3, max: 100 },
+  { key: 'passwordResetIp', label: 'Reset links, per address', help: 'Password-reset link checks and submissions from one network address.', min: 3, max: 200 }
+];
+
+const RATE_WINDOW = { min: 60, max: 86_400 };
+
+const ACCESS_META: Record<string, SettingMeta> = {
+  'access.rateLimit.mode': {
+    label: 'Rate limits',
+    help: 'Enforce answers "too many attempts" (429). Log only counts and logs what would have been refused. Off skips every check.',
+    kind: 'enum',
+    values: ['off', 'log', 'enforce']
+  },
+  ...Object.fromEntries(
+    RATE_LIMIT_BUCKETS.flatMap((bucket): Array<[string, SettingMeta]> => [
+      [
+        `access.rateLimit.${bucket.key}.limit`,
+        { label: `${bucket.label}: limit`, help: `${bucket.help} Requests allowed per window.`, kind: 'int', min: bucket.min, max: bucket.max, unit: 'requests' }
+      ],
+      [
+        `access.rateLimit.${bucket.key}.windowSeconds`,
+        { label: `${bucket.label}: window`, help: 'How long the count runs before it starts again.', kind: 'int', min: RATE_WINDOW.min, max: RATE_WINDOW.max, unit: 'seconds' }
+      ]
+    ])
+  ),
+  'access.execution.maxConcurrent': {
+    label: 'Code runs at once',
+    help: 'How many submissions the server runs at the same time (the JavaScript sandbox, local Python, Judge0).',
+    kind: 'int',
+    min: 1,
+    max: 16
+  },
+  'access.execution.maxQueued': {
+    label: 'Code runs waiting',
+    help: 'How many more may wait for a free slot. Past this the runner answers "busy".',
+    kind: 'int',
+    min: 0,
+    max: 200
+  },
+  'access.execution.queueWaitMs': {
+    label: 'Longest wait',
+    help: 'How long a waiting run may wait for a slot before it is answered "busy".',
+    kind: 'int',
+    min: 0,
+    max: 30_000,
+    unit: 'ms'
+  },
+  'access.network.trustProxyHops': {
+    label: 'Trusted proxy hops',
+    help: "How many proxies stand in front of this server (Vercel, then the tunnel: 2). Too few and every learner's address is unknown, so per-address limits are skipped; too many and an address can be forged. Check the live diagnostic below.",
+    kind: 'int',
+    min: 0,
+    max: 5,
+    envVar: 'TRUST_PROXY_HOPS'
+  },
+  'access.cors.mode': {
+    label: 'Cross-site requests (CORS)',
+    help: 'Report records writes from other sites and lets them through. Enforce refuses them (403). Open allows every origin. Switch to enforce once the rejected-origins list below stays empty.',
+    kind: 'enum',
+    values: ['open', 'report', 'enforce']
+  },
+  'access.cors.extraOrigins': {
+    label: 'Extra allowed origins',
+    help: 'Exact origins such as https://preview.example.com - no path, no wildcard. APP_ORIGIN, CORS_ORIGINS in the environment and localhost are always allowed.',
+    kind: 'origins',
+    maxItems: 20
+  },
+  'access.premiumGate': {
+    label: 'Server-side premium lock',
+    help: 'Enforce refuses solves, answer checks and guest merges for premium lessons the learner has not unlocked. Log only records what would have been refused - the emergency switch if paying learners are wrongly blocked.',
+    kind: 'enum',
+    values: ['log', 'enforce']
+  },
+  'access.passwordResetTtlMinutes': {
+    label: 'Reset link lifetime',
+    help: 'How long a password reset link issued from Users stays valid.',
+    kind: 'int',
+    min: 15,
+    max: 10_080,
+    unit: 'minutes'
+  }
+};
 
 export const SETTING_META: Record<string, SettingMeta> = {
   /* ---------------------------------------------------------------- xp */
@@ -223,6 +397,9 @@ export const SETTING_META: Record<string, SettingMeta> = {
     unit: 'days'
   },
 
+  /* -------------------------------------------------------------- copy */
+  ...COPY_META,
+
   /* --------------------------------------------------------- retention */
   'retention.activityDaysKept': {
     label: 'Days of activity kept',
@@ -267,7 +444,10 @@ export const SETTING_META: Record<string, SettingMeta> = {
     kind: 'int',
     min: 1,
     max: 100
-  }
+  },
+
+  /* ------------------------------------------------------------ access */
+  ...ACCESS_META
 };
 
 /** The section a dot path belongs to (`xp` for `xp.passScore`). */

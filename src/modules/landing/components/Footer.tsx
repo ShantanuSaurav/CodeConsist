@@ -1,6 +1,13 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { useCopy } from '@/platform/settings';
 import { DevlingoLogo } from '@/ui';
+
+/** The line under the logo - admin-editable (`copy.landing.footerBlurb`). */
+const FooterBlurb: React.FC = () => {
+  const copy = useCopy();
+  return <p className="text-sm text-fg-muted max-w-xs">{copy('copy.landing.footerBlurb')}</p>;
+};
 
 const REPO = 'https://github.com/CodeConsist/CodeConsist';
 
@@ -38,7 +45,7 @@ export const Footer: React.FC = () => (
         <div className="mb-3">
           <DevlingoLogo size="sm" wordmark />
         </div>
-        <p className="text-sm text-fg-muted max-w-xs">The developer training environment. Open source; runs entirely on your machine.</p>
+        <FooterBlurb />
       </div>
       {COLUMNS.map((col) => (
         <div key={col.title}>

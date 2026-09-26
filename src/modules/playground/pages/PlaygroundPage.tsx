@@ -1,14 +1,16 @@
 import React from 'react';
+import { useCopy } from '@/platform/settings';
 import { PageHeader } from '@/ui';
 import { Playground } from '../components/Playground';
 
-export const PlaygroundPage: React.FC = () => (
-  <div className="page max-w-6xl">
-    <PageHeader
-      eyebrow="Playground"
-      title="Scratchpad"
-      description="HTML, CSS and JavaScript render in a sandboxed frame in this browser. JavaScript runs in a sandbox on the CodeConsist server, or right here in your browser when the server is unavailable. Python is CPython compiled to WebAssembly. Java, C and C++ compile on the server when a compiler is set up for them. Nothing is simulated."
-    />
-    <Playground />
-  </div>
-);
+export const PlaygroundPage: React.FC = () => {
+  // Admin-editable (`copy.playground.description`): what runs where, without
+  // naming infrastructure.
+  const copy = useCopy();
+  return (
+    <div className="page max-w-6xl">
+      <PageHeader eyebrow="Playground" title="Scratchpad" description={copy('copy.playground.description')} />
+      <Playground />
+    </div>
+  );
+};

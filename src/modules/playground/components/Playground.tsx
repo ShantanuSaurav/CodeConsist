@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Play, RotateCcw, Trash2 } from 'lucide-react';
 import { useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { intents } from '@/platform/events';
 import { ExecutionResult, SupportedLanguage } from '@/types';
 import { Button, CodeEditor, DevHint, Dropdown } from '@/ui';
@@ -193,6 +194,7 @@ function starterFor(language: Mode): string {
 
 export const Playground: React.FC = () => {
   const { executeCode, serverStatus, judge0Configured, runtimes, activeTrack } = useSession();
+  const copy = useCopy();
   // No saved draft yet: open on the language of the track the learner is
   // following, so the Playground picks up where Learn left off.
   const selectedLanguage = activeTrack.track.primaryLanguage;
@@ -411,9 +413,7 @@ export const Playground: React.FC = () => {
                 HTML/CSS/JS, JavaScript and Python need no setup; Run still works and will explain this again if you try it.
               </>
             ) : (
-              <>
-                {LANGUAGE_LABELS[language]} can't run here right now. HTML/CSS/JS, JavaScript and Python work as usual.
-              </>
+              copy('copy.runtime.unavailable', { language: LANGUAGE_LABELS[language] })
             )}
           </div>
         )}
@@ -500,7 +500,7 @@ export const Playground: React.FC = () => {
 
         {serverStatus === 'offline' && language === 'javascript' && (
           <p className="px-4 pb-3 text-xs text-fg-muted">
-            Running in this browser while the CodeConsist server is unavailable.
+            {copy('copy.offline.playgroundJs')}
             <DevHint>
               {' '}
               The API server is not running: start it with <code>npm run dev:api</code> for the Node sandbox.
@@ -509,8 +509,7 @@ export const Playground: React.FC = () => {
         )}
         {serverStatus === 'offline' && !ALWAYS_AVAILABLE.includes(language) && (
           <p className="px-4 pb-3 text-xs text-fg-muted">
-            {LANGUAGE_LABELS[language]} runs on the CodeConsist server, which is not reachable right now. Please try again in a
-            little while - JavaScript and Python still run in your browser.
+            {copy('copy.offline.playgroundCompiled', { language: LANGUAGE_LABELS[language] })}
             <DevHint>
               {' '}
               The API server is not running, and {LANGUAGE_LABELS[language]} compiles through its Judge0 sandbox. Start it with{' '}

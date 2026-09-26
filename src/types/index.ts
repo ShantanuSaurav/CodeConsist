@@ -204,6 +204,16 @@ export interface Challenge {
    * learner in Learn mode reaches it. See the Concept model above.
    */
   concept?: Concept;
+
+  /**
+   * True only on a stub the server sent for a premium stage this viewer has
+   * not unlocked (server/content.js lockedStub). A stub carries its id,
+   * stage, type, title, difficulty, XP, language, `isStageTest` and tags -
+   * enough to list and count it - and NOTHING that answers it: `prompt` and
+   * `explanation` are missing and every option, blank, test and solution is
+   * absent. It is never opened; the practice session shows the unlock prompt.
+   */
+  locked?: boolean;
 }
 
 export interface Stage {

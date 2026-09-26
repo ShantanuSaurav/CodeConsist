@@ -5,6 +5,7 @@ import {
   BookOpen,
   CreditCard,
   FileSpreadsheet,
+  Gauge,
   Languages,
   LayoutDashboard,
   ListChecks,
@@ -13,6 +14,7 @@ import {
   ScrollText,
   ShieldCheck,
   SlidersHorizontal,
+  Type,
   Users,
   X
 } from 'lucide-react';
@@ -22,7 +24,20 @@ import { DevlingoLogo } from '@/ui';
 
 const ICON = 16;
 
-const GROUPS: Array<{ label: string; items: Array<{ icon: React.ReactNode; label: string; path: string; exact?: boolean }> }> = [
+interface NavItem {
+  icon: React.ReactNode;
+  label: string;
+  path: string;
+  exact?: boolean;
+  /** Decides "active" itself, when the path alone would say it for a sibling's pages too. */
+  activeWhen?: (pathname: string) => boolean;
+}
+
+/** Rules sections that have their own navigation item, so "Rules & rewards" is not lit on them. */
+const OWN_RULE_PAGES = ['/admin/rules/copy', '/admin/rules/access'];
+const underPath = (pathname: string, path: string) => pathname === path || pathname.startsWith(`${path}/`);
+
+const GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: 'Overview',
     items: [
@@ -36,12 +51,21 @@ const GROUPS: Array<{ label: string; items: Array<{ icon: React.ReactNode; label
     items: [
       { icon: <Languages size={ICON} />, label: 'Languages', path: '/admin/languages' },
       { icon: <BookOpen size={ICON} />, label: 'Stages', path: '/admin/stages' },
-      { icon: <ListChecks size={ICON} />, label: 'Challenges', path: '/admin/challenges' }
+      { icon: <ListChecks size={ICON} />, label: 'Challenges', path: '/admin/challenges' },
+      // A section of the settings store, with its own entry here.
+      { icon: <Type size={ICON} />, label: 'Site copy', path: '/admin/rules/copy' }
     ]
   },
   {
     label: 'Learning',
-    items: [{ icon: <SlidersHorizontal size={ICON} />, label: 'Rules & rewards', path: '/admin/rules' }]
+    items: [
+      {
+        icon: <SlidersHorizontal size={ICON} />,
+        label: 'Rules & rewards',
+        path: '/admin/rules',
+        activeWhen: (pathname) => underPath(pathname, '/admin/rules') && !OWN_RULE_PAGES.some((own) => underPath(pathname, own))
+      }
+    ]
   },
   {
     label: 'Operations',
@@ -49,6 +73,8 @@ const GROUPS: Array<{ label: string; items: Array<{ icon: React.ReactNode; label
       { icon: <Users size={ICON} />, label: 'Users', path: '/admin/users' },
       { icon: <CreditCard size={ICON} />, label: 'Billing', path: '/admin/billing' },
       { icon: <FileSpreadsheet size={ICON} />, label: 'Excel sync', path: '/admin/excel' },
+      { icon: <Gauge size={ICON} />, label: 'Limits & access', path: '/admin/rules/access' },
+      // The admin's own sign-in credentials - a different thing from Limits & access.
       { icon: <ShieldCheck size={ICON} />, label: 'Security', path: '/admin/settings/security' }
     ]
   }
@@ -98,7 +124,9 @@ export const AdminLayout: React.FC = () => {
                       to={item.path}
                       end={item.exact}
                       onClick={onNavigate}
-                      className={({ isActive }) => `nav-item ${isActive ? 'is-active' : ''}`.trim()}
+                      className={({ isActive }) =>
+                        `nav-item ${(item.activeWhen ? item.activeWhen(location.pathname) : isActive) ? 'is-active' : ''}`.trim()
+                      }
                     >
                       {item.icon}
                       <span>{item.label}</span>

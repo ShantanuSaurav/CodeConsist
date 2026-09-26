@@ -16,6 +16,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { AppSplash, ErrorBoundary, ToastProvider, Toasts } from '@/ui';
 import { ThemeProvider } from '@/platform/theme';
 import { SessionProvider } from '@/platform/session';
+import { getCopy } from '@/platform/settings';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
 import { PracticeHost } from '@/modules/challenges';
@@ -43,6 +44,8 @@ const CertificatePage = lazyPage(() => import('@/modules/account'), 'Certificate
 const VerifyPage = lazyPage(() => import('@/modules/account'), 'VerifyPage');
 /* Where a Google / GitHub sign-in comes back to, before the dashboard takes over. */
 const OAuthCallbackPage = lazyPage(() => import('@/modules/account'), 'OAuthCallbackPage');
+/* Where an admin-issued password reset link lands (the token is in the URL fragment). */
+const ResetPasswordPage = lazyPage(() => import('@/modules/account'), 'ResetPasswordPage');
 /* The administrator console - a separate session and its own chunk, fetched only on /admin. */
 const AdminApp = lazyPage(() => import('@/modules/admin'), 'AdminApp');
 
@@ -116,6 +119,14 @@ const AppRoutes: React.FC = () => (
         </Suspense>
       }
     />
+    <Route
+      path={ROUTES.resetPassword}
+      element={
+        <Suspense fallback={<AppSplash />}>
+          <ResetPasswordPage />
+        </Suspense>
+      }
+    />
 
     {/* A learner's own certificate (the server answers 404 to anyone else) and
         the public check of one. Both full-page, no dashboard chrome. */}
@@ -183,8 +194,15 @@ const Shell: React.FC = () => {
   );
 };
 
+/**
+ * The crash screen's words: the admin-editable copy (`copy.error.*`), read
+ * only when something has crashed. The ui layer cannot import platform, so
+ * it is handed in; the boundary falls back to its own text if this throws.
+ */
+const crashMessages = () => ({ title: getCopy('copy.error.title'), body: getCopy('copy.error.body') });
+
 export const App: React.FC = () => (
-  <ErrorBoundary>
+  <ErrorBoundary messages={crashMessages}>
     <ThemeProvider>
       <ToastProvider>
         <Shell />

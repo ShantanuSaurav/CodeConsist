@@ -3,6 +3,7 @@ import { Check, ClipboardList, Trophy, X, Zap } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { Challenge, ExecutionResult } from '@/types';
 import { Answer, optionOrder } from '@/platform/grading-engine/answers';
+import { isRefusedRun } from '@/platform/execution/compilerService';
 import { stageStatus } from '@/platform/progress';
 import { isPassingSolve, rawScore, scoreSolve } from '@/platform/xp-leveling/leveling';
 import { CodeBlock, LearningModeSwitch, useBodyScrollLock, useFocusTrap } from '@/ui';
@@ -312,6 +313,19 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         challenge.testCases ?? [],
         { onProgress: (message) => stillMine() && setProgressMessage(message) }
       );
+      // The server refused the run without running it (too many runs in a
+      // row, or every code-runner slot taken). Nothing of theirs was tested,
+      // so it is not a try: the attempt goes back - no retry penalty on the
+      // XP, no step towards "Show me the solution" - and there is no verdict
+      // and no miss. The console shows the server's sentence; "Run tests"
+      // stays where it was.
+      if (isRefusedRun(result)) {
+        if (stillMine()) {
+          setAttempts((n) => Math.max(0, n - 1));
+          setExecResult(result);
+        }
+        return;
+      }
       const passed = result.status === 'passed';
       // Only the on-screen verdict belongs to whichever challenge is showing.
       // A pass is a pass: the XP goes to the challenge that was actually run,

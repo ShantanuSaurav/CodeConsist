@@ -102,10 +102,16 @@ export async function startLearnerApp(store, options = {}) {
       getChallengeMerged: getChallenge,
       verifySubmission,
       completedStagesFor,
-      clearDraftForSolve: (userId, challengeId) => cleared.push([userId, challengeId])
+      clearDraftForSolve: (userId, challengeId) => cleared.push([userId, challengeId]),
+      // What server/index.js adds on top: the solve rate limit, the access
+      // gates, a slotted verifySubmission (premium-gate.test.mjs).
+      ...(options.progress ?? {})
     })
   );
-  app.use('/api', createActivityRouter({ requireAuth, learningDeps, gradeAnswer: lib.gradeAnswer, getChallengeMerged: getChallenge }));
+  app.use(
+    '/api',
+    createActivityRouter({ requireAuth, learningDeps, gradeAnswer: lib.gradeAnswer, getChallengeMerged: getChallenge, ...(options.activity ?? {}) })
+  );
   app.use((err, _req, res, _next) => res.status(500).json({ error: err.message }));
 
   const server = await new Promise((resolve) => {

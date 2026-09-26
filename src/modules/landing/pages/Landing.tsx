@@ -1,6 +1,8 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '@/config/routes';
+import { useContentStats, useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { STORAGE_KEYS, remove } from '@/platform/storage/storage';
 import { Navbar } from '../components/Navbar';
 import { Hero } from '../components/Hero';
@@ -28,6 +30,27 @@ const rememberIntro = () => {
     /* private mode or blocked storage: the intro simply plays again */
   }
 };
+
+/** "230+": lessons rounded down to a ten, as the build-time meta says them (scripts/content-stats.mjs). */
+const lessonsLabel = (lessons: number) => (lessons >= 10 ? `${Math.floor(lessons / 10) * 10}+` : String(lessons));
+
+/**
+ * The page description, from the admin-editable `copy.meta.description`
+ * filled with the live counts. index.html carries the build-time version for
+ * crawlers that do not run scripts; this keeps it right once the page has
+ * loaded, without a redeploy.
+ */
+function useMetaDescription(): void {
+  const { contentReady } = useSession();
+  const stats = useContentStats();
+  const copy = useCopy();
+  useEffect(() => {
+    if (!contentReady || stats.lessons === 0) return;
+    const text = copy('copy.meta.description', { lessons: lessonsLabel(stats.lessons), tests: stats.tests, stages: stats.stages, tracks: stats.tracks });
+    const meta = document.querySelector('meta[name="description"]');
+    if (meta && text) meta.setAttribute('content', text);
+  }, [contentReady, stats, copy]);
+}
 /**
  * "/" - the public entry point.
  *
@@ -44,6 +67,7 @@ const rememberIntro = () => {
  */
 export const Landing: React.FC = () => {
   const navigate = useNavigate();
+  useMetaDescription();
   const [intro, setIntro] = useState(() => {
     remove(STORAGE_KEYS.intro); // the old, permanent flag from a previous build
     return !introSeen();

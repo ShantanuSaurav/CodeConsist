@@ -12,12 +12,31 @@ import type { PublicSettings } from '../settings/types';
 
 const BASE = '/api';
 
+/** What the server can say about WHY it refused, beyond the status. */
+export interface ApiErrorDetails {
+  /**
+   * A machine-readable reason: 'rate-limited' (429), 'busy' (503, every
+   * code-runner slot taken), 'premium-locked' (403), 'stage-test', ...
+   */
+  reason?: string;
+  /** With a 429: how long until a retry can succeed. */
+  retryAfterSeconds?: number;
+  /** The whole response body, for callers that need more (a 503's run result, say). */
+  payload?: unknown;
+}
+
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  reason?: string;
+  retryAfterSeconds?: number;
+  payload?: unknown;
+  constructor(message: string, status: number, details: ApiErrorDetails = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.reason = details.reason;
+    this.retryAfterSeconds = details.retryAfterSeconds;
+    this.payload = details.payload;
   }
 }
 
@@ -101,7 +120,15 @@ async function request<T>(
   if (!response.ok) {
     // A 501 from /api/execute carries a usable result body, not a failure.
     if (response.status === 501 && payload) return payload as T;
-    throw new ApiError(payload?.error || `Request failed (${response.status})`, response.status);
+    // The server's own sentence: `error`, or a run result's `stderr` (the
+    // 503 "busy" answer from /api/execute has no `error`).
+    const message = (typeof payload?.error === 'string' && payload.error) || (typeof payload?.stderr === 'string' && payload.stderr) || `Request failed (${response.status})`;
+    const retryAfter = Number(payload?.retryAfterSeconds ?? response.headers?.get?.('Retry-After'));
+    throw new ApiError(message, response.status, {
+      reason: typeof payload?.reason === 'string' ? payload.reason : undefined,
+      retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+      payload
+    });
   }
   return payload as T;
 }
@@ -214,7 +241,28 @@ export interface MergeResponse {
   awardedXp?: number;
   /** The account's activity after the merge. Absent from an older server. */
   activity?: ActivityView;
+  /**
+   * Solved ids that were NOT credited because they are in a premium stage
+   * this account has not unlocked. Absent when there were none.
+   */
+  skippedLocked?: string[];
 }
+
+/** What `GET /api/content` returns. */
+export interface ContentResponse {
+  stages: any[];
+  /** Every challenge; one in a premium stage this viewer cannot open is a `locked` stub. */
+  challenges: Challenge[];
+  languageTracks?: any[];
+  hiddenLanguages?: string[];
+  /** The premium stages this viewer has not unlocked (their challenges are stubs). Absent from an older server. */
+  lockedStageIds?: string[];
+}
+
+/** `POST /api/auth/password-reset/inspect`: is this reset link live, and whose is it? */
+export type PasswordResetInspect =
+  | { valid: true; username: string; expiresAt: string }
+  | { valid: false; reason: 'unknown' | 'expired' | 'used' | 'revoked' };
 
 /** One wrong answer on its way to `POST /api/activity/misses`. */
 export interface MissUpload {
@@ -449,8 +497,12 @@ export const api = {
     return request(`/drafts/${encodeURIComponent(challengeId)}`, { method: 'DELETE' });
   },
 
-  async content(): Promise<{ stages: any[]; challenges: Challenge[]; languageTracks?: any[]; hiddenLanguages?: string[] }> {
-    return request('/content', { auth: false });
+  /**
+   * The bank as THIS viewer may see it - so it is asked with the session:
+   * a premium stage the account has not unlocked comes back as stubs.
+   */
+  async content(): Promise<ContentResponse> {
+    return request('/content');
   },
 
   /**
@@ -561,8 +613,9 @@ export const api = {
     return request('/leaderboard', { auth: false });
   },
 
+  /** With the session, so a premium lesson is graded for a learner who has unlocked it. */
   async grade(challengeId: string, answer: unknown): Promise<{ correct: boolean; explanation: string }> {
-    return request('/grade', { method: 'POST', auth: false, body: { challengeId, answer } });
+    return request('/grade', { method: 'POST', body: { challengeId, answer } });
   },
 
   async execute(payload: {
@@ -578,6 +631,28 @@ export const api = {
      */
     stdin?: string;
   }): Promise<ExecutionResult> {
-    return request('/execute', { method: 'POST', auth: false, body: payload, timeoutMs: 30000 });
+    // With the session when there is one: a signed-in learner's runs are
+    // limited per account, a guest's per address (a 429 or a 503 "busy"
+    // comes back as an ApiError with its `reason`).
+    return request('/execute', { method: 'POST', body: payload, timeoutMs: 30000 });
+  },
+
+  /* Password reset links. An administrator issues one from Users; the token
+     arrives in the page's URL fragment and only ever travels in these bodies. */
+
+  /** Is this link live, and for whom? Never throws for a dead link - `valid: false` says why. */
+  async inspectPasswordReset(token: string): Promise<PasswordResetInspect> {
+    return request('/auth/password-reset/inspect', { method: 'POST', auth: false, body: { token } });
+  },
+
+  /**
+   * Set a new password with a link. Answers like a login (and stores the new
+   * token); every other session of the account is signed out. 410 when the
+   * link is used, expired or withdrawn.
+   */
+  async resetPassword(token: string, newPassword: string): Promise<AuthResponse> {
+    const res = await request<AuthResponse>('/auth/password-reset', { method: 'POST', auth: false, body: { token, newPassword } });
+    setToken(res.token);
+    return res;
   }
 };

@@ -1,6 +1,7 @@
 /**
- * The version 1 -> 2 migration of db.json: `settings` and `activity` are
- * added, users gain `preferences`, and nothing a learner earned is touched.
+ * The migrations of db.json: version 2 added `settings` and `activity`
+ * (users gained `preferences`), version 3 added `passwordResets` (users
+ * gained `tokenVersion`) - and nothing a learner earned is ever touched.
  *
  * `migrateState` is pure over the loaded object (like forgetBillingIdentity
  * in db-forget.test.mjs). `load()` is exercised with the file system mocked,
@@ -63,7 +64,7 @@ describe('migrateState', () => {
   it('adds settings and activity, and leaves progress exactly as it was', () => {
     const next = store.migrateState(clone(OLD_DB));
     expect(next.version).toBe(store.SCHEMA_VERSION);
-    expect(store.SCHEMA_VERSION).toBe(2);
+    expect(store.SCHEMA_VERSION).toBe(3);
     expect(next.settings).toEqual({ overrides: {}, revision: 0, updatedAt: null, updatedBy: null });
     expect(next.activity).toEqual({});
     expect(next.progress).toEqual(OLD_DB.progress);
@@ -105,7 +106,36 @@ describe('migrateState', () => {
 
   it('never lets a newer version number go backwards', () => {
     expect(store.migrateState({ version: 7 }).version).toBe(7);
-    expect(store.migrateState({}).version).toBe(2);
+    expect(store.migrateState({}).version).toBe(3);
+  });
+
+  it('adds password resets and token versions (version 3), leaving orders, overrides and progress alone', () => {
+    const v2 = {
+      ...clone(OLD_DB),
+      version: 2,
+      settings: { overrides: {}, revision: 1, updatedAt: null, updatedBy: null },
+      activity: {},
+      orders: { ord_1: { id: 'ord_1', userId: 'u1', status: 'paid', product: { kind: 'lifetime' } } },
+      contentOverrides: { stages: { s2: { isPremium: false } }, challenges: {}, languages: {} }
+    };
+    const next = store.migrateState(clone(v2));
+    expect(next.version).toBe(3);
+    expect(next.passwordResets).toEqual({});
+    expect(next.users.map((u) => u.tokenVersion)).toEqual([0, 0]);
+    expect(next.progress).toEqual(v2.progress);
+    expect(next.orders).toEqual(v2.orders);
+    expect(next.contentOverrides).toEqual(v2.contentOverrides);
+  });
+
+  it('keeps stored resets and token versions, and repairs nonsense', () => {
+    const reset = { id: 'pr_abc', userId: 'u1', tokenHash: 'h', createdAt: 'x', expiresAt: 'y', createdBy: 'a', usedAt: null, revokedAt: null };
+    const kept = store.migrateState({ passwordResets: { pr_abc: reset }, users: [{ id: 'u1', tokenVersion: 4 }] });
+    expect(kept.passwordResets).toEqual({ pr_abc: reset });
+    expect(kept.users[0].tokenVersion).toBe(4);
+
+    const repaired = store.migrateState({ passwordResets: [1], users: [{ id: 'u1', tokenVersion: -1 }, { id: 'u2', tokenVersion: '3' }, { id: 'u3', tokenVersion: 1.5 }] });
+    expect(repaired.passwordResets).toEqual({});
+    expect(repaired.users.map((u) => u.tokenVersion)).toEqual([0, 0, 0]);
   });
 });
 
@@ -115,23 +145,29 @@ describe('load() of a version 1 file', () => {
   });
 
   it('keeps a byte-for-byte copy of the old file before migrating', () => {
-    const copy = files.written.find((w) => /db\.json\.pre-v2-\d+$/.test(w.file));
-    expect(copy, 'db.json.pre-v2-<ts>').toBeTruthy();
+    // Named after the version it migrates TO (a file from before version 3).
+    const copy = files.written.find((w) => /db\.json\.pre-v3-\d+$/.test(w.file));
+    expect(copy, 'db.json.pre-v3-<ts>').toBeTruthy();
     expect(copy.text).toBe(JSON.stringify(OLD_DB));
     // Not treated as corrupt.
     expect(files.renamed.filter((r) => r.to.includes('.corrupt-'))).toEqual([]);
   });
 
   it('loads the migrated state with progress untouched', () => {
-    expect(store.db().version).toBe(2);
+    expect(store.db().version).toBe(3);
     expect(store.db().progress).toEqual(OLD_DB.progress);
     expect(store.getSettingsRecord().revision).toBe(0);
     expect(store.allActivity()).toEqual({});
+    expect(store.db().passwordResets).toEqual({});
+    expect(store.findUserById('u2').tokenVersion).toBe(0);
   });
 
-  it('deleteUser takes the learner’s activity with it', () => {
+  it('deleteUser takes the learner’s activity and reset links with it', () => {
     store.putActivity('u1', { v: 1, lastDay: '2026-09-20', backfilledAt: null, days: {}, misses: {}, missLog: [] });
     store.putActivity('u2', { v: 1, lastDay: null, backfilledAt: null, days: {}, misses: {}, missLog: [] });
+    const link = (id, userId) => ({ id, userId, tokenHash: `hash-${id}`, createdAt: '2026-09-20T00:00:00.000Z', expiresAt: '2026-09-21T00:00:00.000Z', createdBy: 'admin-1', usedAt: null, revokedAt: null });
+    store.putPasswordReset(link('pr_one', 'u1'));
+    store.putPasswordReset(link('pr_two', 'u2'));
     expect(store.getActivity('u1')).not.toBeNull();
 
     expect(store.deleteUser('u1')).toBe(true);
@@ -139,5 +175,9 @@ describe('load() of a version 1 file', () => {
     expect(store.getActivity('u2')).not.toBeNull();
     expect(store.getActivity('__proto__')).toBeNull();
     expect(store.getActivity('constructor')).toBeNull();
+    expect(store.getPasswordReset('pr_one')).toBeNull();
+    expect(store.passwordResetsForUser('u1')).toEqual([]);
+    expect(store.getPasswordReset('pr_two')).toMatchObject({ userId: 'u2' });
+    expect(store.findPasswordResetByTokenHash('hash-pr_two')).toMatchObject({ id: 'pr_two' });
   });
 });

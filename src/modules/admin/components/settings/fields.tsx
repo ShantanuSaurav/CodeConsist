@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useState } from 'react';
 import { Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { fillCopy } from '@/platform/settings';
+import { fillCopy, normalizeOrigin } from '@/platform/settings';
 import type { RowFieldMeta, SettingMeta } from '@/platform/settings';
 import { Badge, Button, Toggle } from '../ui';
 
@@ -392,7 +392,12 @@ export const SettingMap: React.FC<SettingFieldProps & { id: string }> = ({ id, v
   );
 };
 
-/** Exact origins, one per line (`https://example.com`). */
+/**
+ * Exact origins, one per line (`https://example.com`). What is typed is put
+ * in the form a browser sends in `Origin` (lower case, no trailing slash, no
+ * default port) before it is stored, so an entry can actually match; a line
+ * that is not an origin at all is kept as typed for the check to point at.
+ */
 export const SettingOrigins: React.FC<SettingFieldProps & { id: string }> = ({ id, value, error, onChange }) => {
   const list = Array.isArray(value) ? (value as string[]) : [];
   const [text, setText] = useState(list.join('\n'));
@@ -410,6 +415,7 @@ export const SettingOrigins: React.FC<SettingFieldProps & { id: string }> = ({ i
             .split('\n')
             .map((s) => s.trim())
             .filter(Boolean)
+            .map((s) => normalizeOrigin(s) ?? s)
         );
       }}
     />

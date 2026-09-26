@@ -16,7 +16,6 @@
 // Environment and admin credentials loaded.
 import './env.js';
 import express from 'express';
-import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -26,15 +25,28 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { existsSync } from 'node:fs';
 
 import * as store from './db.js';
-import { loadContent, getChallenge, contentSnapshot, applyLearnerOverrides, applyChallengeOverride, allChallenges } from './content.js';
+import {
+  loadContent,
+  getChallenge,
+  contentSnapshot,
+  applyLearnerOverrides,
+  applyChallengeOverride,
+  allChallenges,
+  lockedStub
+} from './content.js';
 import { compileTsModule } from './build.js';
 import { createAdminRouter } from './admin.js';
 import { createGeminiClient } from './ai.js';
-import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken } from './auth.js';
+import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken, learnerTokenIsCurrent } from './auth.js';
 import { bootstrapAdminAccount, authenticateAdmin, publicAdmin, requireAdminAuth } from './admin-auth.js';
 import * as excel from './excel.js';
 import { createPaymentProvider } from './payments.js';
-import { entitlementsFor, unlockedStageIds } from './billing.js';
+import { entitlementsFor, stageAccessFor, unlockedStageIds } from './billing.js';
+import { clientIp, trustProxyFn } from './client-ip.js';
+import { createCorsPolicy } from './cors-policy.js';
+import { BUCKET_SETTING, BusyError, createExecutionSlots, createLimiter, rateLimit } from './rate-limit.js';
+import { checkSolveAccess, mergeAccess } from './progression.js';
+import { createPasswordResetRouter } from './password-reset.js';
 import { createBillingRouter, createWebhookRouter } from './billing-routes.js';
 import { createOAuthProviders, PROVIDER_IDS } from './oauth.js';
 import { createOAuthRouter } from './oauth-routes.js';
@@ -123,6 +135,84 @@ const adminDeps = { validateChallenge: null, runSolution: null, ai: null, billin
 const learningDeps = { lib: null, settings: null, activity: null, runtimeInfo: null };
 adminDeps.learning = learningDeps;
 
+/**
+ * One effective setting (src/platform/settings), read per request so an
+ * admin's change applies to the next one. `fallback` covers the moment
+ * before bootstrap has built the settings service.
+ */
+function setting(path, fallback) {
+  try {
+    const value = learningDeps.settings?.get(path);
+    return value === undefined || value === null ? fallback : value;
+  } catch {
+    return fallback;
+  }
+}
+
+/** A piece of site copy with its `{tokens}` filled, for a server-side message - or `fallback` before bootstrap. */
+function copyText(key, vars = {}, fallback = '') {
+  try {
+    return learningDeps.settings?.copyText(key, vars) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/* ----------------------------------------------------------- limits & access */
+
+/**
+ * The abuse limits (server/rate-limit.js), the code-runner slots and the CORS
+ * policy (server/cors-policy.js). All state is in memory and every number is
+ * read live from the admin's `access` settings. `adminDeps.access` hands the
+ * same instances to the admin router's Limits & access page.
+ */
+const limiter = createLimiter();
+const slots = createExecutionSlots({
+  config: () => setting('access.execution', { maxConcurrent: 4, maxQueued: 20, queueWaitMs: 10_000 })
+});
+const corsPolicy = createCorsPolicy({
+  getMode: () => setting('access.cors.mode', 'report'),
+  getExtraOrigins: () => setting('access.cors.extraOrigins', [])
+});
+const trustedHops = () => setting('access.network.trustProxyHops', 2);
+adminDeps.access = { limiter, slots, cors: corsPolicy, hops: trustedHops, bootedAt: new Date().toISOString() };
+
+/** The friendly 429 sentence (`copy.limits.tooMany`). */
+function tooManyMessage(minutes) {
+  return copyText('limits.tooMany', { minutes }, `Too many attempts - try again in ${minutes} minutes.`);
+}
+
+/** The live rule for a bucket (`access.rateLimit.<key>`), or null (no limit) before bootstrap. */
+function ruleFor(bucket) {
+  return setting(`access.rateLimit.${BUCKET_SETTING[bucket]}`, null);
+}
+
+function limitMode() {
+  return setting('access.rateLimit.mode', 'enforce');
+}
+
+/** Rate-limit middleware over one bucket, keyed by `key(req)` (null skips - fails open). */
+function limitBy(bucket, key) {
+  return rateLimit({ limiter, bucket, rule: () => ruleFor(bucket), key, mode: limitMode, message: tooManyMessage });
+}
+
+/** Per-address limits use the address the trusted proxies vouch for; unknown skips them. */
+const byAddress = (req) => clientIp(req);
+const byAccount = (req) => req.user?.id ?? null;
+
+/**
+ * What the premium gate needs, built once per request: the content, the
+ * admin's overrides, the `access.premiumGate` mode and which route asks.
+ */
+function premiumContext(route) {
+  return {
+    snapshot: contentSnapshot(),
+    overrides: store.getContentOverrides(),
+    mode: setting('access.premiumGate', 'enforce'),
+    route
+  };
+}
+
 async function bootstrap() {
   await store.load();
 
@@ -181,13 +271,24 @@ async function bootstrap() {
 /* -------------------------------------------------------------------- app */
 
 const app = express();
-app.use(cors());
+
+// Who a request came from: trust exactly the configured number of proxies in
+// front of this server (Vercel, then the tunnel), read per request so an
+// admin's change applies at once - see server/client-ip.js. Everything that
+// needs the client's address (the access log, the per-address rate limits,
+// the OAuth state store) asks clientIp(req), never a raw header.
+app.set('trust proxy', trustProxyFn(trustedHops));
+
+// Which other sites may read our answers - an allow-list, not `cors()` for
+// everyone. The app itself calls /api on its own origin and never needs it.
+app.use(corsPolicy.corsMiddleware());
 
 // Request logging middleware for terminal visibility
 app.use((req, res, next) => {
   const start = Date.now();
   const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
-  const ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+  // The trusted-proxy view of the address, not a header anyone can type.
+  const ip = clientIp(req) ?? req.socket.remoteAddress ?? 'unknown';
   const method = req.method;
   // Sign-in URLs carry credentials in the query: the `ticket` that authorises
   // connecting a provider, and the `code`/`state` the provider sends back. A
@@ -224,6 +325,11 @@ app.use((req, res, next) => {
 
   next();
 });
+
+// A write from a page on another site (a browser always sends `Origin` on
+// one) is recorded - and refused once `access.cors.mode` is 'enforce'.
+// Webhooks and scripts send no Origin and pass straight through.
+app.use(corsPolicy.foreignOriginGuard());
 
 // Razorpay signs the RAW webhook body, so this must run before the JSON
 // parser below turns it into an object - see server/billing-routes.js.
@@ -283,13 +389,18 @@ function readToken(req) {
   return header.startsWith('Bearer ') ? header.slice(7) : null;
 }
 
-/** Attaches req.user when a valid LEARNER token is present; never rejects. */
+/**
+ * Attaches req.user when a valid LEARNER token is present; never rejects.
+ * A token signed before the account's last password reset (an older `tv`)
+ * is not a session any more - see server/auth.js learnerTokenIsCurrent.
+ */
 function optionalAuth(req, _res, next) {
   const token = readToken(req);
   if (token) {
     try {
-      const { sub } = verifyLearnerToken(token);
-      req.user = store.findUserById(sub) || null;
+      const payload = verifyLearnerToken(token);
+      const user = store.findUserById(payload.sub) || null;
+      req.user = user && learnerTokenIsCurrent(payload, user) ? user : null;
     } catch {
       req.user = null;
     }
@@ -344,6 +455,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 app.post(
   '/api/auth/register',
+  // Per address (generous: a campus shares one), then a cap on sign-ups from
+  // everywhere, which no forged header gets round.
+  limitBy('register.ip', byAddress),
+  limitBy('register.global', () => 'all'),
   asyncRoute(async (req, res) => {
     const email = String(req.body?.email ?? '').trim().toLowerCase();
     const username = String(req.body?.username ?? '').trim();
@@ -412,10 +527,23 @@ app.post(
  */
 const NO_PASSWORD_HASH = bcrypt.hashSync('no-password-on-this-account', 10);
 
+/** The email a sign-in is for, normalised the one way the limit and the lookup both use. */
+const loginEmailOf = (req) => String(req.body?.email ?? '').trim().toLowerCase();
+
 app.post(
   '/api/auth/login',
+  limitBy('login.ip', byAddress),
+  // Sign-ins per email, COUNTED before the password is compared, so a
+  // guessing loop stops costing bcrypt time once it is refused. It has to
+  // count here rather than after a failure: bcrypt yields the event loop, and
+  // a burst of parallel guesses would all pass a check that only looked,
+  // before any of them had failed and been counted. A correct password clears
+  // the count below, so in effect this is failed sign-ins per email. Keyed by
+  // the email whether or not an account has it, so a 429 says nothing about
+  // which addresses exist; a blank email skips it (and fails the lookup).
+  limitBy('login.account', loginEmailOf),
   asyncRoute(async (req, res) => {
-    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const email = loginEmailOf(req);
     const password = String(req.body?.password ?? '');
     const user = store.findUserByEmail(email);
 
@@ -429,6 +557,8 @@ app.post(
       return res.status(401).json({ error: 'Email or password is incorrect.' });
     }
 
+    // A correct password clears the email's count.
+    limiter.reset('login.account', email);
     store.recordLogin(user.id);
 
     // Throttled so a chatty client logging in repeatedly does not hammer
@@ -461,6 +591,8 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 app.post(
   '/api/auth/password',
   requireAuth,
+  // A stolen session guessing the current password gets a handful of tries.
+  limitBy('passwordChange.account', byAccount),
   asyncRoute(async (req, res) => {
     const currentPassword = String(req.body?.currentPassword ?? '');
     const newPassword = String(req.body?.newPassword ?? '');
@@ -499,6 +631,25 @@ app.delete('/api/auth/oauth/:provider', requireAuth, (req, res) => {
   if (!result.ok) return res.status(409).json({ error: result.reason });
   res.json({ user: publicUser(result.user) });
 });
+
+/**
+ * Password reset links an administrator issued from Users (no email here):
+ * POST /api/auth/password-reset/inspect and POST /api/auth/password-reset.
+ * No auth - the token in the body is the credential - and a per-address
+ * limit. A reset bumps the account's token version, which signs out every
+ * other session, and answers exactly like a login. See server/password-reset.js.
+ */
+app.use(
+  '/api',
+  createPasswordResetRouter({
+    store,
+    publicUser,
+    signLearnerToken,
+    progressFor: (user) => recalcForUser({ store, learningDeps }, user),
+    limiter,
+    limit: limitBy('passwordReset.ip', byAddress)
+  })
+);
 
 /**
  * Google / GitHub sign-in. Mounted here rather than inside the auth section
@@ -556,17 +707,28 @@ app.get('/api/admin-auth/me', requireAdminAuth, (req, res) => {
 
 app.get(
   '/api/content',
-  asyncRoute(async (_req, res) => {
+  asyncRoute(async (req, res) => {
     const snapshot = await loadContent();
     const overrides = store.getContentOverrides();
     // Includes the admin-authored questions (server/content.js).
     const merged = applyLearnerOverrides(snapshot, overrides);
     const hiddenLanguages = Object.keys(overrides.languages).filter((id) => overrides.languages[id]?.hidden);
+    // A premium stage this viewer has not unlocked comes as stubs - its place
+    // in the path (id, title, type) and nothing that answers it. With the
+    // gate in 'log' mode (the emergency switch) nothing is withheld.
+    const enforcing = setting('access.premiumGate', 'enforce') !== 'log';
+    const access = stageAccessFor(req.user ?? null, { snapshot, overrides });
+    const lockedStageIds = enforcing ? access.lockedStageIds : [];
+    const locked = new Set(lockedStageIds);
+    // Different for every viewer now: never cached by a CDN or shared.
+    res.set('Cache-Control', 'private, no-store');
+    res.set('Vary', 'Authorization');
     res.json({
       stages: merged.stages,
-      challenges: merged.challenges,
+      challenges: merged.challenges.map((challenge) => (locked.has(challenge.stageId) ? lockedStub(challenge) : challenge)),
       languageTracks: snapshot.languageTracks ?? [],
       hiddenLanguages,
+      lockedStageIds,
       builtAt: snapshot.builtAt
     });
   })
@@ -636,19 +798,25 @@ async function verifySubmission(challenge, body) {
     return { ok: true, verified: false, reason: 'DOM and UI tests verified in browser sandbox.' };
   }
 
+  // Code runs in an execution slot (server/rate-limit.js), like /api/execute:
+  // at most a few child processes at once, a short queue, then BusyError -
+  // which the solve route answers 503 "busy" without recording anything.
+
   // TypeScript runs through the same sandbox: the runner strips nothing, so
   // only type-annotation-free TS passes - the same rule the client applies.
   if (challenge.language === 'javascript' || challenge.language === 'typescript') {
-    const result = await runJsInChild({
-      code,
-      entryFunction: challenge.entryFunction,
-      testCases: challenge.testCases ?? []
-    });
+    const result = await slots.run(() =>
+      runJsInChild({
+        code,
+        entryFunction: challenge.entryFunction,
+        testCases: challenge.testCases ?? []
+      })
+    );
     return { ok: result.status === 'passed', verified: true, reason: 'Tests run by the server.' };
   }
 
   if (challenge.language === 'python') {
-    const result = await runPythonLocally(code, challenge.entryFunction, challenge.testCases ?? []);
+    const result = await slots.run(() => runPythonLocally(code, challenge.entryFunction, challenge.testCases ?? []));
     if (result.skipped) {
       return { ok: true, verified: false, reason: 'No local Python; accepted on the client report.' };
     }
@@ -697,7 +865,12 @@ app.use(
     // Graph call per challenge.
     onProgress: (user, progress) => {
       if (!excel.shouldThrottle(store, user.id)) excel.syncUser(store, user, progress, 'progress');
-    }
+    },
+    solveLimit: limitBy('solve.account', byAccount),
+    // The premium lock (server/progression.js -> billing.js premiumGate):
+    // checked before any code runs, and on every id a merge would credit.
+    checkSolveAccess: (user, challenge) => checkSolveAccess(user, challenge, premiumContext('solve')),
+    mergeAccess: (user) => mergeAccess(user, premiumContext('merge'))
   })
 );
 
@@ -705,7 +878,10 @@ app.use(
 
 // A learner's days (in their own time zone) and their wrong answers. A miss
 // is graded here too, so a correct answer can never be recorded as one.
-app.use('/api', createActivityRouter({ requireAuth, learningDeps, gradeAnswer, getChallengeMerged }));
+app.use(
+  '/api',
+  createActivityRouter({ requireAuth, learningDeps, gradeAnswer, getChallengeMerged, writeLimit: limitBy('write.account', byAccount) })
+);
 
 /* ----------------------------------------------------------------- billing */
 
@@ -751,6 +927,17 @@ app.post(
   asyncRoute(async (req, res) => {
     const challenge = getChallengeMerged(String(req.body?.challengeId ?? ''));
     if (!challenge) return res.status(404).json({ error: 'Unknown challenge.' });
+    // Right/wrong plus the explanation is the lesson's content: a premium
+    // lesson is graded only for someone who has unlocked it. Same gate, same
+    // 403 as a solve (server/progression.js -> billing.js premiumGate).
+    const access = checkSolveAccess(req.user ?? null, challenge, premiumContext('grade'));
+    if (!access.ok) {
+      return res.status(403).json({
+        error: copyText('premium.lockedSolve', {}, 'This lesson is part of a premium stage.'),
+        reason: access.reason,
+        stageId: access.stageId
+      });
+    }
     // A public route that answers right/wrong plus the explanation, for free
     // and as often as asked, is an answer key for the stage tests - which are
     // the gate between stages. They are graded only by a real solve.
@@ -933,8 +1120,27 @@ function runJsInChild(payload) {
   });
 }
 
+/**
+ * Every code-runner slot is taken and the queue is full (or the wait ran
+ * out): say so in the shape a run result has, so the Playground and the
+ * practice modal show it like any other failed run. Nothing ran.
+ */
+function sendBusy(res) {
+  return res.status(503).json({
+    status: 'error',
+    engine: 'none',
+    reason: 'busy',
+    stderr: copyText('limits.busy', {}, 'The code runner is busy - try again in a moment.'),
+    testResults: []
+  });
+}
+
 app.post(
   '/api/execute',
+  // Per account for signed-in learners, per address for everyone (a guest
+  // has only the address); code only runs inside an execution slot below.
+  limitBy('execute.account', byAccount),
+  limitBy('execute.ip', byAddress),
   asyncRoute(async (req, res) => {
     const language = String(req.body?.language ?? 'javascript');
     const code = String(req.body?.code ?? '');
@@ -980,20 +1186,34 @@ app.post(
           status: 'error',
           engine: 'none',
           reason: 'runtime-unavailable',
-          stderr: runtimeUnavailableMessage(language),
+          // The admin-editable sentence (`copy.runtime.unavailable`).
+          stderr: runtimeUnavailableMessage(language, (name) => copyText('runtime.unavailable', { language: name })),
           devHint: judge0SetupHint(language),
           testResults: []
         });
       }
-      const result = await runJudge0Submission(judge0Config, { language, code, stdin });
-      return res.json(result);
+      try {
+        const result = await slots.run(() => runJudge0Submission(judge0Config, { language, code, stdin }));
+        return res.json(result);
+      } catch (err) {
+        if (err instanceof BusyError) return sendBusy(res);
+        throw err;
+      }
     }
 
-    const started = process.hrtime.bigint();
-    const result = await runJsInChild({ code, entryFunction, testCases });
-    const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+    try {
+      // Timed inside the slot: the wait for one is not the program's time.
+      const { result, elapsed } = await slots.run(async () => {
+        const started = process.hrtime.bigint();
+        const out = await runJsInChild({ code, entryFunction, testCases });
+        return { result: out, elapsed: Number(process.hrtime.bigint() - started) / 1e6 };
+      });
 
-    res.json({ ...result, engine: 'node-vm', time: `${elapsed.toFixed(0)}ms (Node sandbox)` });
+      res.json({ ...result, engine: 'node-vm', time: `${elapsed.toFixed(0)}ms (Node sandbox)` });
+    } catch (err) {
+      if (err instanceof BusyError) return sendBusy(res);
+      throw err;
+    }
   })
 );
 

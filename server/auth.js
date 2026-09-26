@@ -71,13 +71,33 @@ function secret() {
 /* -------------------------------------------------------------- learner */
 
 export function signLearnerToken(user) {
-  return jwt.sign({ sub: user.id }, secret(), { expiresIn: LEARNER_TOKEN_TTL });
+  // `tv` is the account's token version. A password reset bumps it, so every
+  // token issued before the reset stops being accepted - the learner-side
+  // twin of the admin token's `credentialsVersion` below.
+  return jwt.sign({ sub: user.id, tv: tokenVersionOf(user) }, secret(), { expiresIn: LEARNER_TOKEN_TTL });
 }
 
 export function verifyLearnerToken(token) {
   const payload = jwt.verify(token, secret());
   if (!payload.sub) throw new Error('Not a learner token.');
   return payload;
+}
+
+function tokenVersionOf(user) {
+  return Number.isInteger(user?.tokenVersion) ? user.tokenVersion : 0;
+}
+
+/**
+ * Was this (already verified) learner token issued at the account's current
+ * token version? A token from before versions existed has no `tv` and counts
+ * as 0 - the version every account starts at - so the upgrade signs nobody
+ * out; only a later password reset does. Checked wherever a learner token is
+ * accepted: index.js's optionalAuth and oauth-routes.js's learnerFor.
+ */
+export function learnerTokenIsCurrent(payload, user) {
+  if (!payload || !user) return false;
+  const claimed = payload.tv === undefined || payload.tv === null ? 0 : payload.tv;
+  return claimed === tokenVersionOf(user);
 }
 
 /* ---------------------------------------------------------------- admin */

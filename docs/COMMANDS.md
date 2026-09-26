@@ -229,3 +229,7 @@ Removes the three tasks, stops what they started, restores the power settings. L
 - **GitHub Developer Settings** → your OAuth App → Authorization callback URL: `https://devlingo-sand.vercel.app/api/auth/oauth/github/callback`
 
 Until both are registered, those providers refuse the sign-in with a redirect-URI mismatch. Password sign-in is unaffected. A GitHub OAuth App accepts only one callback address, so signing in with GitHub on `localhost` needs a second OAuth App for development.
+
+The same value now shapes two more things: it is always on the CORS allow-list (check the recorded origins under **Limits & access > CORS** before switching it to `enforce`), and it starts the password reset links issued from **Users > Reset link**.
+
+After deploying, open **/admin/rules/access** through the Vercel URL: the "Your request" card should show your own public address. If it says unknown, or shows a Vercel address, raise the trusted proxy hops; if the card warns that more hops are trusted than there are proxies, lower them (`TRUST_PROXY_HOPS` in `.env` sets the default).

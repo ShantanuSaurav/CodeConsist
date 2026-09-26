@@ -15,6 +15,18 @@ function hasOwn(map: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(map, key);
 }
 
+/** Sections reached from their own navigation item, with their own page heading. */
+const OWN_PAGES: Partial<Record<string, { title: string; description: string }>> = {
+  copy: {
+    title: 'Site copy',
+    description: 'What learners and visitors read: offline and error messages, the landing page, limits and premium messages. Changes apply without a redeploy.'
+  },
+  access: {
+    title: 'Limits & access',
+    description: 'Rate limits, code-runner capacity, the proxy chain, CORS, the server-side premium lock and reset links. Applied to the next request.'
+  }
+};
+
 function shortDate(iso: string | null): string {
   if (!iso) return '';
   const at = new Date(iso);
@@ -227,12 +239,18 @@ export const AdminRules: React.FC = () => {
   const Body = section.Component ?? GenericSection;
   const sectionChanges = changesIn(section.id);
   const serverIssues = view.issues ?? [];
+  // Site copy and Limits & access have their own entries in the admin
+  // navigation; the page says which one it is.
+  const heading = OWN_PAGES[section.id] ?? {
+    title: 'Rules & rewards',
+    description: 'Every learning rule, in one place. Defaults live in the code; only what you change here is stored.'
+  };
 
   return (
     <div className="pb-20">
       <AdminPageHeader
-        title="Rules & rewards"
-        description="Every learning rule, in one place. Defaults live in the code; only what you change here is stored."
+        title={heading.title}
+        description={heading.description}
         actions={
           <Badge tone={view.revision > 0 ? 'success' : 'default'}>
             {view.revision > 0

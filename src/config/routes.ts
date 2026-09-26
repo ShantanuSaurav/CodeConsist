@@ -22,6 +22,12 @@ export const ROUTES = {
    * with the token in the URL fragment, which this page reads and clears.
    */
   authCallback: '/auth/callback',
+  /**
+   * Where an admin-issued password reset link lands. The token travels in
+   * the URL fragment (`#token=...`), which never reaches a server; the page
+   * reads it and removes it from the address bar at once.
+   */
+  resetPassword: '/reset-password',
   /** A learner's own printable certificate (owner only; outside the dashboard frame so it prints clean). */
   certificate: (id: string) => `/certificates/${id}`,
   /** Public check of a certificate code - no sign-in needed. */
@@ -45,6 +51,7 @@ export const STATIC_ROUTES: readonly string[] = [
   ROUTES.achievements,
   ROUTES.settings,
   ROUTES.authCallback,
+  ROUTES.resetPassword,
   ROUTES.admin,
   ROUTES.adminLogin,
   ROUTES.adminBilling

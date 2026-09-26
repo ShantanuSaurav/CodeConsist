@@ -5,6 +5,7 @@
  * React Fast Refresh - and so these rules can be tested without React.
  */
 import type { UserStats } from '@/types';
+import { ApiError } from '../api-client/api';
 import { learnerDay } from '../time/days';
 import { DEFAULT_LEVEL_CURVE, currentStreak, levelFromXp } from '../xp-leveling/leveling';
 import type { LevelCurve } from '../xp-leveling/leveling';
@@ -115,4 +116,15 @@ export function statsAfterSolve(
     isPremium: prev.isPremium,
     unlockedStages: prev.unlockedStages
   };
+}
+
+/**
+ * A solve the server turned away without judging it: too many solves in a
+ * row (429) or every code-runner slot busy while it re-ran the code (503
+ * `busy`). Nothing was recorded and the answer was not found wrong, so the
+ * solve stays in this browser and goes up with the next sync, like one made
+ * offline - it is not "rejected". Any other refusal is a verdict.
+ */
+export function solveWasDeferred(err: unknown): err is ApiError {
+  return err instanceof ApiError && (err.status === 429 || (err.status === 503 && err.reason === 'busy'));
 }

@@ -53,8 +53,24 @@ import {
   revokeOrder,
   trackLabel
 } from './billing.js';
+import { activeResetLink, createPasswordResetAdminRouter } from './password-reset.js';
+import { ipDiagnostics } from './client-ip.js';
+import { BUCKETS, BUCKET_SETTING } from './rate-limit.js';
+import { premiumGateStats } from './progression.js';
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+/**
+ * The learner's live reset link, for the Users table's badge. A store
+ * without reset records (an older mocked store in a test) means none.
+ */
+function resetLinkOf(userId) {
+  try {
+    return activeResetLink(store, userId);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Never the passwordHash. Adds the small progress summary the Users page
@@ -85,8 +101,25 @@ function adminUserRow(user, deps = {}) {
     streak: progress.streak,
     completedChallenges: progress.completedChallenges.length,
     completedStages: progress.completedStages.length,
-    lastActiveDay: progress.lastActiveDay
+    lastActiveDay: progress.lastActiveDay,
+    // When a password reset link is live, and until when - never the link.
+    activeResetLink: resetLinkOf(user.id)
   };
+}
+
+/**
+ * Who a rate-limit key belongs to, for the admin's status card: account
+ * buckets are keyed by user id, `login.account` by email. Addresses stay as
+ * they are.
+ */
+function usernameForKey(bucket, key) {
+  try {
+    if (bucket === 'login.account') return store.findUserByEmail(key)?.username ?? null;
+    if (bucket.endsWith('.account')) return store.findUserById(key)?.username ?? null;
+  } catch {
+    /* a store without users */
+  }
+  return null;
 }
 
 /**
@@ -204,6 +237,9 @@ function settingsContext(deps) {
  *   learning -> { lib, settings, activity, runtimeInfo } (server/index.js's learningDeps):
  *     the rules store, each learner's activity, and the shared rule code. Read
  *     per request; routes that need it answer 503 while it is missing.
+ *   access -> { limiter, slots, cors, hops, bootedAt } (server/index.js's adminDeps.access):
+ *     the live rate-limit counters, code-runner slots and CORS policy behind
+ *     the Limits & access page.
  */
 export function createAdminRouter(deps = {}) {
   const router = express.Router();
@@ -242,6 +278,71 @@ export function createAdminRouter(deps = {}) {
       getService: () => deps.learning?.settings ?? null,
       audit,
       getContext: () => settingsContext(deps)
+    })
+  );
+
+  /* ------------------------------------------------------- limits & access */
+  // The live side of the `access` settings section: what the server derives
+  // for the admin's own request, the rate-limit counters (with an Unblock per
+  // key), the code-runner slots, the CORS allow-list and what it recorded,
+  // and the premium lock's blocks since boot. All in memory - a restart
+  // clears it. `deps.access` is { limiter, slots, cors, hops } from index.js;
+  // without it (a test, before boot) these answer 503.
+  const setting = (path, fallback) => {
+    try {
+      const value = deps.learning?.settings?.get(path);
+      return value === undefined ? fallback : value;
+    } catch {
+      return fallback;
+    }
+  };
+
+  router.get('/access/status', (req, res) => {
+    const access = deps.access;
+    if (!access?.limiter) return res.status(503).json({ error: 'Limits are not available yet.' });
+    const hops = Number(access.hops?.() ?? setting('access.network.trustProxyHops', 0)) || 0;
+    const limiterStats = access.limiter.stats();
+    const buckets = {};
+    for (const bucket of BUCKETS) {
+      const live = limiterStats.buckets[bucket] ?? { blocked: 0, lastBlockedAt: null, keys: 0, top: [] };
+      buckets[bucket] = {
+        ...live,
+        setting: BUCKET_SETTING[bucket],
+        rule: setting(`access.rateLimit.${BUCKET_SETTING[bucket]}`, null),
+        top: live.top.map((row) => ({ ...row, username: usernameForKey(bucket, row.key) }))
+      };
+    }
+    res.json({
+      ip: ipDiagnostics(req, hops),
+      limiter: { mode: setting('access.rateLimit.mode', 'enforce'), trackedKeys: limiterStats.trackedKeys, buckets },
+      slots: access.slots?.stats() ?? null,
+      cors: access.cors?.status() ?? null,
+      premium: { mode: setting('access.premiumGate', 'enforce'), ...premiumGateStats() },
+      bootedAt: access.bootedAt ?? null
+    });
+  });
+
+  /** Unblock: forget one key's count in a bucket (or the whole bucket). */
+  router.post('/access/rate-limits/reset', (req, res) => {
+    const limiter = deps.access?.limiter;
+    if (!limiter) return res.status(503).json({ error: 'Limits are not available yet.' });
+    const bucket = String(req.body?.bucket ?? '');
+    if (!BUCKETS.includes(bucket)) return res.status(400).json({ error: 'Unknown rate-limit bucket.' });
+    const key = req.body?.key === undefined || req.body?.key === null || req.body?.key === '' ? null : String(req.body.key).slice(0, 200);
+    const cleared = limiter.reset(bucket, key ?? undefined);
+    audit(req, 'security.rate-limit.reset', bucket, { bucket, key, cleared });
+    res.json({ ok: true, cleared });
+  });
+
+  /* ------------------------------------------------------- password resets */
+  // POST /users/:id/password-reset, GET /users/:id/password-resets,
+  // POST /password-resets/:id/revoke - server/password-reset.js. The token is
+  // in the one response that issues it, and in no audit row.
+  router.use(
+    createPasswordResetAdminRouter({
+      store,
+      audit,
+      ttlMinutes: () => setting('access.passwordResetTtlMinutes', 1440)
     })
   );
 

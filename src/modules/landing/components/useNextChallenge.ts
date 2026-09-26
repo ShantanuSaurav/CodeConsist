@@ -24,7 +24,9 @@ export function useNextChallenge(match: (c: Challenge) => boolean): NextChalleng
 
   return useMemo(() => {
     const solved = new Set(stats.completedChallenges);
-    const lessons = (c: Challenge) => !c.isStageTest;
+    // A locked stub (a premium stage this visitor has not unlocked) has no
+    // prompt or answers to show.
+    const lessons = (c: Challenge) => !c.isStageTest && !c.locked;
     const unsolved = (c: Challenge) => lessons(c) && !solved.has(c.id) && match(c);
 
     const current = learnerStages.find((s) => s.state === 'In progress' || s.state === 'Test pending') ?? learnerStages[0];

@@ -10,13 +10,19 @@ import { SECTION_META } from '@/platform/settings';
 import type { SectionMeta } from '@/platform/settings';
 import type { SectionProps } from './GenericSection';
 import { LevelsSection } from './LevelsSection';
+import { CopySection } from './CopySection';
+import { AccessSection } from './AccessSection';
 
 export interface SectionEntry extends Pick<SectionMeta, 'id' | 'title' | 'description' | 'audience'> {
   Component?: React.FC<SectionProps>;
 }
 
 const CUSTOM: Partial<Record<string, React.FC<SectionProps>>> = {
-  levels: LevelsSection
+  levels: LevelsSection,
+  // Site copy, grouped by where it appears, with previews in the real counts.
+  copy: CopySection,
+  // Limits & access, with the live status card (proxy diagnostic, limiter, CORS).
+  access: AccessSection
 };
 
 export const SECTIONS: SectionEntry[] = SECTION_META.map(({ id, title, description, audience }) => ({

@@ -20,7 +20,7 @@
  */
 import crypto from 'node:crypto';
 import * as store from './db.js';
-import { applyLearnerOverrides } from './content.js';
+import { applyLearnerOverrides, applyStageOverride } from './content.js';
 
 export const CURRENCY = 'INR';
 /** Paise. ₹1,999 / ₹999 / ₹499 / ₹299. */
@@ -289,6 +289,59 @@ export function unlockedStageIds(entitlements, tracks = []) {
     for (const id of track?.stageIds ?? []) ids.add(id);
   }
   return ids;
+}
+
+/* ---------------------------------------------------------- premium gate */
+
+/**
+ * Every stage that is premium AFTER admin overrides - hidden stages
+ * included, so hiding a premium stage never makes its lessons free to solve.
+ */
+export function premiumStageIds({ snapshot, overrides } = {}) {
+  const stageOverrides = overrides?.stages ?? {};
+  return new Set(
+    (snapshot?.stages ?? [])
+      .map((stage) => applyStageOverride(stage, stageOverrides))
+      .filter((stage) => stage.isPremium)
+      .map((stage) => stage.id)
+  );
+}
+
+/**
+ * Which stages this viewer may open, the one rule the solve, merge and grade
+ * routes and `/api/content` share:
+ *   - a stage that is not premium is always open;
+ *   - a guest (null user) opens no premium stage;
+ *   - a lifetime licence (or the legacy Pro flag) opens everything;
+ *   - otherwise the stages bought one by one or through a track, a track
+ *     expanded against the CURRENT track list (a stage added to a bought
+ *     track later is covered) - the same expansion `publicUser` uses.
+ * Everything is derived from paid orders on each call, so a revoke closes
+ * access on the next request.
+ */
+export function stageAccessFor(user, { snapshot, overrides } = {}) {
+  const premium = premiumStageIds({ snapshot, overrides });
+  let locked;
+  if (!user) {
+    locked = [...premium];
+  } else {
+    const entitlements = entitlementsFor(user.id, user);
+    if (entitlements.lifetime) {
+      locked = [];
+    } else {
+      const unlocked = unlockedStageIds(entitlements, snapshot?.languageTracks ?? []);
+      locked = [...premium].filter((id) => !unlocked.has(id));
+    }
+  }
+  const lockedSet = new Set(locked);
+  return { all: lockedSet.size === 0, allows: (stageId) => !lockedSet.has(stageId), lockedStageIds: locked };
+}
+
+/** May this viewer solve (or grade, or merge) this challenge? `{ ok: true }` or `{ ok: false, stageId }`. */
+export function premiumGate(user, challenge, ctx = {}) {
+  if (!challenge) return { ok: true };
+  const access = ctx.access ?? stageAccessFor(user, ctx);
+  return access.allows(challenge.stageId) ? { ok: true } : { ok: false, stageId: challenge.stageId };
 }
 
 /* --------------------------------------------------------- certificates */

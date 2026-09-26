@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { BadgeCheck, CircleSlash, SearchX } from 'lucide-react';
 import { api, OfflineError } from '@/platform/api-client/api';
+import { getCopy } from '@/platform/settings';
 import type { VerifyCertificateResponse } from '@/platform/api-client/api';
 import { ROUTES } from '@/config/routes';
 import { CodeConsistLogo } from '@/ui';
@@ -35,7 +36,12 @@ export const VerifyPage: React.FC = () => {
         if (cancelled) return;
         setState({
           kind: 'error',
-          message: err instanceof OfflineError ? 'Certificate checks are temporarily unavailable. Please try again in a little while.' : err instanceof Error ? err.message : 'Could not check that code.'
+          message:
+            err instanceof OfflineError
+              ? getCopy('copy.offline.verify') || 'Certificate checks are temporarily unavailable. Please try again in a little while.'
+              : err instanceof Error
+                ? err.message
+                : 'Could not check that code.'
         });
       });
     return () => {

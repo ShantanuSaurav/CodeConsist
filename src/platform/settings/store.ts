@@ -45,11 +45,12 @@ export function subscribe(listener: () => void): () => void {
 }
 
 /**
- * A piece of editable copy by its dot path (`copy.offline.auth`), with its
- * `{tokens}` filled. Empty text when the path is not copy - which a caller
- * should treat as "use your own wording".
+ * A piece of editable copy by its dot path (`copy.offline.auth`, or just
+ * `offline.auth`), with its `{tokens}` filled. Empty text when the path is
+ * not copy - which a caller should treat as "use your own wording".
  */
 export function getCopy(key: string, vars: Record<string, string | number | null | undefined> = {}): string {
-  const template = getPath(snapshot, key);
+  let template = getPath(snapshot, key);
+  if (typeof template !== 'string' && !key.startsWith('copy.')) template = getPath(snapshot, `copy.${key}`);
   return typeof template === 'string' ? fillCopy(template, vars) : '';
 }

@@ -31,8 +31,10 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
  * additive only: no existing row is rewritten or re-scored.
  *   2 - `settings` (the admin rules store) and `activity` (per-learner days
  *       and failed attempts), plus `users[].preferences`.
+ *   3 - `passwordResets` (admin-issued reset links, hashes only), plus
+ *       `users[].tokenVersion` (bumped by a reset to sign out old sessions).
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const EMPTY = {
   version: SCHEMA_VERSION,
@@ -110,7 +112,15 @@ const EMPTY = {
    * ones - see src/platform/activity/log.ts for the shape and
    * server/activity.js for who writes it. Deleted with the account.
    */
-  activity: {}
+  activity: {},
+  /**
+   * Password reset links an administrator issued, keyed by reset id:
+   * `{ id, userId, tokenHash, createdAt, expiresAt, createdBy, usedAt,
+   * revokedAt }`. Only the SHA-256 of a token is ever stored - the token
+   * itself is shown to the admin once and then exists nowhere on this server
+   * (server/password-reset.js). Deleted with the account.
+   */
+  passwordResets: {}
 };
 
 let state = null;
@@ -223,6 +233,7 @@ function migrate(loaded) {
   next.certificates = plainObject(loaded.certificates);
   next.pricing = plainObject(loaded.pricing);
   next.drafts = plainObject(loaded.drafts);
+  next.passwordResets = plainObject(loaded.passwordResets);
   next.users = (loaded.users ?? []).map((u) => {
     // `role` was a field from the old, retired admin-via-user-account
     // system. It is no longer read anywhere - administrators now live
@@ -237,7 +248,12 @@ function migrate(loaded) {
       // the login route can check, not a missing key it has to guess at.
       passwordHash: rest.passwordHash ?? null,
       identities: plainObject(rest.identities),
-      preferences: normalizePreferences(rest.preferences)
+      preferences: normalizePreferences(rest.preferences),
+      // Stamped into every learner token as `tv`; a password reset bumps it,
+      // which signs out every session issued before (server/auth.js). A
+      // token from before this existed has no `tv` and reads as 0, so
+      // nobody is signed out by the upgrade itself.
+      tokenVersion: Number.isInteger(rest.tokenVersion) && rest.tokenVersion >= 0 ? rest.tokenVersion : 0
     };
   });
   return next;
@@ -350,6 +366,8 @@ export function findUserById(id) {
 }
 
 export function insertUser(user) {
+  // Every account starts at token version 0 (see migrate()).
+  if (!Number.isInteger(user.tokenVersion)) user.tokenVersion = 0;
   db().users.push(user);
   persist();
   return user;
@@ -379,6 +397,8 @@ export function deleteUser(id) {
   deleteDraftsForUser(id);
   // So do their days and wrong answers (typed blanks are their words).
   deleteActivity(id);
+  // And any reset link issued for them - it names the account.
+  deletePasswordResetsForUser(id);
 
   forgetBillingIdentity(db(), id);
 
@@ -686,6 +706,78 @@ export function deleteActivity(userId) {
   delete db().activity[id];
   persist();
   return true;
+}
+
+/* --------------------------------------------------------- password resets */
+
+/**
+ * Admin-issued reset links (server/password-reset.js builds and checks
+ * them). Only a token's SHA-256 is stored, so reading db.json never yields a
+ * usable link.
+ */
+export function putPasswordReset(record) {
+  defineEntry(db().passwordResets, String(record.id), record);
+  persist();
+  return record;
+}
+
+export function getPasswordReset(id) {
+  return ownEntry(db().passwordResets, String(id ?? ''));
+}
+
+/** The record whose token hashes to `hash`, or null. */
+export function findPasswordResetByTokenHash(hash) {
+  if (typeof hash !== 'string' || !hash) return null;
+  return Object.values(db().passwordResets).find((r) => r?.tokenHash === hash) ?? null;
+}
+
+/** One learner's reset links, newest first. */
+export function passwordResetsForUser(userId) {
+  return Object.values(db().passwordResets)
+    .filter((r) => r?.userId === userId)
+    .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+}
+
+/** Patch one reset record in place (`usedAt`, `revokedAt`). Null when there is no such record. */
+export function updatePasswordReset(id, patch) {
+  const record = getPasswordReset(id);
+  if (!record) return null;
+  Object.assign(record, patch);
+  persist();
+  return record;
+}
+
+/**
+ * Drop links that can never be used again - used, revoked or expired -
+ * once they are 30 days past that point. Called on every issue, so the table
+ * stays small without a timer. Returns how many went.
+ */
+export function prunePasswordResets(nowMs = Date.now()) {
+  const cutoff = nowMs - 30 * 86_400_000;
+  let removed = 0;
+  for (const [id, record] of Object.entries(db().passwordResets)) {
+    const ended = [record?.usedAt, record?.revokedAt, record?.expiresAt]
+      .map((value) => Date.parse(value ?? ''))
+      .filter((t) => Number.isFinite(t));
+    const done = record?.usedAt || record?.revokedAt || Date.parse(record?.expiresAt ?? '') <= nowMs;
+    if (done && ended.length && Math.min(...ended) < cutoff) {
+      delete db().passwordResets[id];
+      removed += 1;
+    }
+  }
+  if (removed) persist();
+  return removed;
+}
+
+export function deletePasswordResetsForUser(userId) {
+  let removed = 0;
+  for (const [id, record] of Object.entries(db().passwordResets)) {
+    if (record?.userId !== userId) continue;
+    delete db().passwordResets[id];
+    removed += 1;
+  }
+  if (removed) persist();
+  return removed;
 }
 
 /* ---------------------------------------------------------------- content */

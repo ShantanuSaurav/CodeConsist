@@ -1,12 +1,14 @@
 import React, { useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { useAppEvent } from '@/platform/events';
 import { Button, DevHint, EmptyState } from '@/ui';
 
 /** Top accounts by XP, from the local API. A table, not a stack of cards. */
 export const Leaderboard: React.FC = () => {
   const { leaderboard, user, serverStatus, refreshLeaderboard } = useSession();
+  const copy = useCopy();
 
   useEffect(() => {
     if (serverStatus === 'online') refreshLeaderboard();
@@ -23,7 +25,7 @@ export const Leaderboard: React.FC = () => {
 
   if (serverStatus !== 'online') {
     return (
-      <EmptyState title="The leaderboard is temporarily unavailable.">
+      <EmptyState title={copy('copy.offline.leaderboard')}>
         Please check back in a little while - your own progress is saved on this device.
         <DevHint as="div" className="mt-1">
           The API server is not running: start it with <code className="font-mono text-fg">npm run dev:api</code>.

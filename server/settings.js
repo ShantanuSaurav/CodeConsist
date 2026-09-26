@@ -62,6 +62,18 @@ export function createSettingsService({ store, lib, env = process.env }) {
     return lib.getPath(current(), path);
   }
 
+  /**
+   * A piece of site copy for a server-side message (a 429, the premium lock,
+   * a missing compiler), with its `{tokens}` filled - the same text a
+   * learner's browser shows. `key` is relative to the copy section
+   * (`limits.tooMany`); `copy.limits.tooMany` works too.
+   */
+  function copyText(key, vars = {}) {
+    const path = String(key).startsWith('copy.') ? String(key) : `copy.${key}`;
+    const template = get(path);
+    return typeof template === 'string' ? lib.fillCopy(template, vars) : '';
+  }
+
   /** What `GET /api/settings` sends: everything except the admin-only sections. */
   function publicView() {
     const { revision: rev, settings } = resolved();
@@ -129,5 +141,5 @@ export function createSettingsService({ store, lib, env = process.env }) {
     return { ok: true, status: 200, view: adminView(), changes, changedPaths };
   }
 
-  return { current, revision, get, publicView, adminView, update };
+  return { current, revision, get, copyText, publicView, adminView, update };
 }

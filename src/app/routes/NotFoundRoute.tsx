@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ROUTES } from '@/config/routes';
+import { useCopy } from '@/platform/settings';
 import { ButtonLink, CodeConsistLogo } from '@/ui';
 
 interface NotFoundRouteProps {
@@ -19,13 +20,13 @@ interface NotFoundRouteProps {
  * dead link is exactly when a chunk download should not be needed.
  */
 export const NotFoundRoute: React.FC<NotFoundRouteProps> = ({ inFrame = false }) => {
+  // Admin-editable (`copy.notFound.*`).
+  const copy = useCopy();
   const body = (
     <div className="max-w-xl">
       <div className="eyebrow">Page not found</div>
-      <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight text-fg">There is nothing at this address.</h1>
-      <p className="text-fg-secondary mt-2 text-[0.9375rem] leading-relaxed">
-        The link may be mistyped, or the page may have moved. Everything else is where you left it.
-      </p>
+      <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight text-fg">{copy('copy.notFound.title')}</h1>
+      <p className="text-fg-secondary mt-2 text-[0.9375rem] leading-relaxed">{copy('copy.notFound.body')}</p>
       <div className="mt-6 flex flex-col sm:flex-row gap-3">
         <ButtonLink to={ROUTES.learn} variant="primary">
           Open the learning path

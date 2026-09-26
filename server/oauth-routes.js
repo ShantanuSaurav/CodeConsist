@@ -30,6 +30,8 @@
 import crypto from 'node:crypto';
 import express from 'express';
 import { OAuthError, PROVIDER_IDS } from './oauth.js';
+import { learnerTokenIsCurrent } from './auth.js';
+import { clientIp } from './client-ip.js';
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -208,8 +210,18 @@ export function usernameFor(identity, isTaken) {
  *     server/index.js; every route here answers with a redirect or a boolean
  *     pair, so it is not used to shape a response.
  *   syncUser(user, progress, reason) - the same fire-and-forget Excel mirror register/login use.
+ *   tokenIsCurrent(payload, user) - server/auth.js learnerTokenIsCurrent: a token issued
+ *     before the account's last password reset is not a session any more.
  */
-export function createOAuthRouter({ providers, store, signLearnerToken, publicUser, syncUser, verifyLearnerToken }) {
+export function createOAuthRouter({
+  providers,
+  store,
+  signLearnerToken,
+  publicUser,
+  syncUser,
+  verifyLearnerToken,
+  tokenIsCurrent = learnerTokenIsCurrent
+}) {
   const router = express.Router();
   const states = createStateStore();
   const tickets = createTicketStore();
@@ -240,22 +252,23 @@ export function createOAuthRouter({ providers, store, signLearnerToken, publicUs
     const token = header.slice(7);
     if (!token) return null;
     try {
-      const { sub } = verifyLearnerToken(token);
-      return store.findUserById(sub) ?? null;
+      const payload = verifyLearnerToken(token);
+      const user = store.findUserById(payload.sub) ?? null;
+      // Signed before the account's last password reset: not a session any more.
+      return user && tokenIsCurrent(payload, user) ? user : null;
     } catch {
       return null;
     }
   }
 
   /**
-   * Who a request came from, decided the same way the access log decides it:
-   * this API sits behind a tunnel in production, so `req.ip` is the tunnel
-   * and would put every learner in one bucket.
+   * Who a request came from, decided the same way the access log and the
+   * rate limits decide it (server/client-ip.js): the address the trusted
+   * proxies vouch for. A client-supplied `X-Forwarded-For` is never taken at
+   * its word - reading its first entry let anyone pick their own bucket.
    */
   function sourceKey(req) {
-    const forwarded = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || '';
-    const first = String(forwarded).split(',')[0].trim();
-    return first || req.ip || req.socket?.remoteAddress || 'unknown';
+    return clientIp(req) ?? req.socket?.remoteAddress ?? 'unknown';
   }
 
   /**

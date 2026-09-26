@@ -17,6 +17,7 @@ import {
   WifiOff
 } from 'lucide-react';
 import { useLeveling, useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
@@ -57,6 +58,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
   const { user, stats, logout, serverStatus, tracks, selectedTrackId, setSelectedTrack } = useSession();
   const { theme, toggleTheme } = useTheme();
+  const copy = useCopy();
   const openAuthModal = intents.openAuth;
   const { levelProgress } = useLeveling();
   const level = levelProgress(stats.xp);
@@ -180,11 +182,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
                 title={
                   serverStatus === 'online'
                     ? signedIn
-                      ? 'Synced'
-                      : 'Guest - saved on this device'
+                      ? copy('copy.sync.online')
+                      : copy('copy.sync.guest')
                     : serverStatus === 'checking'
                       ? 'Checking…'
-                      : 'Sync paused - saved on this device'
+                      : copy('copy.sync.offline')
                 }
               >
                 {serverStatus === 'online' ? <Wifi size={11} /> : <WifiOff size={11} />}

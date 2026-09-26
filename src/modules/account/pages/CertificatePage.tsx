@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Check, Copy, Printer } from 'lucide-react';
 import { useSession } from '@/platform/session';
+import { getCopy } from '@/platform/settings';
 import { intents } from '@/platform/events';
 import { api, ApiError, OfflineError } from '@/platform/api-client/api';
 import type { CertificateDetail } from '@/platform/api-client/api';
@@ -45,7 +46,7 @@ export const CertificatePage: React.FC = () => {
       .catch((err) => {
         if (cancelled) return;
         if (err instanceof ApiError && (err.status === 404 || err.status === 401)) setState({ kind: 'missing' });
-        else if (err instanceof OfflineError) setState({ kind: 'error', message: 'CodeConsist is temporarily unavailable. Please try again in a little while.' });
+        else if (err instanceof OfflineError) setState({ kind: 'error', message: getCopy('copy.offline.generic') || 'CodeConsist is temporarily unavailable. Please try again in a little while.' });
         else setState({ kind: 'error', message: err instanceof Error ? err.message : 'Could not load the certificate.' });
       });
     return () => {

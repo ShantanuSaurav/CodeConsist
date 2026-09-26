@@ -30,8 +30,9 @@ function plainObject(value) {
  * @param {{ lib, settings, activity }} deps.learningDeps
  * @param {(challenge, answer) => boolean} deps.gradeAnswer  the authoritative non-code grader
  * @param {(id: string) => object | null} deps.getChallengeMerged
+ * @param {Function} [deps.writeLimit]  the `write.account` rate limit (server/rate-limit.js)
  */
-export function createActivityRouter({ requireAuth, learningDeps, gradeAnswer, getChallengeMerged }) {
+export function createActivityRouter({ requireAuth, learningDeps, gradeAnswer, getChallengeMerged, writeLimit = (_req, _res, next) => next() }) {
   const router = express.Router();
 
   router.get('/activity', requireAuth, (req, res) => {
@@ -42,7 +43,7 @@ export function createActivityRouter({ requireAuth, learningDeps, gradeAnswer, g
     res.json(learningDeps.activity.view(req.user, { from }));
   });
 
-  router.post('/activity/misses', requireAuth, (req, res) => {
+  router.post('/activity/misses', requireAuth, writeLimit, (req, res) => {
     const { lib, settings, activity } = learningDeps;
     const list = req.body?.misses;
     if (!Array.isArray(list) || list.length < 1 || list.length > MAX_ITEMS) {

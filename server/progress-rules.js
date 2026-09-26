@@ -108,8 +108,24 @@ export function validSolvedAt(value, nowMs, keepDays) {
  * number, a level, or a challenge id it has never heard of from the request.
  * Each newly credited solve also comes back as a `credit` for the activity
  * log, dated by its (validated) solve time in the account's zone.
+ *
+ * `allows(challenge)` is the access gate (server/progression.js): a new id
+ * it refuses - a premium lesson this account has not unlocked - is not
+ * credited and comes back in `skippedLocked`.
  */
-export function mergeCore({ current, incoming: raw, lib, settings, getChallenge, getChallengeMerged, completedStagesFor, zone, today, now }) {
+export function mergeCore({
+  current,
+  incoming: raw,
+  lib,
+  settings,
+  getChallenge,
+  getChallengeMerged,
+  completedStagesFor,
+  zone,
+  today,
+  now,
+  allows = () => true
+}) {
   const incoming = plainObject(raw);
   const xp = settings.xp;
   const nowMs = now.getTime();
@@ -118,8 +134,15 @@ export function mergeCore({ current, incoming: raw, lib, settings, getChallenge,
   const known = new Set(current.completedChallenges ?? []);
   const incomingIds = Array.isArray(incoming.completedChallenges) ? incoming.completedChallenges.map(String) : [];
 
-  // Only ids that exist, and only ones this account has not already been paid for.
-  const newIds = [...new Set(incomingIds)].filter((id) => !known.has(id) && getChallenge(id));
+  // Only ids that exist, only ones this account has not already been paid
+  // for, and only ones it may open.
+  const skippedLocked = [];
+  const newIds = [...new Set(incomingIds)].filter((id) => {
+    if (known.has(id) || !getChallenge(id)) return false;
+    if (allows(getChallengeMerged(id) ?? getChallenge(id))) return true;
+    skippedLocked.push(id);
+    return false;
+  });
 
   const incomingAttempts = plainObject(incoming.attempts);
   const attempts = { ...(current.attempts ?? {}) };
@@ -167,7 +190,7 @@ export function mergeCore({ current, incoming: raw, lib, settings, getChallenge,
     attempts
   };
   merged.level = lib.levelFromXp(merged.xp, settings.levels);
-  return { merged, newIds, awarded, credits };
+  return { merged, newIds, awarded, credits, skippedLocked };
 }
 
 /**

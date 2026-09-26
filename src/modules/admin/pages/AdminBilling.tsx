@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { adminApi } from '../services/adminApi';
 import type { AdminBillingProduct, AdminCertificateRow, AdminOrderRow, AdminUserRow, PricingPatch, PricingResponse } from '../services/adminApi';
@@ -91,6 +92,39 @@ function shortDate(iso: string | null): string {
 
 /* ================================================================= page */
 
+/**
+ * Read-only: whether the server refuses premium lessons to learners who have
+ * not bought them, or only logs it (`access.premiumGate`, the emergency
+ * switch). Changed on Limits & access, not here.
+ */
+const PremiumLockLine: React.FC = () => {
+  const [mode, setMode] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    adminApi
+      .settings()
+      .then((view) => {
+        if (!cancelled) setMode(view.settings.access?.premiumGate ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setMode(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (!mode) return null;
+  return (
+    <p className="text-sm text-fg-secondary mb-6 flex flex-wrap items-center gap-2">
+      Server-side premium lock:
+      <Badge tone={mode === 'enforce' ? 'success' : 'warning'}>{mode === 'enforce' ? 'Enforced' : 'Logging only'}</Badge>
+      <Link to="/admin/rules/access" className="text-accent hover:underline">
+        Change on Limits &amp; access
+      </Link>
+    </p>
+  );
+};
+
 export const AdminBilling: React.FC = () => {
   const [pricing, setPricing] = useState<PricingResponse | null>(null);
   const [orders, setOrders] = useState<AdminOrderRow[] | null>(null);
@@ -120,6 +154,7 @@ export const AdminBilling: React.FC = () => {
       {error && <ErrorText>{error}</ErrorText>}
 
       <ModeBanner mode={pricing.mode} />
+      <PremiumLockLine />
 
       <div className="grid lg:grid-cols-2 gap-6 mb-6">
         <PricesCard pricing={pricing} onSaved={setPricing} />

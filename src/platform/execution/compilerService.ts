@@ -27,8 +27,9 @@
  */
 import { ExecutionResult, SupportedLanguage, TestCase, TestResult } from '@/types';
 import { ENV } from '@/config/env';
-import { api, OfflineError, RuntimeInfo } from '../api-client/api';
+import { api, ApiError, OfflineError, RuntimeInfo } from '../api-client/api';
 import { displayValue, matchesExpected } from '../grading-engine/grading';
+import { getCopy } from '../settings/store';
 
 /** Names for the languages the server compiles, for the sentences a learner reads. */
 const SERVER_LANGUAGE_NAMES: Partial<Record<SupportedLanguage, string>> = {
@@ -51,10 +52,56 @@ function serverUnreachableMessage(language: SupportedLanguage): string {
     );
   }
   const name = SERVER_LANGUAGE_NAMES[language] ?? language;
+  // The admin-editable sentence (`copy.offline.playgroundCompiled`); the
+  // built-in words only if the copy is missing.
   return (
+    getCopy('copy.offline.playgroundCompiled', { language: name }) ||
     `${name} runs on the CodeConsist server, which is not reachable right now. Please try again in a little ` +
-    'while - JavaScript and Python still run in your browser.'
+      'while - JavaScript and Python still run in your browser.'
   );
+}
+
+/**
+ * The server refused the run without running it: too many runs in a row
+ * (429, `limits.tooMany`) or every code-runner slot busy (503 `busy`,
+ * `limits.busy`). Both come back as an ordinary failed run carrying the
+ * server's own sentence, so the Playground and the practice modal show them
+ * like any other error. Null for anything else.
+ */
+function refusedRun(error: unknown): ExecutionResult | null {
+  if (!(error instanceof ApiError)) return null;
+  if (error.status === 429 || error.reason === 'rate-limited') {
+    return {
+      status: 'error',
+      engine: 'none',
+      reason: 'rate-limited',
+      stderr: error.message || getCopy('copy.limits.tooMany', { minutes: Math.max(1, Math.ceil((error.retryAfterSeconds ?? 60) / 60)) }),
+      testResults: []
+    };
+  }
+  if (error.reason === 'busy') {
+    // The server's sentence is already its (admin-edited) copy.
+    const said = (error.payload as { stderr?: unknown } | undefined)?.stderr;
+    return {
+      status: 'error',
+      engine: 'none',
+      reason: 'busy',
+      stderr: (typeof said === 'string' && said) || getCopy('copy.limits.busy') || error.message,
+      testResults: []
+    };
+  }
+  return null;
+}
+
+/**
+ * Was this "failed run" one the server refused without running (see
+ * refusedRun)? Nothing of the learner's was tested, so it is not their try:
+ * it must not cost the retry penalty on XP, count towards "Show me the
+ * solution", or be kept as a miss. A missing engine ('runtime-unavailable')
+ * is not a refusal - that is how this server is set up, not a moment's load.
+ */
+export function isRefusedRun(result: Pick<ExecutionResult, 'engine' | 'reason'> | null | undefined): boolean {
+  return result?.engine === 'none' && (result.reason === 'rate-limited' || result.reason === 'busy');
 }
 
 /**
@@ -597,7 +644,9 @@ export const compilerService = {
           const result = await api.execute({ language, code, entryFunction, testCases });
           if (result && result.engine !== 'none') return result;
         } catch {
-          /* server down - fall through to the browser sandbox */
+          // Server down - or it refused the run (a 429, or every slot busy):
+          // JavaScript has an engine right here, so the browser sandbox runs
+          // it instead of showing an error.
         }
       }
       return runInWorker(code, entryFunction, testCases);
@@ -616,6 +665,10 @@ export const compilerService = {
       // and sending it to a Node-VM run that has no stdin would be noise.
       return withDevHint(await api.execute({ language, code, entryFunction, testCases, stdin }));
     } catch (e: unknown) {
+      // Refused without running - too many runs (429) or no free slot (503
+      // busy): a failed run with the server's own sentence.
+      const refused = refusedRun(e);
+      if (refused) return refused;
       // Unreachable is said in this module's own words, in the language's
       // terms; any other failure (a 413, a 5xx) already carries the server's.
       const unreachable = e instanceof OfflineError || !(e instanceof Error) || !e.message;

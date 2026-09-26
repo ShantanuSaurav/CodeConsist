@@ -19,7 +19,8 @@ const INDEX = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../ind
 let source;
 
 beforeAll(async () => {
-  source = await readFile(INDEX, 'utf8');
+  // Line endings depend on the checkout (git may write CRLF on Windows).
+  source = (await readFile(INDEX, 'utf8')).replace(/\r\n/g, '\n');
 });
 
 /** The source of one `app.<method>(path, ...)` handler, up to the next top-level route. */
@@ -45,7 +46,8 @@ describe('a missing compiler is explained to learners, not to developers', () =>
   it('sends the Judge0 setup steps as devHint and a plain sentence as stderr', () => {
     const execute = handlerSource('/api/execute');
     expect(execute).toContain("reason: 'runtime-unavailable'");
-    expect(execute).toContain('stderr: runtimeUnavailableMessage(language)');
+    // The sentence itself is admin-editable copy (`copy.runtime.unavailable`).
+    expect(execute).toMatch(/stderr: runtimeUnavailableMessage\(language, \(name\) => copyText\('runtime\.unavailable'/);
     expect(execute).toContain('devHint: judge0SetupHint(language)');
     expect(execute).not.toContain('stderr: judge0SetupHint(');
   });
@@ -127,5 +129,117 @@ describe('learners notice a settings change', () => {
     expect(source).toContain("'server-lib.ts'), 'learning.mjs'");
     const bootstrap = source.slice(source.indexOf('async function bootstrap()'), source.indexOf('/* -------------------------------------------------------------------- app */'));
     expect(bootstrap.indexOf('backfillAll(')).toBeGreaterThan(bootstrap.indexOf('await loadContent()'));
+  });
+});
+
+/* --------------------------------------------- trust and access (Phase 1T) */
+
+describe('the premium lock is wired into every route that credits or grades a lesson', () => {
+  it('gates the solve and the merge through the progress router', () => {
+    // The routes themselves live in server/progress-routes.js (HTTP tests in
+    // premium-gate.test.mjs); this is the wiring that hands them the gate.
+    const progress = source.slice(source.indexOf('createProgressRouter({'), source.indexOf('/* ---------------------------------------------------------------- activity */'));
+    expect(progress).toMatch(/checkSolveAccess: \(user, challenge\) => checkSolveAccess\(user, challenge, premiumContext\('solve'\)\)/);
+    expect(progress).toMatch(/mergeAccess: \(user\) => mergeAccess\(user, premiumContext\('merge'\)\)/);
+  });
+
+  it('gates /api/grade before it grades anything', () => {
+    const grade = handlerSource('/api/grade');
+    expect(grade).toMatch(/checkSolveAccess\(req\.user \?\? null, challenge, premiumContext\('grade'\)\)/);
+    expect(grade.indexOf('checkSolveAccess(')).toBeLessThan(grade.indexOf('gradeAnswer('));
+    expect(grade).toContain('status(403)');
+  });
+
+  it('goes through billing.js premiumGate (server/progression.js)', async () => {
+    const progression = await readFile(path.resolve(path.dirname(INDEX), 'progression.js'), 'utf8');
+    expect(progression).toContain('premiumGate(user, challenge, ctx)');
+  });
+
+  it('sends stubs for locked stages from /api/content, never cached', () => {
+    const content = handlerSource('/api/content');
+    expect(content).toContain('lockedStub(');
+    expect(content).toContain('lockedStageIds');
+    expect(content).toContain("'private, no-store'");
+    expect(content).toMatch(/res\.set\('Vary', 'Authorization'\)/);
+  });
+});
+
+describe('cross-site requests', () => {
+  it('has no bare cors() any more - an allow-list and a foreign-origin guard instead', () => {
+    expect(source).not.toMatch(/app\.use\(\s*cors\(/);
+    expect(source).not.toMatch(/import cors from 'cors'/);
+    expect(source).toContain('app.use(corsPolicy.corsMiddleware())');
+    // The guard sits in front of the webhook router, so every write passes it.
+    expect(source.indexOf('app.use(corsPolicy.foreignOriginGuard())')).toBeGreaterThan(-1);
+    expect(source.indexOf('app.use(corsPolicy.foreignOriginGuard())')).toBeLessThan(source.indexOf("app.use('/api', createWebhookRouter("));
+  });
+});
+
+describe('the client address', () => {
+  it('sets trust proxy from the live hop count', () => {
+    expect(source).toMatch(/app\.set\('trust proxy', trustProxyFn\(/);
+    expect(source.indexOf("app.set('trust proxy'")).toBeLessThan(source.indexOf('app.use('));
+  });
+
+  it('logs the trusted address, not a header anyone can type', () => {
+    const logger = source.slice(source.indexOf('// Request logging middleware'), source.indexOf("app.use('/api', createWebhookRouter("));
+    expect(logger).not.toContain('cf-connecting-ip');
+    expect(logger).not.toContain("headers['x-forwarded-for']");
+    expect(logger).toContain('clientIp(req)');
+  });
+});
+
+describe('rate limits', () => {
+  it('counts every sign-in for an email before bcrypt runs, and clears the count on success', () => {
+    // Counting only after a failure let a burst of parallel guesses all pass
+    // a check that merely looked (bcrypt yields in between). The middleware
+    // counts each attempt as it arrives - "counts before the handler awaits"
+    // in rate-limit.test.mjs covers the concurrency itself.
+    const login = handlerSource('/api/auth/login');
+    expect(login).toContain("limitBy('login.ip', byAddress)");
+    const count = login.indexOf("limitBy('login.account', loginEmailOf)");
+    expect(count).toBeGreaterThan(-1);
+    expect(count).toBeLessThan(login.indexOf('bcrypt.compare('));
+    expect(login).not.toContain("limiter.peek('login.account'");
+    expect(login).not.toContain("limiter.hit('login.account'");
+    expect(login).toContain('const email = loginEmailOf(req)');
+    expect(login.indexOf("limiter.reset('login.account', email)")).toBeGreaterThan(login.indexOf('bcrypt.compare('));
+  });
+
+  it('limits sign-up, password change, code runs, solves and small writes', () => {
+    const register = handlerSource('/api/auth/register');
+    expect(register).toContain("limitBy('register.ip', byAddress)");
+    expect(register).toContain("limitBy('register.global'");
+    expect(handlerSource('/api/auth/password')).toContain("limitBy('passwordChange.account', byAccount)");
+    const execute = handlerSource('/api/execute');
+    expect(execute).toContain("limitBy('execute.account', byAccount)");
+    expect(execute).toContain("limitBy('execute.ip', byAddress)");
+    expect(source).toContain("solveLimit: limitBy('solve.account', byAccount)");
+    expect(source).toContain("writeLimit: limitBy('write.account', byAccount)");
+    expect(source).toContain("limit: limitBy('passwordReset.ip', byAddress)");
+  });
+
+  it('runs every code execution in a slot and answers busy with 503', () => {
+    const execute = handlerSource('/api/execute');
+    expect(execute).toContain('slots.run(() => runJudge0Submission(');
+    expect(execute).toMatch(/slots\.run\(async \(\) => \{[\s\S]*?runJsInChild\(/);
+    expect(execute).toContain('err instanceof BusyError');
+    const verify = source.slice(source.indexOf('async function verifySubmission('), source.indexOf('function completedStagesFor('));
+    expect(verify).toMatch(/slots\.run\(\(\) =>\s*runJsInChild\(/);
+    expect(verify).toContain('slots.run(() => runPythonLocally(');
+    const busy = source.slice(source.indexOf('function sendBusy('), source.indexOf("app.post(\n  '/api/execute'"));
+    expect(busy).toContain('status(503)');
+    expect(busy).toContain("reason: 'busy'");
+  });
+});
+
+describe('sessions and password resets', () => {
+  it('drops a learner token signed before the account’s last password reset', () => {
+    const auth = source.slice(source.indexOf('function optionalAuth('), source.indexOf('function requireAuth('));
+    expect(auth).toContain('learnerTokenIsCurrent(payload, user)');
+  });
+
+  it('mounts the reset-link routes', () => {
+    expect(source).toMatch(/app\.use\(\s*'\/api',\s*createPasswordResetRouter\(/);
   });
 });

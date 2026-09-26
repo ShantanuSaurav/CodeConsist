@@ -22,6 +22,13 @@ export interface ContentBundle {
    * which is an honest, documented limitation of working offline.
    */
   hiddenTracks: string[];
+  /**
+   * Premium stages this viewer has not unlocked, as the server decided when
+   * it served the bank: their challenges are `locked` stubs (no prompt, no
+   * answers). Empty for the offline bundle, which still locks premium stages
+   * in the UI from the cached entitlements.
+   */
+  lockedStageIds: string[];
   source: 'api' | 'bundle';
 }
 
@@ -58,22 +65,29 @@ export function makeBundle(
   challenges: Challenge[],
   tracks: LanguageTrack[],
   source: ContentBundle['source'] = 'bundle',
-  hiddenTracks: string[] = []
+  hiddenTracks: string[] = [],
+  lockedStageIds: string[] = []
 ): ContentBundle {
-  return { stages, challenges, byId: new Map(challenges.map((c) => [c.id, c])), tracks, hiddenTracks, source };
+  return { stages, challenges, byId: new Map(challenges.map((c) => [c.id, c])), tracks, hiddenTracks, lockedStageIds, source };
 }
 
 /**
  * Fetch the bank from the API; null when it is unreachable or empty.
  * `fallbackTracks` covers an API built before tracks existed.
+ *
+ * The answer depends on who asks (it is requested with the session): a
+ * premium stage this viewer has not unlocked arrives as `locked` stubs,
+ * which group into their stage like any other challenge, and its id is in
+ * `lockedStageIds`. Fetch it again whenever the viewer's access changes.
  */
 export async function loadFromApi(fallbackTracks: LanguageTrack[] = []): Promise<ContentBundle | null> {
   try {
-    const { stages, challenges, languageTracks, hiddenLanguages } = await api.content();
+    const { stages, challenges, languageTracks, hiddenLanguages, lockedStageIds } = await api.content();
     if (!Array.isArray(challenges) || challenges.length === 0) return null;
     const tracks = Array.isArray(languageTracks) && languageTracks.length ? (languageTracks as LanguageTrack[]) : fallbackTracks;
     const hidden = Array.isArray(hiddenLanguages) ? hiddenLanguages : [];
-    return makeBundle(groupIntoStages(stages, challenges), challenges, tracks, 'api', hidden);
+    const locked = Array.isArray(lockedStageIds) ? lockedStageIds.filter((id): id is string => typeof id === 'string') : [];
+    return makeBundle(groupIntoStages(stages, challenges), challenges, tracks, 'api', hidden, locked);
   } catch {
     return null;
   }

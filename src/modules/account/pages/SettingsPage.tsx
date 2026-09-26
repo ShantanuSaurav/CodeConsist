@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLeveling, useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { Badge, Button, DevHint, Dropdown, LearningModeSwitch, PageHeader, Switch } from '@/ui';
 import type { BadgeTone } from '@/ui';
 import { useTheme } from '@/platform/theme';
@@ -75,6 +76,7 @@ export const SettingsPage: React.FC = () => {
     refreshAccount
   } = useSession();
   const { theme, toggleTheme } = useTheme();
+  const copy = useCopy();
   const openAuthModal = intents.openAuth;
   const [confirmingReset, setConfirmingReset] = useState(false);
   const signedIn = Boolean(user && user.provider !== 'guest');
@@ -246,10 +248,10 @@ export const SettingsPage: React.FC = () => {
             {serverStatus === 'checking'
               ? 'Checking…'
               : serverStatus !== 'online'
-                ? 'Sync paused - saved on this device'
+                ? copy('copy.sync.offline')
                 : signedIn
-                  ? 'Synced'
-                  : 'Guest - saved on this device'}
+                  ? copy('copy.sync.online')
+                  : copy('copy.sync.guest')}
           </span>
           <DevHint className="font-mono text-xs text-fg-muted">API server: {serverStatus === 'online' ? 'connected' : serverStatus}</DevHint>
         </Row>

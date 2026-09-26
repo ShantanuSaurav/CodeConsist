@@ -8,6 +8,7 @@ import {
   getPath,
   isPlainObject,
   mergeSettings,
+  normalizeOrigin,
   overrideLeaves,
   patchFromEdits,
   publicSettings
@@ -225,6 +226,69 @@ describe('validateSettings refinements', () => {
     expect(paths({ streak: { defaultTimeZone: 'Mars/Base' } })).toEqual(['streak.defaultTimeZone']);
     expect(paths({ streak: { defaultTimeZone: 'Asia/Kolkata' } })).toEqual([]);
   });
+
+  it('holds the access section to its ranges', () => {
+    expect(paths({ access: { rateLimit: { loginAccount: { limit: 0 } } } })).toEqual(['access.rateLimit.loginAccount.limit']);
+    expect(paths({ access: { rateLimit: { loginIp: { windowSeconds: 30 } } } })).toEqual(['access.rateLimit.loginIp.windowSeconds']);
+    expect(paths({ access: { rateLimit: { mode: 'sometimes' } } })).toEqual(['access.rateLimit.mode']);
+    expect(paths({ access: { execution: { maxConcurrent: 17 } } })).toEqual(['access.execution.maxConcurrent']);
+    expect(paths({ access: { network: { trustProxyHops: 6 } } })).toEqual(['access.network.trustProxyHops']);
+    expect(paths({ access: { premiumGate: 'off' } })).toEqual(['access.premiumGate']);
+    expect(paths({ access: { passwordResetTtlMinutes: 5 } })).toEqual(['access.passwordResetTtlMinutes']);
+  });
+
+  it('wants exact, normalised, distinct origins - at most 20', () => {
+    expect(paths({ access: { cors: { extraOrigins: ['https://preview.example.com', 'http://localhost:5173'] } } })).toEqual([]);
+    for (const bad of ['https://example.com/app', 'https://*.example.com', 'ftp://example.com', 'example.com', 'https://user@example.com']) {
+      expect(paths({ access: { cors: { extraOrigins: [bad] } } }), bad).toEqual(['access.cors.extraOrigins.0']);
+    }
+    // Valid, but not in the form a browser sends it: the message names the form.
+    const upper = validateSettings(withPatch({ access: { cors: { extraOrigins: ['https://Example.com/'] } } })).issues;
+    expect(upper).toEqual([{ path: 'access.cors.extraOrigins.0', message: expect.stringContaining('https://example.com') }]);
+    expect(paths({ access: { cors: { extraOrigins: ['https://a.example.com', 'https://a.example.com'] } } })).toEqual(['access.cors.extraOrigins.1']);
+    const many = Array.from({ length: 21 }, (_, i) => `https://s${i}.example.com`);
+    expect(paths({ access: { cors: { extraOrigins: many } } })).toEqual(['access.cors.extraOrigins']);
+  });
+
+  it('keeps site copy to its tokens and its length', () => {
+    expect(paths({ copy: { landing: { pathLine: '{stages} stages and {lessons} lessons' } } })).toEqual(['copy.landing.pathLine']);
+    expect(paths({ copy: { offline: { banner: 'x'.repeat(301) } } })).toEqual(['copy.offline.banner']);
+    expect(paths({ copy: { offline: { banner: '' } } })).toEqual(['copy.offline.banner']);
+    expect(paths({ copy: { limits: { tooMany: 'Slow down - {minutes} min.' } } })).toEqual([]);
+  });
+});
+
+describe('normalizeOrigin', () => {
+  it('turns what an admin types into the form a browser sends', () => {
+    expect(normalizeOrigin(' https://Example.COM/ ')).toBe('https://example.com');
+    expect(normalizeOrigin('https://example.com:443')).toBe('https://example.com');
+    expect(normalizeOrigin('http://localhost:3000')).toBe('http://localhost:3000');
+  });
+
+  it('refuses anything that is not one exact origin', () => {
+    for (const bad of ['https://example.com/path', 'https://example.com?x=1', 'https://*.example.com', 'ftp://example.com', 'example.com', '', null, 42]) {
+      expect(normalizeOrigin(bad), String(bad)).toBeNull();
+    }
+  });
+});
+
+describe('site copy defaults', () => {
+  it('are all plain text within the length limit', () => {
+    for (const [path, meta] of Object.entries(SETTING_META)) {
+      if (!path.startsWith('copy.')) continue;
+      const value = getPath(DEFAULT_SETTINGS, path) as string;
+      expect(meta.kind, path).toBe('text');
+      expect(value.length, path).toBeLessThanOrEqual(300);
+      expect(value, path).not.toMatch(/npm run|\.env|docker|judge0|\bAPI\b/i);
+    }
+  });
+
+  it('can be read through getCopy, with or without the section prefix', () => {
+    setSettingsSnapshot(publicSettings(DEFAULT_SETTINGS), null);
+    expect(getCopy('copy.landing.pathLine', { stages: 12 })).toBe('12 stages, in order, each ending in a coding test.');
+    expect(getCopy('limits.tooMany', { minutes: 3 })).toBe('Too many attempts - try again in 3 minutes.');
+    expect(getCopy('copy.nothing.here')).toBe('');
+  });
 });
 
 describe('resolveSettings', () => {
@@ -258,7 +322,21 @@ describe('publicSettings', () => {
     expect(pub.retention).toBeUndefined();
     expect(pub.access).toBeUndefined();
     expect(pub.xp).toEqual(DEFAULT_SETTINGS.xp);
-    expect(SECTION_META.filter((s) => s.audience === 'admin').map((s) => s.id)).toEqual(['retention']);
+    expect(SECTION_META.filter((s) => s.audience === 'admin').map((s) => s.id)).toEqual(['retention', 'access']);
+    // Site copy is for learners: it goes out with the rest.
+    expect(pub.copy).toEqual(DEFAULT_SETTINGS.copy);
+  });
+});
+
+describe('the environment layer', () => {
+  it('reads TRUST_PROXY_HOPS as the default proxy hops, under any admin override', () => {
+    expect(defaultsWithEnv({ TRUST_PROXY_HOPS: '1' }).access.network.trustProxyHops).toBe(1);
+    expect(defaultsWithEnv({ TRUST_PROXY_HOPS: 'lots' }).access.network.trustProxyHops).toBe(2);
+    expect(resolveSettings({ access: { network: { trustProxyHops: 3 } } }, { TRUST_PROXY_HOPS: '1' }).settings.access.network.trustProxyHops).toBe(3);
+    // An environment value outside the bounds falls back rather than half-applying.
+    const out = resolveSettings({}, { TRUST_PROXY_HOPS: '9' });
+    expect(out.settings.access).toEqual(DEFAULT_SETTINGS.access);
+    expect(out.issues.map((i) => i.path)).toEqual(['access.network.trustProxyHops']);
   });
 });
 

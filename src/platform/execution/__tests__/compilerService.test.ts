@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { compilerService, RUNTIME_UNAVAILABLE_LABEL } from '../compilerService';
+import { compilerService, isRefusedRun, RUNTIME_UNAVAILABLE_LABEL } from '../compilerService';
 
 /** Which build the module thinks it is in. Mutable, so one test file can check both. */
 const env = vi.hoisted(() => ({ isDev: false, isProd: true }));
@@ -168,5 +168,49 @@ describe('compilerService messages by build', () => {
     const dev = await compilerService.executeCode('int main() {}', 'cpp');
     expect(dev.stderr).toContain(body.stderr);
     expect(dev.stderr).toContain('JUDGE0_API_URL');
+  });
+});
+
+/**
+ * The server can refuse a run without running it: too many runs in a row
+ * (429) or every code-runner slot taken (503 "busy"). For a language only the
+ * server can run, that is a failed run with the server's own sentence - not a
+ * crash, and not "the server is unreachable".
+ */
+describe('compilerService when the server refuses a run', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    reset();
+    setBuild(false);
+  });
+
+  const respond = (status: number, body: unknown) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })));
+
+  it('turns a 429 into a failed run carrying the friendly sentence', async () => {
+    respond(429, { error: 'Too many attempts - try again in 2 minutes.', reason: 'rate-limited', retryAfterSeconds: 90 });
+    const result = await compilerService.executeCode('class Main {}', 'java');
+    expect(result).toMatchObject({ status: 'error', engine: 'none', reason: 'rate-limited', stderr: 'Too many attempts - try again in 2 minutes.', testResults: [] });
+  });
+
+  it('turns a busy code runner into a failed run carrying its sentence', async () => {
+    respond(503, { status: 'error', engine: 'none', reason: 'busy', stderr: 'The code runner is busy - try again in a moment.', testResults: [] });
+    const result = await compilerService.executeCode('int main(void) { return 0; }', 'c');
+    expect(result).toMatchObject({ status: 'error', reason: 'busy', stderr: 'The code runner is busy - try again in a moment.' });
+  });
+
+  it('marks both as refused - not a try - and nothing else', async () => {
+    respond(429, { error: 'Too many attempts - try again in 2 minutes.', reason: 'rate-limited', retryAfterSeconds: 90 });
+    expect(isRefusedRun(await compilerService.executeCode('class Main {}', 'java'))).toBe(true);
+    respond(503, { status: 'error', engine: 'none', reason: 'busy', stderr: 'The code runner is busy - try again in a moment.', testResults: [] });
+    expect(isRefusedRun(await compilerService.executeCode('int main() { return 0; }', 'cpp'))).toBe(true);
+
+    // A missing engine is how the server is set up, not a refusal; a run that
+    // happened and failed is the learner's try.
+    expect(isRefusedRun({ engine: 'none', reason: 'runtime-unavailable' })).toBe(false);
+    expect(isRefusedRun({ engine: 'none' })).toBe(false);
+    expect(isRefusedRun({ engine: 'judge0', reason: 'busy' })).toBe(false);
+    expect(isRefusedRun({ engine: 'judge0' })).toBe(false);
+    expect(isRefusedRun(null)).toBe(false);
   });
 });

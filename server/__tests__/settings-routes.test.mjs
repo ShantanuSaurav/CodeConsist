@@ -51,6 +51,8 @@ beforeAll(async () => {
   app.use('/api/admin', createAdminRouter({ learning: learningDeps }));
   // The same router with no learning services - before boot, or a bare test.
   app.use('/api/bare-admin', createAdminRouter({}));
+  // A server started with TRUST_PROXY_HOPS in its environment.
+  app.use('/api/env-admin', createAdminRouter({ learning: createLearningDeps(store, { env: { TRUST_PROXY_HOPS: '1' } }) }));
   app.use((err, _req, res, _next) => res.status(500).json({ error: err.message }));
   server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
@@ -222,10 +224,114 @@ describe('the admin settings routes', () => {
     expect((await call('PUT', '/bare-admin/settings', { admin: true, body: { revision: 0, patch: {} } })).status).toBe(503);
   });
 
+  it('503s the Limits & access status while the limiter is not there', async () => {
+    expect((await call('GET', '/admin/access/status', { admin: true })).status).toBe(503);
+    expect((await call('POST', '/admin/access/rate-limits/reset', { admin: true, body: { bucket: 'login.ip' } })).status).toBe(503);
+  });
+
   it('leaves the admin credentials route alone', async () => {
     // Same prefix, different route: PATCH /settings/credentials still reaches its own handler.
     const res = await call('PATCH', '/admin/settings/credentials', { admin: true, body: {} });
     expect(res.status).toBe(400);
     expect(res.json.error).toBe('Current password is required.');
+  });
+});
+
+describe('the access section (Limits & access)', () => {
+  it('is admin only: never sent to learners', async () => {
+    const pub = await call('GET', '/settings');
+    expect(pub.json.settings.access).toBeUndefined();
+    const admin = await call('GET', '/admin/settings', { admin: true });
+    expect(admin.json.settings.access).toEqual(lib.DEFAULT_SETTINGS.access);
+    expect(admin.json.settings.access.rateLimit.loginAccount).toEqual({ limit: 10, windowSeconds: 900 });
+  });
+
+  it('holds every number to its range', async () => {
+    const res = await put(0, {
+      access: {
+        rateLimit: { mode: 'sometimes', loginIp: { limit: 4 }, registerGlobal: { limit: 10_001 }, solveAccount: { windowSeconds: 59 } },
+        execution: { maxConcurrent: 0, maxQueued: 201, queueWaitMs: 30_001 },
+        network: { trustProxyHops: 6 },
+        premiumGate: 'off',
+        passwordResetTtlMinutes: 14
+      }
+    });
+    expect(res.status).toBe(422);
+    expect(res.json.issues.map((i) => i.path).sort()).toEqual([
+      'access.execution.maxConcurrent',
+      'access.execution.maxQueued',
+      'access.execution.queueWaitMs',
+      'access.network.trustProxyHops',
+      'access.passwordResetTtlMinutes',
+      'access.premiumGate',
+      'access.rateLimit.loginIp.limit',
+      'access.rateLimit.mode',
+      'access.rateLimit.registerGlobal.limit',
+      'access.rateLimit.solveAccount.windowSeconds'
+    ]);
+    expect(store.getSettingsRecord().revision).toBe(0);
+  });
+
+  it('stores a valid change sparsely and applies it at once', async () => {
+    const res = await put(0, { access: { rateLimit: { loginAccount: { limit: 5 } }, cors: { mode: 'enforce' }, premiumGate: 'log' } });
+    expect(res.status).toBe(200);
+    expect(res.json.overrides).toEqual({ access: { rateLimit: { loginAccount: { limit: 5 } }, cors: { mode: 'enforce' }, premiumGate: 'log' } });
+    expect(learningDeps.settings.get('access.rateLimit.loginAccount')).toEqual({ limit: 5, windowSeconds: 900 });
+    expect(learningDeps.settings.get('access.premiumGate')).toBe('log');
+  });
+
+  it('wants exact origins, in the form a browser sends them, at most 20', async () => {
+    expect((await put(0, { access: { cors: { extraOrigins: ['https://preview.example.com', 'http://localhost:5173'] } } })).status).toBe(200);
+
+    for (const bad of ['https://example.com/app', 'https://*.example.com', 'ftp://example.com', 'example.com']) {
+      const res = await put(1, { access: { cors: { extraOrigins: [bad] } } });
+      expect(res.status, bad).toBe(422);
+      expect(res.json.issues.map((i) => i.path)).toEqual(['access.cors.extraOrigins.0']);
+    }
+    // A valid origin written another way is refused with the form to use.
+    const upper = await put(1, { access: { cors: { extraOrigins: ['https://Preview.Example.com/'] } } });
+    expect(upper.status).toBe(422);
+    expect(upper.json.issues[0].message).toContain('https://preview.example.com');
+
+    const many = Array.from({ length: 21 }, (_, i) => `https://s${i}.example.com`);
+    expect((await put(1, { access: { cors: { extraOrigins: many } } })).json.issues.map((i) => i.path)).toEqual(['access.cors.extraOrigins']);
+  });
+
+  it('takes the proxy hops from TRUST_PROXY_HOPS, under any admin override', async () => {
+    const view = await call('GET', '/env-admin/settings', { admin: true });
+    expect(view.json.env).toEqual({ 'access.network.trustProxyHops': 1 });
+    expect(view.json.defaults.access.network.trustProxyHops).toBe(1);
+    expect(view.json.settings.access.network.trustProxyHops).toBe(1);
+
+    const saved = await call('PUT', '/env-admin/settings', { admin: true, body: { revision: 0, patch: { access: { network: { trustProxyHops: 2 } } } } });
+    expect(saved.status).toBe(200);
+    expect(saved.json.settings.access.network.trustProxyHops).toBe(2);
+    // Reset puts the environment's value back, not the code default.
+    const reset = await call('PUT', '/env-admin/settings', { admin: true, body: { revision: 1, patch: { access: { network: { trustProxyHops: null } } } } });
+    expect(reset.json.settings.access.network.trustProxyHops).toBe(1);
+  });
+});
+
+describe('the copy section (Site copy)', () => {
+  it('goes out to learners with the rest of the public settings', async () => {
+    const pub = await call('GET', '/settings');
+    expect(pub.json.settings.copy.offline.banner).toBe(lib.DEFAULT_SETTINGS.copy.offline.banner);
+  });
+
+  it('keeps each text to its own tokens, its length and non-empty', async () => {
+    const bad = await put(0, {
+      copy: {
+        landing: { pathLine: '{stages} stages and {lessons} lessons' },
+        offline: { banner: 'x'.repeat(301), auth: '' }
+      }
+    });
+    expect(bad.status).toBe(422);
+    expect(bad.json.issues.map((i) => i.path).sort()).toEqual(['copy.landing.pathLine', 'copy.offline.auth', 'copy.offline.banner']);
+
+    const ok = await put(0, { copy: { limits: { tooMany: 'Slow down - back in {minutes} min.' } } });
+    expect(ok.status).toBe(200);
+    expect(learningDeps.settings.copyText('limits.tooMany', { minutes: 4 })).toBe('Slow down - back in 4 min.');
+    expect(learningDeps.settings.copyText('copy.premium.lockedSolve')).toBe(lib.DEFAULT_SETTINGS.copy.premium.lockedSolve);
+    expect(learningDeps.settings.copyText('nothing.here')).toBe('');
   });
 });

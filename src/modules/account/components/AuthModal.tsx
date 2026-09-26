@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { oauthStartUrl } from '@/platform/api-client/api';
 import { useFocusTrap } from '@/ui/hooks/useFocusTrap';
 import { Button } from '@/ui/primitives/Button';
@@ -67,6 +68,7 @@ const GitHubMark: React.FC = () => (
  */
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const { loginWithEmail, signupWithEmail, continueAsGuest, serverStatus, user, oauthProviders } = useSession();
+  const copy = useCopy();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
@@ -154,7 +156,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         <div className="modal-body">
           {offline && (
             <div className="notice notice-warn">
-              Accounts are temporarily unavailable. Keep practising as a guest - your progress is saved on this device.
+              {copy('copy.offline.auth')}
               <DevHint>
                 {' '}
                 The API server is not running: start it with <code>npm run dev:api</code>.

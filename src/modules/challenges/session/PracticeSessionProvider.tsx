@@ -37,6 +37,16 @@ export function reachableLessonIndex(challenges: Challenge[], completed: string[
   return first >= 0 ? first : Math.max(0, challenges.length - 1);
 }
 
+/**
+ * Did the server send this stage as stubs (`locked`: a premium stage this
+ * viewer has not unlocked)? Then there is nothing in it to open, whatever
+ * the cached entitlements say - they may be a step behind a purchase or a
+ * revoke, which is why a content reload goes with the unlock prompt.
+ */
+export function stageIsStubbed(stage: Pick<Stage, 'challenges' | 'test'>): boolean {
+  return stage.challenges.some((c) => c.locked) || Boolean(stage.test?.locked);
+}
+
 const PracticeSessionContext = createContext<PracticeSessionType | undefined>(undefined);
 
 /**
@@ -47,7 +57,7 @@ const PracticeSessionContext = createContext<PracticeSessionType | undefined>(un
  * and this provider answers - so they need no import from here.
  */
 export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { stages, learnerStages, stats, contentReady, learningMode, setLearningMode } = useSession();
+  const { stages, learnerStages, stats, contentReady, learningMode, setLearningMode, reloadContent } = useSession();
   const { notify } = useToast();
 
   const [activeStageId, setActiveStageId] = useState<string | null>(null);
@@ -81,7 +91,10 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
         notify(contentReady ? 'No challenges are available yet.' : 'Still loading the lessons - one moment.', 'error');
         return;
       }
-      if (isPremiumLocked(target, stats)) {
+      if (isPremiumLocked(target, stats) || stageIsStubbed(target)) {
+        // Stubs the entitlements disagree with: fetch the bank again, so a
+        // purchase that raced the last fetch opens on the next click.
+        if (stageIsStubbed(target) && !isPremiumLocked(target, stats)) void reloadContent();
         eventBus.emit('account:openPro', { stageId: target.id });
         return;
       }
@@ -108,7 +121,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       setActiveStageId(target.id);
       setActiveChallengeIndex(index);
     },
-    [stages, learnerStages, stats.isPremium, stats.unlockedStages, stats.completedChallenges, notify, contentReady, setLearningMode]
+    [stages, learnerStages, stats.isPremium, stats.unlockedStages, stats.completedChallenges, notify, contentReady, setLearningMode, reloadContent]
   );
 
   /**
@@ -122,7 +135,8 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
         notify('This stage has no test.', 'error');
         return;
       }
-      if (isPremiumLocked(target, stats)) {
+      if (isPremiumLocked(target, stats) || stageIsStubbed(target)) {
+        if (stageIsStubbed(target) && !isPremiumLocked(target, stats)) void reloadContent();
         eventBus.emit('account:openPro', { stageId: target.id });
         return;
       }
@@ -139,7 +153,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       setActiveStageId(target.id);
       setActiveChallengeIndex(0);
     },
-    [stages, stats, notify]
+    [stages, stats, notify, reloadContent]
   );
 
   const closePractice = useCallback(() => {
@@ -147,6 +161,16 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
     setActiveMode('lessons');
     setActiveChallengeIndex(0);
   }, []);
+
+  // The bank was fetched again while a stage was open (a sign-out, a revoked
+  // purchase) and it is stubs now: there is nothing left to show, so close
+  // and offer the unlock instead of rendering an empty lesson.
+  useEffect(() => {
+    if (activeStage && activeChallenges[activeChallengeIndex]?.locked) {
+      closePractice();
+      eventBus.emit('account:openPro', { stageId: activeStage.id });
+    }
+  }, [activeStage, activeChallenges, activeChallengeIndex, closePractice]);
 
   // The stage test is a single item, so the rule only applies to lessons.
   const reachableIndex = useMemo(
