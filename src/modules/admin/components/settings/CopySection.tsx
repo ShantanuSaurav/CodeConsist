@@ -31,7 +31,11 @@ export const CopySection: React.FC<SectionProps> = (props) => {
   const { context } = props;
   const sample = useMemo(() => {
     const content = context?.content;
-    return content ? { ...COPY_SAMPLE, ...content } : COPY_SAMPLE;
+    if (!content) return COPY_SAMPLE;
+    // Only the counts a copy token can name (a later field may be null).
+    const counts: Record<string, string | number> = {};
+    for (const [key, value] of Object.entries(content)) if (typeof value === 'number') counts[key] = value;
+    return { ...COPY_SAMPLE, ...counts };
   }, [context]);
 
   const paths = pathsInSection('copy').filter((path) => SETTING_META[path]);

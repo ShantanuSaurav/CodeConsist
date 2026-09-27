@@ -133,8 +133,48 @@ export interface AdminStageRow {
   challengeCount: number;
   hasTest: boolean;
   hidden: boolean;
+  /** Units learners see in this stage (null from a server without units). */
+  unitCount?: number | null;
+  /** An admin regrouped this stage (Stages > Units). */
+  unitsCustomized?: boolean;
   order: number;
   original: { name: string; description: string; icon?: string; isPremium: boolean };
+}
+
+/** One unit as the units editor shows it. */
+export interface AdminUnit {
+  /** Absent on a unit made in the editor and not saved yet (the server names it `${stageId}:m<n>`). */
+  id?: string;
+  name: string;
+  description?: string;
+  challengeIds: string[];
+  source?: 'default' | 'custom' | 'auto';
+  size?: number;
+  estMinutes?: number;
+  xp?: number;
+}
+
+/** A problem (or a warning) with a grouping, tied to its path (`units.2.name`). */
+export interface UnitIssue {
+  path: string;
+  message: string;
+}
+
+/** GET /api/admin/content/stages/:id/units - one stage's grouping, over every lesson (hidden ones too). */
+export interface AdminUnitsView {
+  stageId: string;
+  /** The stage as learners see it named (null for a server that does not say). */
+  stage?: { id: string; name: string; index: string; hasTest: boolean } | null;
+  source: 'default' | 'custom';
+  units: AdminUnit[];
+  /** The default grouping, for comparison. */
+  defaults: AdminUnit[];
+  lessons: Array<{ id: string; title: string; type: string; difficulty: string; xpReward: number; hidden: boolean }>;
+  /** Lessons in no unit (written after the grouping was saved). */
+  unassigned: string[];
+  warnings: UnitIssue[];
+  nextSeq: number;
+  updatedAt: string | null;
 }
 
 export interface AdminChallengeRow {
@@ -450,6 +490,10 @@ export interface AdminDayRecord {
   tests: number;
   reSolves: number;
   mistakes: number;
+  /** Units first completed that day (Phase 2). */
+  units: number;
+  /** Perfect-unit bonus XP paid that day (already inside `xp`). */
+  perfectBonusXp: number;
   firstAt: string | null;
   lastAt: string | null;
   source: 'live' | 'backfill' | 'merge';
@@ -502,6 +546,10 @@ export interface SettingsContext {
     premiumStages: number;
     totalXp: number;
     freeXp: number;
+    /** Units learners see across every visible stage (null from a server without units). */
+    unitCount?: number | null;
+    /** The most the perfect-unit bonus could pay in total, at the saved setting. */
+    maxPerfectBonusXp?: number | null;
   } | null;
   runtime: { pythonVerifiable: boolean; judge0Languages: string[] } | null;
   levels: { learnerXp: number[] };
@@ -710,6 +758,30 @@ export const adminApi = {
 
   async reorderStage(id: string, direction: 'up' | 'down'): Promise<{ ok: true }> {
     return request(`/admin/content/stages/${id}/reorder`, { method: 'POST', body: { direction } });
+  },
+
+  /* Units: a stage's lessons grouped into short units (the default grouping until one is saved). */
+
+  async stageUnits(stageId: string): Promise<AdminUnitsView> {
+    return request(`/admin/content/stages/${encodeURIComponent(stageId)}/units`);
+  },
+
+  /** Save a grouping. 422 carries `issues` (and `warnings`) in the error's payload. */
+  async saveStageUnits(stageId: string, units: AdminUnit[]): Promise<AdminUnitsView> {
+    const body = {
+      units: units.map((u) => ({
+        ...(u.id ? { id: u.id } : {}),
+        name: u.name,
+        ...(u.description ? { description: u.description } : {}),
+        challengeIds: u.challengeIds
+      }))
+    };
+    return request(`/admin/content/stages/${encodeURIComponent(stageId)}/units`, { method: 'PUT', body });
+  },
+
+  /** Back to the default grouping. */
+  async resetStageUnits(stageId: string): Promise<AdminUnitsView> {
+    return request(`/admin/content/stages/${encodeURIComponent(stageId)}/units`, { method: 'DELETE' });
   },
 
   async challenges(stageId?: string): Promise<{ challenges: AdminChallengeRow[] }> {

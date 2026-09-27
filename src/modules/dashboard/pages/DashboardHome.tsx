@@ -5,7 +5,7 @@ import { useLeveling, useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
 import { isPremiumLocked, stageStatus } from '@/platform/progress';
-import { achievements, dayOf, greeting, relativeDay } from '@/platform/xp-leveling/insights';
+import { achievements, badgeProgress, dayOf, greeting, nextBadge, relativeDay } from '@/platform/xp-leveling/insights';
 import { activityGridFromLog } from '@/platform/activity/log';
 import { Button, ButtonLink, ProgressBar, Stat } from '@/ui';
 
@@ -16,7 +16,7 @@ const DAILY_SOLVES = 3;
 const DAILY_XP = 100;
 
 export const DashboardHome: React.FC = () => {
-  const { stats, stages, learnerStages, user, activeTrack, activity, today, todayKey } = useSession();
+  const { stats, stages, learnerStages, user, activeTrack, activity, today, todayKey, settings } = useSession();
   const { levelProgress, rankTitle } = useLeveling();
   const level = levelProgress(stats.xp);
   const name = user && user.provider !== 'guest' ? user.username : 'there';
@@ -47,8 +47,13 @@ export const DashboardHome: React.FC = () => {
   // it no longer inflates "XP today"), and every solve, re-solves included.
   const todaySolves = today.lessons + today.tests + today.reSolves;
   const todayXp = today.xp;
-  const recent = useMemo(() => achievements(stats, stages).filter((a) => a.earnedAt).slice(0, 3), [stats, stages]);
-  const nextUp = useMemo(() => achievements(stats, stages).find((a) => !a.earnedAt), [stats, stages]);
+  const badgeOptions = useMemo(() => ({ perfectRequiresNoHints: settings.units.perfectRequiresNoHints }), [settings.units.perfectRequiresNoHints]);
+  const recent = useMemo(
+    () => achievements(stats, stages, settings.badges, badgeOptions).filter((a) => a.earnedAt).slice(0, 3),
+    [stats, stages, settings.badges, badgeOptions]
+  );
+  // The badge family closest to its next tier: "Silver · 7-day streak - 5 / 7".
+  const nextUp = useMemo(() => nextBadge(badgeProgress(stats, stages, settings.badges, badgeOptions)), [stats, stages, settings.badges, badgeOptions]);
 
   const goals = [
     { label: 'Complete a lesson', done: todaySolves >= 1, detail: todaySolves >= 1 ? 'Done' : '0 / 1' },
@@ -206,15 +211,26 @@ export const DashboardHome: React.FC = () => {
                   <span className="text-xs text-fg-muted shrink-0">{relativeDay(a.earnedAt!)}</span>
                 </li>
               ))}
-              {nextUp && (
-                <li className="row py-2.5">
+              {nextUp?.next && (
+                <li className="py-2.5">
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="w-5 h-5 rounded-xs bg-surface-3 text-fg-muted flex items-center justify-center shrink-0">
                       <Lock size={11} />
                     </span>
-                    <span className="text-sm text-fg-secondary truncate">
-                      Next: {nextUp.title} <span className="text-fg-muted">— {nextUp.detail}</span>
+                    <span className="flex-1 min-w-0 text-sm text-fg-secondary truncate">
+                      Next badge: {nextUp.next.tierName} · {nextUp.next.title}
                     </span>
+                    <span className="text-xs font-mono text-fg-muted shrink-0">
+                      {nextUp.value.toLocaleString()} / {nextUp.next.n.toLocaleString()}
+                    </span>
+                  </div>
+                  {/* Indented under the text in a wrapper: the bar is full width, so a margin on it would overflow. */}
+                  <div className="mt-2 pl-8">
+                    <ProgressBar
+                      value={nextUp.percent}
+                      size="sm"
+                      label={`${nextUp.value} of ${nextUp.next.n} towards ${nextUp.next.title}`}
+                    />
                   </div>
                 </li>
               )}

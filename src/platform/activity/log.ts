@@ -99,7 +99,7 @@ export function emptyActivityLog(): ActivityLog {
 }
 
 export function emptyDay(source: DayRecord['source'] = 'live'): DayRecord {
-  return { xp: 0, lessons: 0, tests: 0, reSolves: 0, mistakes: 0, firstAt: null, lastAt: null, source };
+  return { xp: 0, lessons: 0, tests: 0, reSolves: 0, mistakes: 0, units: 0, perfectBonusXp: 0, firstAt: null, lastAt: null, source };
 }
 
 /** A day row with every counter present (0 when missing or nonsense). */
@@ -112,6 +112,8 @@ export function normalizeDay(raw: unknown): DayRecord {
     tests: count(src.tests),
     reSolves: count(src.reSolves),
     mistakes: count(src.mistakes),
+    units: count(src.units),
+    perfectBonusXp: count(src.perfectBonusXp),
     firstAt: isoOrNull(src.firstAt),
     lastAt: isoOrNull(src.lastAt),
     source
@@ -240,6 +242,10 @@ export type ActivityEvent =
       firstSolve: boolean;
       /** XP the solve actually paid. */
       awardedXp: number;
+      /** This solve completed a unit for the first time (counts in `units`). */
+      unitCompleted?: boolean;
+      /** The perfect-unit bonus it paid, on top of `awardedXp`. */
+      perfectBonusXp?: number;
     }
   | {
       type: 'miss';
@@ -267,6 +273,14 @@ function touch(row: DayRecord, at: string): void {
   row.lastAt = maxIso(row.lastAt, at);
 }
 
+/** A unit completed by a solve: one more unit that day, and its bonus in the day's XP. */
+function applyUnitCredit(row: DayRecord, solve: { unitCompleted?: boolean; perfectBonusXp?: number }): void {
+  if (solve.unitCompleted) row.units += 1;
+  const bonus = count(solve.perfectBonusXp);
+  row.perfectBonusXp += bonus;
+  row.xp += bonus;
+}
+
 /** Apply one event to a log. Returns the new log; the input is untouched. */
 export function applyActivityEvent(log: ActivityLog, event: ActivityEvent, ctx: EventContext): ActivityLog {
   if (!isDayKey(ctx.day)) return log;
@@ -281,6 +295,7 @@ export function applyActivityEvent(log: ActivityLog, event: ActivityEvent, ctx: 
     else if (event.isTest) row.tests += 1;
     else row.lessons += 1;
     row.xp += count(event.awardedXp);
+    applyUnitCredit(row, event);
   } else if (event.type === 'miss') {
     row.mistakes += 1;
     const previous = hasOwn(next.misses, event.challengeId) ? next.misses[event.challengeId] : null;
@@ -364,6 +379,10 @@ export interface SolveCredit {
   at: string;
   isTest: boolean;
   awardedXp: number;
+  /** This solve completed a unit for the first time (server/progress-rules.js, from applyMergeUnitRewards). */
+  unitCompleted?: boolean;
+  /** The perfect-unit bonus that completion paid. */
+  perfectBonusXp?: number;
 }
 
 export interface MergeContext {
@@ -486,6 +505,7 @@ export function mergeActivityLogs(server: unknown, incoming: unknown, ctx: Merge
     if (credit.isTest) row.tests += 1;
     else row.lessons += 1;
     row.xp += count(credit.awardedXp);
+    applyUnitCredit(row, credit);
     touch(row, credit.at);
     define(next.days, credit.day, row);
     next.lastDay = maxDay(next.lastDay, credit.day);

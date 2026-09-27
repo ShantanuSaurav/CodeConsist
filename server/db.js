@@ -33,8 +33,12 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
  *       and failed attempts), plus `users[].preferences`.
  *   3 - `passwordResets` (admin-issued reset links, hashes only), plus
  *       `users[].tokenVersion` (bumped by a reset to sign out old sessions).
+ *   4 - `contentOverrides.units` (an admin's grouping of a stage's lessons
+ *       into units), `users[].preferences` in its full shape (every field
+ *       null until chosen), and - lazily, on first read - progress
+ *       `unitsCompleted`.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const EMPTY = {
   version: SCHEMA_VERSION,
@@ -57,8 +61,13 @@ const EMPTY = {
    * through the validate/lint pipeline and stay hand-authored). This is the
    * one place either the learner app or the admin app reads "is this stage
    * hidden / premium / reordered", so there is exactly one roadmap, not two.
+   *
+   * `units` is an admin's own grouping of a stage's lessons into units,
+   * keyed by stage id: `{ units: [{ id, name, description?, challengeIds }],
+   * nextSeq, updatedAt }`. A stage without one uses the default grouping
+   * (src/platform/progress/units.ts); server/units.js resolves both.
    */
-  contentOverrides: { stages: {}, challenges: {}, languages: {} },
+  contentOverrides: { stages: {}, challenges: {}, languages: {}, units: {} },
   /**
    * Questions an administrator wrote in the console, keyed by id. Each is a
    * complete Challenge (validated against the same zod schema the authored
@@ -169,8 +178,9 @@ function normalizeSettingsRecord(raw) {
 /**
  * A learner's own preferences, stored on the user row so they survive a
  * progress reset. Every field is nullable - null means "use the default".
- * Fields this version does not know are kept, so an older build never strips
- * what a newer one wrote.
+ * The whole shape is present from schema version 4 on, even the fields a
+ * later phase starts to use. Fields this version does not know are kept, so
+ * an older build never strips what a newer one wrote.
  */
 export function normalizePreferences(raw) {
   const prefs = plainObject(raw);
@@ -179,6 +189,12 @@ export function normalizePreferences(raw) {
     ...prefs,
     timeZone: text(prefs.timeZone),
     timeZoneSetAt: text(prefs.timeZoneSetAt),
+    dailyGoalId: text(prefs.dailyGoalId),
+    soundOn: typeof prefs.soundOn === 'boolean' ? prefs.soundOn : null,
+    trackId: text(prefs.trackId),
+    learningMode: prefs.learningMode === 'learn' || prefs.learningMode === 'practice' ? prefs.learningMode : null,
+    motivation: text(prefs.motivation),
+    experience: text(prefs.experience),
     updatedAt: text(prefs.updatedAt)
   };
 }
@@ -211,7 +227,8 @@ function migrate(loaded) {
     languages:
       loaded.contentOverrides?.languages && typeof loaded.contentOverrides.languages === 'object'
         ? loaded.contentOverrides.languages
-        : {}
+        : {},
+    units: plainObject(loaded.contentOverrides?.units)
   };
   next.customChallenges =
     loaded.customChallenges && typeof loaded.customChallenges === 'object' && !Array.isArray(loaded.customChallenges)
@@ -572,14 +589,31 @@ export const EMPTY_PROGRESS = {
   lastActiveDay: null,
   completedChallenges: [],
   completedStages: [],
-  attempts: {}
+  attempts: {},
+  /**
+   * `{ [unitId]: { completedAt, perfect, bonusXp } }` - the record that a
+   * unit's first completion was seen and what bonus it paid. Never what makes
+   * a unit "done" (that is derived from `completedChallenges`).
+   */
+  unitsCompleted: {}
 };
+
+/**
+ * A progress row with every field present, WITHOUT touching the stored row:
+ * fields added after a row was written appear here, on read, and are stored
+ * on the next write. Nested objects added later are fresh copies, so a
+ * caller can never mutate the stored row through them.
+ */
+export function normalizeProgress(row) {
+  const src = plainObject(row);
+  return { ...clone(EMPTY_PROGRESS), ...src, unitsCompleted: { ...plainObject(src.unitsCompleted) } };
+}
 
 export function getProgress(userId) {
   const all = db().progress;
   if (!all[userId]) all[userId] = clone(EMPTY_PROGRESS);
   // Backfill fields added after a row was first written.
-  return { ...clone(EMPTY_PROGRESS), ...all[userId] };
+  return normalizeProgress(all[userId]);
 }
 
 export function setProgress(userId, progress) {
@@ -807,6 +841,29 @@ export function setChallengeOverride(challengeId, patch) {
   }
   persist();
   return overrides[challengeId] ?? null;
+}
+
+/**
+ * An admin's grouping of one stage into units, or null (the default grouping).
+ * Own-property lookup, so a stage id of '__proto__' is just a missing entry.
+ */
+export function getUnitOverride(stageId) {
+  const units = plainObject(db().contentOverrides.units);
+  return ownEntry(units, String(stageId ?? ''));
+}
+
+/** Store (or, with `null`, drop) one stage's grouping. Validated by the caller (server/admin.js). */
+export function setUnitOverride(stageId, record) {
+  const overrides = db().contentOverrides;
+  if (!overrides.units || typeof overrides.units !== 'object' || Array.isArray(overrides.units)) overrides.units = {};
+  const id = String(stageId);
+  if (record === null || record === undefined) {
+    if (Object.hasOwn(overrides.units, id)) delete overrides.units[id];
+  } else {
+    defineEntry(overrides.units, id, record);
+  }
+  persist();
+  return record ?? null;
 }
 
 export function setLanguageOverride(languageId, patch) {

@@ -5,10 +5,15 @@
    The XP, level and rank numbers are IMPORTED from the functions that use
    them, never retyped, so the defaults cannot drift from what a call with no
    settings does - and they are exactly the constants the app used before
-   settings existed.
+   settings existed. The level curve is the retuned one (Phase 2, owner
+   decision 2): it never costs anyone a level.
+
+   Units and badges are imported the same way (progress/units.ts,
+   xp-leveling/insights.ts); the celebrations are only ever read from here.
    ========================================================================== */
 import { DEFAULT_LEVEL_CURVE, DEFAULT_XP_RULES } from '../xp-leveling/leveling';
-import { DEFAULT_RANKS } from '../xp-leveling/insights';
+import { DEFAULT_BADGES, DEFAULT_RANKS } from '../xp-leveling/insights';
+import { DEFAULT_UNIT_SETTINGS } from '../progress/units';
 import type { Settings } from './types';
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -29,6 +34,40 @@ export const DEFAULT_SETTINGS: Settings = {
     timeZoneChangeCooldownHours: 20,
     // server/index.js's MAX_PLAUSIBLE_STREAK.
     maxPlausibleMergedStreak: 400
+  },
+  units: {
+    ...DEFAULT_UNIT_SETTINGS,
+    minutesByType: { ...DEFAULT_UNIT_SETTINGS.minutesByType }
+  },
+  celebrations: {
+    sound: {
+      defaultOn: true,
+      volume: 0.5,
+      events: { correct: true, wrong: true, unitComplete: true, levelUp: true, badge: true }
+    },
+    confetti: {
+      // Was 70 particles on every solve, re-solves included.
+      onCorrect: true,
+      onCorrectParticles: 40,
+      onReSolve: false,
+      onUnitEnd: true,
+      unitEndParticles: 140
+    },
+    levelUpOverlay: true,
+    countUpMs: 900,
+    copy: {
+      unitComplete: 'Unit complete!',
+      perfect: 'Perfect unit! +{xp} XP',
+      flawless: 'Flawless run',
+      levelUp: 'Level {level}',
+      newRank: 'New title: {title}',
+      streakUp: '{n}-day streak'
+    }
+  },
+  badges: {
+    tierNames: [...DEFAULT_BADGES.tierNames],
+    families: DEFAULT_BADGES.families.map((family) => ({ ...family, tiers: [...family.tiers] })),
+    stageBadges: { ...DEFAULT_BADGES.stageBadges }
   },
   copy: {
     offline: {

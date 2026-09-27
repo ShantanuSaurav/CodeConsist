@@ -24,6 +24,11 @@ export type AppEvents = {
   };
   /** Every lesson and the test of a stage are solved. */
   'stage:completed': { stageId: string };
+  /**
+   * A first solve completed a unit (every lesson in it solved) for the first
+   * time. `xpEarned` is the perfect-unit bonus it paid (0 when not perfect).
+   */
+  'unit:completed': { stageId: string; unitId: string; perfect: boolean; xpEarned: number };
   'auth:signedIn': { user: UserProfile };
   'auth:signedOut': Record<string, never>;
   'progress:reset': Record<string, never>;
@@ -33,6 +38,8 @@ export type AppEvents = {
   /* -------------------------------------------------------- intents */
   /** Open a stage's lessons; both ids optional ("wherever I left off"). `mode` switches Learn/Practice for this and later sessions. */
   'practice:open': { stageId?: string; challengeId?: string; mode?: LearningMode };
+  /** Open one unit of a stage (at its first unsolved lesson, or its start for a replay). */
+  'practice:openUnit': { stageId: string; unitId: string };
   /** Open a stage's mandatory coding test. */
   'practice:openTest': { stageId: string };
   'account:openAuth': Record<string, never>;

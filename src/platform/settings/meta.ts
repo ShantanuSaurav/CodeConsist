@@ -28,12 +28,18 @@ export type SettingKind =
 export interface RowFieldMeta {
   key: string;
   label: string;
-  kind: 'int' | 'number' | 'bool' | 'string' | 'enum';
+  /** `intList`: a list of whole numbers in one cell (a badge family's tiers); `min`/`max` bound each. */
+  kind: 'int' | 'number' | 'bool' | 'string' | 'enum' | 'intList';
   min?: number;
   max?: number;
   minLength?: number;
   maxLength?: number;
   values?: string[];
+  /** `intList`: how many entries. */
+  minItems?: number;
+  maxItems?: number;
+  /** `string`: the `{tokens}` the text may use (checked by a section rule in schema.ts). */
+  tokens?: string[];
 }
 
 export interface SettingMeta {
@@ -100,6 +106,29 @@ export const SECTION_META: SectionMeta[] = [
     phase: 'P1'
   },
   {
+    id: 'units',
+    title: 'Units',
+    description:
+      "How a stage's lessons are grouped into short units by default, how long each kind of question takes, and the perfect-unit bonus. A stage's own grouping is edited from Stages > Units; default groupings are re-derived from these numbers.",
+    audience: 'public',
+    phase: 'P2'
+  },
+  {
+    id: 'celebrations',
+    title: 'Celebrations & sound',
+    description: 'Sounds, confetti, the level-up screen and the words on the unit end screen. Learners can still turn sound off for themselves.',
+    audience: 'public',
+    phase: 'P2'
+  },
+  {
+    id: 'badges',
+    title: 'Badges',
+    description:
+      'Tiered badge families (each tier is a badge: streak-3, streak-7, ...), their tier names, and the stage badges. Changing a tier never announces a burst of badges - open learner tabs re-read what they already have.',
+    audience: 'public',
+    phase: 'P2'
+  },
+  {
     id: 'copy',
     title: 'Site copy',
     description:
@@ -126,6 +155,230 @@ export const SECTION_META: SectionMeta[] = [
 
 /** Sections that never leave the server's admin routes. */
 export const ADMIN_ONLY_SECTIONS: readonly string[] = ['retention', 'access'];
+
+/* ------------------------------------------------------------------ units */
+
+/** Every question kind with its admin label, for the per-kind minutes. */
+export const QUESTION_KINDS: Array<{ key: string; label: string }> = [
+  { key: 'quiz', label: 'Quiz' },
+  { key: 'output_prediction', label: 'Output prediction' },
+  { key: 'multi_select', label: 'Multiple select' },
+  { key: 'fill_blank', label: 'Fill in the blanks' },
+  { key: 'pseudocode_order', label: 'Order the lines' },
+  { key: 'code_runner', label: 'Write code' },
+  { key: 'debug', label: 'Debug' }
+];
+
+const UNITS_META: Record<string, SettingMeta> = {
+  'units.targetSize': {
+    label: 'Target unit size',
+    help: 'How many questions a default unit aims for. Between the minimum and the maximum.',
+    kind: 'int',
+    min: 1,
+    max: 30,
+    unit: 'questions'
+  },
+  'units.minSize': {
+    label: 'Smallest unit',
+    help: 'A default unit smaller than this joins the unit before it, when the two together stay within the largest size.',
+    kind: 'int',
+    min: 1,
+    max: 30,
+    unit: 'questions'
+  },
+  'units.maxSize': {
+    label: 'Largest unit',
+    help: 'No default unit is bigger than this.',
+    kind: 'int',
+    min: 1,
+    max: 30,
+    unit: 'questions'
+  },
+  'units.targetMinutes': {
+    label: 'Target unit length',
+    help: 'How long a unit should take. The units editor warns about a unit expected to take longer.',
+    kind: 'int',
+    min: 1,
+    max: 60,
+    unit: 'minutes'
+  },
+  ...Object.fromEntries(
+    QUESTION_KINDS.map(({ key, label }): [string, SettingMeta] => [
+      `units.minutesByType.${key}`,
+      {
+        label: `Minutes per question: ${label}`,
+        help: 'The expected time for one question of this kind - the "~6 min" learners see on each unit.',
+        kind: 'number',
+        min: 0.1,
+        max: 30,
+        step: 0.25,
+        unit: 'minutes'
+      }
+    ])
+  ),
+  'units.perfectBonusXp': {
+    label: 'Perfect-unit bonus',
+    help: 'Paid once per unit, when a first solve completes a unit whose every question was right on the first try.',
+    kind: 'int',
+    min: 0,
+    max: 500,
+    unit: 'XP'
+  },
+  'units.perfectRequiresNoHints': {
+    label: 'Perfect means no hints',
+    help: 'On: a hint anywhere in the unit means no bonus. Off: only first-try answers count.',
+    kind: 'bool'
+  }
+};
+
+/* ----------------------------------------------------------- celebrations */
+
+/** The sounds, with their admin labels. */
+export const SOUND_EVENTS: Array<{ key: string; label: string }> = [
+  { key: 'correct', label: 'Correct answer' },
+  { key: 'wrong', label: 'Wrong answer' },
+  { key: 'unitComplete', label: 'Unit complete' },
+  { key: 'levelUp', label: 'Level up' },
+  { key: 'badge', label: 'Badge earned' }
+];
+
+const CELEBRATION_COPY_MAX = 80;
+const CELEBRATION_SAMPLE: Record<string, string | number> = { xp: 25, level: 7, title: 'Developer', n: 5 };
+
+function celebrationCopy(label: string, help: string, tokens: string[] = []): SettingMeta {
+  return { label, help, kind: 'text', minLength: 1, maxLength: CELEBRATION_COPY_MAX, tokens, sample: CELEBRATION_SAMPLE };
+}
+
+const CELEBRATIONS_META: Record<string, SettingMeta> = {
+  'celebrations.sound.defaultOn': {
+    label: 'Sound on by default',
+    help: 'For a learner who has not chosen. Each learner can turn sound on or off for themselves (Settings, or the speaker in a lesson).',
+    kind: 'bool'
+  },
+  'celebrations.sound.volume': {
+    label: 'Volume',
+    help: 'How loud the effects are, from 0 (silent) to 1.',
+    kind: 'number',
+    min: 0,
+    max: 1,
+    step: 0.05
+  },
+  ...Object.fromEntries(
+    SOUND_EVENTS.map(({ key, label }): [string, SettingMeta] => [
+      `celebrations.sound.events.${key}`,
+      { label: `Sound: ${label}`, help: 'Play this sound (when the learner has sound on).', kind: 'bool' }
+    ])
+  ),
+  'celebrations.confetti.onCorrect': {
+    label: 'Confetti on a correct answer',
+    help: 'Only when the answer paid XP - unless re-solves are turned on below.',
+    kind: 'bool'
+  },
+  'celebrations.confetti.onCorrectParticles': {
+    label: 'Confetti on a correct answer: particles',
+    help: 'How much confetti. Learners who ask their system for reduced motion never see any.',
+    kind: 'int',
+    min: 0,
+    max: 300
+  },
+  'celebrations.confetti.onReSolve': {
+    label: 'Confetti on a re-solve too',
+    help: 'Also after solving something already solved, which pays no XP.',
+    kind: 'bool'
+  },
+  'celebrations.confetti.onUnitEnd': {
+    label: 'Confetti at the end of a unit',
+    help: 'On the unit end screen, when the unit paid any XP.',
+    kind: 'bool'
+  },
+  'celebrations.confetti.unitEndParticles': {
+    label: 'Confetti at the end of a unit: particles',
+    help: 'How much confetti on the end screen.',
+    kind: 'int',
+    min: 0,
+    max: 400
+  },
+  'celebrations.levelUpOverlay': {
+    label: 'Level-up screen',
+    help: 'After a unit or a stage test that crossed a level, show "Level N" full screen (closed with Enter or Esc).',
+    kind: 'bool'
+  },
+  'celebrations.countUpMs': {
+    label: 'XP count-up',
+    help: 'How long the XP number counts up on the end screen. 0 shows it at once.',
+    kind: 'int',
+    min: 0,
+    max: 5000,
+    unit: 'ms'
+  },
+  'celebrations.copy.unitComplete': celebrationCopy('End screen: heading', 'The heading when a unit is finished.'),
+  'celebrations.copy.perfect': celebrationCopy('End screen: perfect unit', 'When the unit paid the perfect-unit bonus.', ['xp']),
+  'celebrations.copy.flawless': celebrationCopy('End screen: flawless replay', 'A replay answered all right first time (no bonus - it was paid before).'),
+  'celebrations.copy.levelUp': celebrationCopy('Level-up screen: heading', 'The big line on the level-up screen.', ['level']),
+  'celebrations.copy.newRank': celebrationCopy('Level-up screen: new title', 'Under it, when the level also brought a new rank title.', ['title']),
+  'celebrations.copy.streakUp': celebrationCopy('End screen: streak', 'Beside the flame when the day streak went up.', ['n'])
+};
+
+/* ----------------------------------------------------------------- badges */
+
+export const BADGE_METRICS: Array<{ key: string; label: string }> = [
+  { key: 'bestStreak', label: 'Best day streak' },
+  { key: 'solvedCount', label: 'Challenges solved' },
+  { key: 'unitsCompleted', label: 'Units completed' },
+  { key: 'perfectUnits', label: 'Perfect units' },
+  { key: 'xp', label: 'Total XP' },
+  { key: 'testsPassed', label: 'Stage tests passed' }
+];
+
+const BADGES_META: Record<string, SettingMeta> = {
+  'badges.tierNames': {
+    label: 'Tier names',
+    help: 'The name of each tier, lowest first (Bronze, Silver, ...). A family with more tiers than names uses the last name for the rest.',
+    kind: 'stringList',
+    minItems: 2,
+    maxItems: 8,
+    minLength: 1,
+    maxLength: 20
+  },
+  'badges.families': {
+    label: 'Badge families',
+    help: 'Each tier of a family is one badge, with the id family-N (streak-3, streak-7, ...). Title and detail must contain {n}, the tier. Tiers climb strictly. Changing a family id renames its badges.',
+    kind: 'rows',
+    minItems: 0,
+    maxItems: 12,
+    rowMeta: [
+      { key: 'id', label: 'Id', kind: 'string', minLength: 1, maxLength: 32 },
+      { key: 'metric', label: 'Counts', kind: 'enum', values: BADGE_METRICS.map((m) => m.key) },
+      { key: 'enabled', label: 'On', kind: 'bool' },
+      { key: 'title', label: 'Title', kind: 'string', minLength: 1, maxLength: 60, tokens: ['n'] },
+      { key: 'detail', label: 'Detail', kind: 'string', minLength: 1, maxLength: 60, tokens: ['n'] },
+      { key: 'tiers', label: 'Tiers', kind: 'intList', min: 1, max: 10_000_000, minItems: 1, maxItems: 8 }
+    ]
+  },
+  'badges.stageBadges.enabled': {
+    label: 'Stage badges',
+    help: 'One badge per stage, earned when the stage (lessons and test) is cleared.',
+    kind: 'bool'
+  },
+  'badges.stageBadges.coreTitle': {
+    label: 'Stage badge: core stage',
+    help: 'The title of a core stage badge, by stage number.',
+    kind: 'text',
+    minLength: 1,
+    maxLength: 60,
+    tokens: ['index'],
+    sample: { index: '03' }
+  },
+  'badges.stageBadges.trackTitle': {
+    label: 'Stage badge: track stage',
+    help: 'The title of a track stage badge (C, C++), by name - every track starts again at 01.',
+    kind: 'text',
+    minLength: 1,
+    maxLength: 60,
+    tokens: ['name'],
+    sample: { name: 'C Fundamentals' }
+  }
+};
 
 /* ------------------------------------------------------------ site copy */
 
@@ -396,6 +649,11 @@ export const SETTING_META: Record<string, SettingMeta> = {
     max: 3650,
     unit: 'days'
   },
+
+  /* ------------------------------------------- units, celebrations, badges */
+  ...UNITS_META,
+  ...CELEBRATIONS_META,
+  ...BADGES_META,
 
   /* -------------------------------------------------------------- copy */
   ...COPY_META,

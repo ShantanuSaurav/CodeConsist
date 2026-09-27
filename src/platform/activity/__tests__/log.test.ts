@@ -381,3 +381,25 @@ describe('between server and browser', () => {
     expect(log.misses).toEqual({});
   });
 });
+
+describe('units in the day row (Phase 2)', () => {
+  it('counts a unit completed by a solve, and its bonus inside the day’s XP', () => {
+    const log = applyActivityEvent(
+      emptyActivityLog(),
+      { type: 'solve', challengeId: 'c1', isTest: false, firstSolve: true, awardedXp: 40, unitCompleted: true, perfectBonusXp: 25 },
+      { day: '2026-09-25', at: at('2026-09-25'), rules: RULES }
+    );
+    expect(dayRow(log, '2026-09-25')).toMatchObject({ xp: 65, lessons: 1, units: 1, perfectBonusXp: 25 });
+    // Older rows have neither field: they read as 0.
+    expect(normalizeDay({ xp: 10 })).toMatchObject({ units: 0, perfectBonusXp: 0 });
+  });
+
+  it('carries a merged completion on its credit', () => {
+    const merged = mergeActivityLogs(emptyActivityLog(), null, {
+      today: '2026-09-25',
+      rules: RULES,
+      credits: [{ challengeId: 'c1', day: '2026-09-24', at: at('2026-09-24'), isTest: false, awardedXp: 40, unitCompleted: true, perfectBonusXp: 25 }]
+    });
+    expect(dayRow(merged, '2026-09-24')).toMatchObject({ xp: 65, units: 1, perfectBonusXp: 25 });
+  });
+});

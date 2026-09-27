@@ -4,7 +4,20 @@
  * Every call degrades gracefully: if the server is not running the app keeps
  * working against localStorage, it just says so instead of silently pretending.
  */
-import { ActivityContext, ActivityLog, Challenge, CodeDraft, DayRecord, ExecutionResult, LeaderboardEntry, MissSummary, TestCase, UserProfile, UserStats } from '@/types';
+import {
+  ActivityContext,
+  ActivityLog,
+  Challenge,
+  CodeDraft,
+  DayRecord,
+  ExecutionResult,
+  LeaderboardEntry,
+  LearnerPreferences,
+  MissSummary,
+  TestCase,
+  UserProfile,
+  UserStats
+} from '@/types';
 import { STORAGE_KEYS, readString, remove, writeString } from '../storage/storage';
 import { browserTimeZone } from '../time/days';
 import type { ActivityView } from '../activity/log';
@@ -150,7 +163,12 @@ export interface ServerProgress {
   completedChallenges: string[];
   completedStages: string[];
   attempts: UserStats['attempts'];
+  /** Units whose first completion was recorded, and the bonus it paid. Absent from an older server. */
+  unitsCompleted?: UserStats['unitsCompleted'];
 }
+
+/** A bonus paid on top of a solve's own XP. `awardedXp` never includes it. */
+export type Bonus = { kind: 'perfect-unit'; unitId: string; xp: number };
 
 /**
  * Which third-party sign-ins this server has credentials for. Booleans only -
@@ -233,14 +251,26 @@ export interface SolveResponse {
   /** Absent from an older server. */
   settingsRevision?: number;
   today?: TodayRow;
+  /** Bonuses on top of `awardedXp` (a perfect unit). Absent from an older server. */
+  bonuses?: Bonus[];
+  bonusXp?: number;
+  /** The unit this solve completed for the first time, or null. */
+  unitCompleted?: string | null;
+  /** Whether that unit was cleared perfectly (first try throughout). */
+  unitPerfect?: boolean;
 }
 
 export interface MergeResponse {
   progress: ServerProgress;
   mergedChallenges?: number;
+  /** Solve XP only; unit bonuses are in `bonusXp`. */
   awardedXp?: number;
+  bonusXp?: number;
+  bonuses?: Bonus[];
   /** The account's activity after the merge. Absent from an older server. */
   activity?: ActivityView;
+  /** The account's preferences after a guest's were adopted. Absent from an older server. */
+  preferences?: LearnerPreferences;
   /**
    * Solved ids that were NOT credited because they are in a premium stage
    * this account has not unlocked. Absent when there were none.
@@ -248,8 +278,15 @@ export interface MergeResponse {
   skippedLocked?: string[];
 }
 
+/** What `PATCH /api/me/preferences` returns. */
+export interface PreferencesResponse {
+  user: UserProfile;
+  applied: { timeZone: boolean };
+}
+
 /** What `GET /api/content` returns. */
 export interface ContentResponse {
+  /** Stage metadata; from Phase 2 each carries `units` (ids and names). */
   stages: any[];
   /** Every challenge; one in a premium stage this viewer cannot open is a `locked` stub. */
   challenges: Challenge[];
@@ -534,16 +571,25 @@ export const api = {
    */
   async mergeProgress(
     progress: Partial<ServerProgress>,
-    activity?: Pick<ActivityLog, 'days' | 'misses' | 'missLog'>
+    activity?: Pick<ActivityLog, 'days' | 'misses' | 'missLog'>,
+    preferences?: LearnerPreferences | null
   ): Promise<MergeResponse> {
+    // A guest's own choices (sound on or off) go along; the server adopts
+    // them only where the account has none.
+    const extra = preferences ? { preferences } : {};
     try {
-      return await request<MergeResponse>('/progress/merge', { method: 'POST', body: activity ? { progress, activity } : { progress } });
+      return await request<MergeResponse>('/progress/merge', { method: 'POST', body: activity ? { progress, activity, ...extra } : { progress, ...extra } });
     } catch (err) {
       if (activity && err instanceof ApiError && err.status === 413) {
-        return request<MergeResponse>('/progress/merge', { method: 'POST', body: { progress } });
+        return request<MergeResponse>('/progress/merge', { method: 'POST', body: { progress, ...extra } });
       }
       throw err;
     }
+  },
+
+  /** Change the learner's own preferences (Phase 2: `soundOn`); `null` puts a default back. */
+  async updatePreferences(patch: Pick<LearnerPreferences, 'soundOn'>): Promise<PreferencesResponse> {
+    return request('/me/preferences', { method: 'PATCH', body: patch });
   },
 
   /** The learner-facing rules. Public: guests play by the same rules. */

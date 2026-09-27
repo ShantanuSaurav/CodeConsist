@@ -90,6 +90,26 @@ export function applySolveCore({ progress, challenge, attempts, hintsUsed, today
 }
 
 /**
+ * Pay for a unit this solve completed (pipeline step 9): the perfect-unit
+ * bonus and the `unitsCompleted` record, from the shared rule
+ * (src/platform/xp-leveling/rewards.ts). `unitFor` is the server's own
+ * grouping (server/units.js) - nothing about units is read from the request.
+ * Without one (a test, before boot) nothing is paid. The level follows the
+ * new XP.
+ */
+export function applySolveRewards({ progress, next, challengeId, firstSolve, now, lib, units, levels, unitFor }) {
+  if (!unitFor) return { next, reward: null };
+  const { progress: rewarded, reward } = lib.applyUnitRewards(progress, next, { challengeId, firstSolve, now }, { cfg: units, unitFor });
+  if (!reward) return { next, reward: null };
+  return { next: { ...rewarded, level: lib.levelFromXp(rewarded.xp, levels) }, reward };
+}
+
+/** The bonuses a response reports: `{ kind: 'perfect-unit', unitId, xp }` for each one that paid. */
+export function bonusesOf(rewards) {
+  return rewards.filter((r) => r && r.bonusXp > 0).map((r) => ({ kind: 'perfect-unit', unitId: r.unitId, xp: r.bonusXp }));
+}
+
+/**
  * A client-sent solve time, if it is believable: not in the future (beyond a
  * little clock skew) and not older than the activity window. Anything else is
  * "now".
@@ -112,6 +132,11 @@ export function validSolvedAt(value, nowMs, keepDays) {
  * `allows(challenge)` is the access gate (server/progression.js): a new id
  * it refuses - a premium lesson this account has not unlocked - is not
  * credited and comes back in `skippedLocked`.
+ *
+ * `unitFor` is the server's unit grouping (server/units.js): a unit that the
+ * NEW ids complete pays its perfect-unit bonus (pipeline step 4); a unit that
+ * was complete already, or that the merge does not finish, pays nothing. The
+ * bonus is added to the day of the solve that completed the unit.
  */
 export function mergeCore({
   current,
@@ -124,7 +149,8 @@ export function mergeCore({
   zone,
   today,
   now,
-  allows = () => true
+  allows = () => true,
+  unitFor = null
 }) {
   const incoming = plainObject(raw);
   const xp = settings.xp;
@@ -189,17 +215,40 @@ export function mergeCore({
     completedStages: completedStagesFor(completedChallenges),
     attempts
   };
-  merged.level = lib.levelFromXp(merged.xp, settings.levels);
-  return { merged, newIds, awarded, credits, skippedLocked };
+
+  // Units completed BY the new ids: bonus, record, and the day it lands on.
+  let unitRewards = [];
+  let bonusXp = 0;
+  let result = merged;
+  if (unitFor && newIds.length) {
+    const paid = lib.applyMergeUnitRewards(
+      current,
+      merged,
+      { newIds, solvedAtOf: (id) => attempts[id]?.solvedAt, now },
+      { cfg: settings.units, unitFor }
+    );
+    result = paid.progress;
+    unitRewards = paid.rewards;
+    bonusXp = paid.bonusXp;
+    for (const reward of unitRewards) {
+      const credit = credits.find((c) => c.challengeId === reward.challengeId);
+      if (credit) {
+        credit.unitCompleted = true;
+        credit.perfectBonusXp = reward.bonusXp;
+      }
+    }
+  }
+  result.level = lib.levelFromXp(result.xp, settings.levels);
+  return { merged: result, newIds, awarded, bonusXp, unitRewards, credits, skippedLocked };
 }
 
 /**
  * A fresh progress row. Built from new objects every time - spreading the
- * shared EMPTY_PROGRESS constant's arrays would let one learner's later
- * writes leak into it.
+ * shared EMPTY_PROGRESS constant's arrays or maps would let one learner's
+ * later writes leak into it.
  */
 export function resetProgress(emptyProgress) {
-  return { ...emptyProgress, attempts: {}, completedChallenges: [], completedStages: [] };
+  return { ...emptyProgress, attempts: {}, completedChallenges: [], completedStages: [], unitsCompleted: {} };
 }
 
 /** Level and streak as they stand on the learner's `today` (a streak goes stale after a missed day). */

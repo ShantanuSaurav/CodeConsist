@@ -6,6 +6,7 @@
    it - there are no placeholder keys - and every key has admin metadata in
    meta.ts (a unit test fails otherwise), so it is editable the day it lands.
    ========================================================================== */
+import type { ChallengeType } from '@/types';
 import type { LevelCurve, XpRules } from '../xp-leveling/leveling';
 import type { RankRow } from '../xp-leveling/insights';
 
@@ -30,6 +31,94 @@ export interface StreakSettings {
   timeZoneChangeCooldownHours: number;
   /** A guest streak longer than this is not believed when it is merged into an account. */
   maxPlausibleMergedStreak: number;
+}
+
+/**
+ * Units: how a stage's lessons are grouped into short runs by default, how
+ * long each kind of question is expected to take, and the perfect-unit bonus.
+ * An admin's own grouping for a stage lives in `contentOverrides.units`.
+ */
+export interface UnitSettings {
+  /** The size a default unit aims for. */
+  targetSize: number;
+  /** A default unit smaller than this joins the one before it (when that stays within `maxSize`). */
+  minSize: number;
+  /** No default unit is larger than this. */
+  maxSize: number;
+  /** The time a unit should take; the admin editor warns past it. */
+  targetMinutes: number;
+  /** Expected minutes per question, by kind - the "~6 min" on the path. */
+  minutesByType: Record<ChallengeType, number>;
+  /** Paid once, when a first solve completes a unit cleared first try throughout. */
+  perfectBonusXp: number;
+  /** "Perfect" also means no hint was shown anywhere in the unit. */
+  perfectRequiresNoHints: boolean;
+}
+
+/** The sounds the app can play. Each can be switched off on its own. */
+export type SfxEvent = 'correct' | 'wrong' | 'unitComplete' | 'levelUp' | 'badge';
+
+/** Celebrations & sound: what happens on screen (and in the ears) after a solve, a unit and a level. */
+export interface CelebrationSettings {
+  sound: {
+    /** Sound for a learner who has not chosen. */
+    defaultOn: boolean;
+    /** 0-1. */
+    volume: number;
+    events: Record<SfxEvent, boolean>;
+  };
+  confetti: {
+    onCorrect: boolean;
+    onCorrectParticles: number;
+    /** Also after a re-solve that paid nothing. */
+    onReSolve: boolean;
+    onUnitEnd: boolean;
+    unitEndParticles: number;
+  };
+  /** The full-screen "Level N" after a unit or stage test that crossed a level. */
+  levelUpOverlay: boolean;
+  /** How long the XP count-up runs. 0 shows the number at once. */
+  countUpMs: number;
+  copy: {
+    unitComplete: string;
+    /** `{xp}` */
+    perfect: string;
+    flawless: string;
+    /** `{level}` */
+    levelUp: string;
+    /** `{title}` */
+    newRank: string;
+    /** `{n}` */
+    streakUp: string;
+  };
+}
+
+/** What a badge family counts. The list is fixed in code; an admin picks from it. */
+export type BadgeMetric = 'bestStreak' | 'solvedCount' | 'unitsCompleted' | 'perfectUnits' | 'xp' | 'testsPassed';
+
+/** One family of tiered badges: `${id}-${n}` for every `n` in `tiers`. */
+export interface BadgeFamily {
+  id: string;
+  metric: BadgeMetric;
+  enabled: boolean;
+  /** `{n}` */
+  title: string;
+  /** `{n}` */
+  detail: string;
+  /** Strictly ascending thresholds; tier i is named `tierNames[i]`. */
+  tiers: number[];
+}
+
+export interface BadgeSettings {
+  tierNames: string[];
+  families: BadgeFamily[];
+  stageBadges: {
+    enabled: boolean;
+    /** `{index}` - a core stage, by number. */
+    coreTitle: string;
+    /** `{name}` - a track stage (C, C++), by name. */
+    trackTitle: string;
+  };
 }
 
 /** Data limits. Admin only - never sent to learners. */
@@ -158,6 +247,9 @@ export interface Settings {
   xp: XpSettings;
   levels: LevelSettings;
   streak: StreakSettings;
+  units: UnitSettings;
+  celebrations: CelebrationSettings;
+  badges: BadgeSettings;
   copy: CopySettings;
   retention: RetentionSettings;
   access: AccessSettings;

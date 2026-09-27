@@ -5,9 +5,18 @@
  * content; the platform must not import them). The API serves the very same
  * bank - it runs the same registry loader - so we only reach for it to pick up
  * edits without a page reload.
+ *
+ * Each stage's lessons are grouped into units (src/platform/progress/units.ts):
+ * the server's grouping when the bank came from the API (it knows an admin's
+ * regrouping and which lessons are hidden), else the grouping it sent last
+ * time (`cq-unit-defs-v1`), else the default one. The concatenated units are
+ * the stage's lesson order.
  */
-import type { Challenge, LanguageTrack, Stage } from '@/types';
+import type { Challenge, LanguageTrack, Stage, Unit, UnitDef } from '@/types';
 import { api } from '../api-client/api';
+import { DEFAULT_UNIT_SETTINGS, resolveUnits, toUnitDefs } from '../progress/units';
+import type { UnitSettings } from '../settings/types';
+import { STORAGE_KEYS, readJson, writeJson } from '../storage/storage';
 
 export interface ContentBundle {
   stages: Stage[];
@@ -32,13 +41,25 @@ export interface ContentBundle {
   source: 'api' | 'bundle';
 }
 
+/** The unit groupings cached from the server, per stage: ids and names only. */
+export type UnitDefCache = Record<string, UnitDef[]>;
+
+/** A stage's units resolved against its lessons, and the lessons in unit order. */
+function withResolvedUnits(stage: Stage, defs: readonly UnitDef[] | null | undefined, cfg: UnitSettings): Stage {
+  const units = resolveUnits(stage.id, stage.challenges, defs, cfg) as Unit[];
+  return { ...stage, units, challenges: units.flatMap((u) => u.challenges) };
+}
+
 /**
  * Group a flat challenge list under its stages, splitting each stage's test
- * (isStageTest) out of the lessons. Stage order follows `stageMeta`.
+ * (isStageTest) out of the lessons. Stage order follows `stageMeta`. When the
+ * meta carries the server's `units` (GET /api/content), each stage gets them,
+ * resolved against its lessons - which then follow the unit order.
  */
 export function groupIntoStages(
-  stageMeta: Array<Omit<Stage, 'challenges' | 'state' | 'test'>>,
-  challenges: Challenge[]
+  stageMeta: Array<Omit<Stage, 'challenges' | 'state' | 'test' | 'units'> & { units?: UnitDef[] }>,
+  challenges: Challenge[],
+  cfg: UnitSettings = DEFAULT_UNIT_SETTINGS
 ): Stage[] {
   const byStage = new Map<string, Challenge[]>();
   const testByStage = new Map<string, Challenge>();
@@ -51,12 +72,52 @@ export function groupIntoStages(
     if (list) list.push(challenge);
     else byStage.set(challenge.stageId, [challenge]);
   }
-  return stageMeta.map((meta) => ({
-    ...meta,
-    state: 'Locked' as const,
-    challenges: byStage.get(meta.id) ?? [],
-    test: testByStage.get(meta.id)
-  }));
+  return stageMeta.map(({ units, ...meta }) => {
+    const stage: Stage = {
+      ...meta,
+      state: 'Locked' as const,
+      challenges: byStage.get(meta.id) ?? [],
+      test: testByStage.get(meta.id)
+    };
+    return Array.isArray(units) ? withResolvedUnits(stage, units, cfg) : stage;
+  });
+}
+
+/**
+ * Every stage with its units, under the CURRENT unit settings: the units a
+ * stage already carries (the server's grouping), else the cached grouping
+ * for bundled or offline content, else the default. Re-run whenever the
+ * settings change, so the "~6 min" and the default grouping follow them.
+ */
+export function withUnits(stages: readonly Stage[], cfg: UnitSettings = DEFAULT_UNIT_SETTINGS, cachedDefs: UnitDefCache | null = null): Stage[] {
+  return stages.map((stage) => {
+    const own = stage.units && stage.units.length ? stage.units : null;
+    const cached = cachedDefs && Object.prototype.hasOwnProperty.call(cachedDefs, stage.id) ? cachedDefs[stage.id] : null;
+    return withResolvedUnits(stage, own ?? cached, cfg);
+  });
+}
+
+/** The groupings the server sent last time, made safe. */
+export function readUnitDefCache(): UnitDefCache {
+  const raw = readJson<unknown>(STORAGE_KEYS.unitDefs, null);
+  const out: UnitDefCache = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [stageId, defs] of Object.entries(raw as Record<string, unknown>)) {
+    if (!stageId || stageId === '__proto__' || !Array.isArray(defs)) continue;
+    const clean = defs.filter(
+      (d): d is UnitDef => Boolean(d) && typeof d.id === 'string' && typeof d.name === 'string' && Array.isArray(d.challengeIds)
+    );
+    if (clean.length) out[stageId] = clean.map((d) => ({ ...d, challengeIds: d.challengeIds.filter((id) => typeof id === 'string') }));
+  }
+  return out;
+}
+
+/** Remember the server's groupings (ids and names only) for the next offline start. */
+export function writeUnitDefCache(stages: readonly Stage[]): UnitDefCache {
+  const cache: UnitDefCache = {};
+  for (const stage of stages) if (stage.units?.length) cache[stage.id] = toUnitDefs(stage.units);
+  writeJson(STORAGE_KEYS.unitDefs, cache);
+  return cache;
 }
 
 /** Build a bundle from already-grouped stages and their challenges. */
@@ -79,6 +140,7 @@ export function makeBundle(
  * premium stage this viewer has not unlocked arrives as `locked` stubs,
  * which group into their stage like any other challenge, and its id is in
  * `lockedStageIds`. Fetch it again whenever the viewer's access changes.
+ * The server's unit groupings are cached for the next offline start.
  */
 export async function loadFromApi(fallbackTracks: LanguageTrack[] = []): Promise<ContentBundle | null> {
   try {
@@ -87,7 +149,9 @@ export async function loadFromApi(fallbackTracks: LanguageTrack[] = []): Promise
     const tracks = Array.isArray(languageTracks) && languageTracks.length ? (languageTracks as LanguageTrack[]) : fallbackTracks;
     const hidden = Array.isArray(hiddenLanguages) ? hiddenLanguages : [];
     const locked = Array.isArray(lockedStageIds) ? lockedStageIds.filter((id): id is string => typeof id === 'string') : [];
-    return makeBundle(groupIntoStages(stages, challenges), challenges, tracks, 'api', hidden, locked);
+    const grouped = groupIntoStages(stages, challenges);
+    if (grouped.some((s) => s.units?.length)) writeUnitDefCache(grouped);
+    return makeBundle(grouped, challenges, tracks, 'api', hidden, locked);
   } catch {
     return null;
   }

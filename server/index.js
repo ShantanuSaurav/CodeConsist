@@ -56,6 +56,8 @@ import { createSettingsRouter } from './settings-routes.js';
 import { createActivityService } from './activity.js';
 import { createActivityRouter } from './activity-routes.js';
 import { createProgressRouter, recalcForUser } from './progress-routes.js';
+import { createUnitsService } from './units.js';
+import { createPreferencesRouter, publicPreferences } from './preferences-routes.js';
 import {
   JUDGE0_LANGUAGE_IDS,
   JUDGE0_STDIN_LIMIT,
@@ -129,10 +131,13 @@ const adminDeps = { validateChallenge: null, runSolution: null, ai: null, billin
  *              settings, day, XP and activity rules the browser runs;
  *   settings - server/settings.js: the admin's rules over the defaults;
  *   activity - server/activity.js: each learner's days and wrong answers;
+ *   units    - server/units.js: each stage's lessons grouped into units (the
+ *              admin's grouping or the default), for the bank, the
+ *              perfect-unit bonus and the admin units editor;
  *   runtimeInfo - which engines this server has, for the admin's rules page.
  * Routers read it per request, so mounting them before bootstrap is fine.
  */
-const learningDeps = { lib: null, settings: null, activity: null, runtimeInfo: null };
+const learningDeps = { lib: null, settings: null, activity: null, units: null, runtimeInfo: null };
 adminDeps.learning = learningDeps;
 
 /**
@@ -235,6 +240,8 @@ async function bootstrap() {
     getChallengeMerged,
     gradeAnswer
   });
+  // Resolved lazily against the content snapshot (loaded below), cached per state.
+  learningDeps.units = createUnitsService({ store, lib: learningDeps.lib, settings: learningDeps.settings });
   learningDeps.runtimeInfo = () => ({
     pythonVerifiable: Boolean(findPython()),
     judge0Languages: JUDGE0_CONFIGURED ? Object.keys(JUDGE0_LANGUAGE_IDS) : []
@@ -369,9 +376,10 @@ function publicUser(user) {
     createdAt: user.createdAt ?? null,
     lastLoginAt: user.lastLoginAt ?? null,
     avatarUrl: avatarFor(user),
-    // The zone this account's days are counted in (null until a browser has
-    // reported one). When it was set stays on the server.
-    preferences: { timeZone: store.normalizePreferences(user.preferences).timeZone }
+    // The learner's own choices - the zone their days are counted in (null
+    // until a browser has reported one), sound on or off, ... - every field
+    // null until chosen. When the zone was set stays on the server.
+    preferences: publicPreferences(store.normalizePreferences(user.preferences))
   };
 }
 
@@ -710,8 +718,11 @@ app.get(
   asyncRoute(async (req, res) => {
     const snapshot = await loadContent();
     const overrides = store.getContentOverrides();
-    // Includes the admin-authored questions (server/content.js).
-    const merged = applyLearnerOverrides(snapshot, overrides);
+    // Includes the admin-authored questions (server/content.js). Each stage
+    // carries its units (ids and names), resolved after the overrides so a
+    // hidden lesson is in none of them - server/units.js.
+    const learnerView = applyLearnerOverrides(snapshot, overrides);
+    const merged = learningDeps.units ? learningDeps.units.attachUnits(learnerView) : learnerView;
     const hiddenLanguages = Object.keys(overrides.languages).filter((id) => overrides.languages[id]?.hidden);
     // A premium stage this viewer has not unlocked comes as stubs - its place
     // in the path (id, title, type) and nothing that answers it. With the
@@ -882,6 +893,12 @@ app.use(
   '/api',
   createActivityRouter({ requireAuth, learningDeps, gradeAnswer, getChallengeMerged, writeLimit: limitBy('write.account', byAccount) })
 );
+
+/* ------------------------------------------------------------- preferences */
+
+// PATCH /api/me/preferences: the learner's own choices, stored on the
+// account so they survive a progress reset (server/preferences-routes.js).
+app.use('/api', createPreferencesRouter({ requireAuth, publicUser, store, writeLimit: limitBy('write.account', byAccount) }));
 
 /* ----------------------------------------------------------------- billing */
 

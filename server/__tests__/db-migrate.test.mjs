@@ -1,7 +1,8 @@
 /**
  * The migrations of db.json: version 2 added `settings` and `activity`
  * (users gained `preferences`), version 3 added `passwordResets` (users
- * gained `tokenVersion`) - and nothing a learner earned is ever touched.
+ * gained `tokenVersion`), version 4 added `contentOverrides.units` and the
+ * whole preferences shape - and nothing a learner earned is ever touched.
  *
  * `migrateState` is pure over the loaded object (like forgetBillingIdentity
  * in db-forget.test.mjs). `load()` is exercised with the file system mocked,
@@ -60,11 +61,24 @@ import * as store from '../db.js';
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 
+/** Every preference, unset (schema version 4). */
+const EMPTY_PREFS = {
+  timeZone: null,
+  timeZoneSetAt: null,
+  dailyGoalId: null,
+  soundOn: null,
+  trackId: null,
+  learningMode: null,
+  motivation: null,
+  experience: null,
+  updatedAt: null
+};
+
 describe('migrateState', () => {
   it('adds settings and activity, and leaves progress exactly as it was', () => {
     const next = store.migrateState(clone(OLD_DB));
     expect(next.version).toBe(store.SCHEMA_VERSION);
-    expect(store.SCHEMA_VERSION).toBe(3);
+    expect(store.SCHEMA_VERSION).toBe(4);
     expect(next.settings).toEqual({ overrides: {}, revision: 0, updatedAt: null, updatedBy: null });
     expect(next.activity).toEqual({});
     expect(next.progress).toEqual(OLD_DB.progress);
@@ -74,12 +88,12 @@ describe('migrateState', () => {
 
   it('gives every user empty preferences, keeping what they had', () => {
     const next = store.migrateState(clone(OLD_DB));
-    expect(next.users[0].preferences).toEqual({ timeZone: null, timeZoneSetAt: null, updatedAt: null });
+    expect(next.users[0].preferences).toEqual(EMPTY_PREFS);
     expect(next.users[0].role).toBeUndefined();
     expect(next.users[1].identities).toEqual({ google: { providerUserId: 'g1' } });
 
     const withPrefs = store.migrateState({ users: [{ id: 'u3', preferences: { timeZone: 'Asia/Kolkata', timeZoneSetAt: '2026-09-01T00:00:00Z', later: 'kept' } }] });
-    expect(withPrefs.users[0].preferences).toEqual({ timeZone: 'Asia/Kolkata', timeZoneSetAt: '2026-09-01T00:00:00Z', updatedAt: null, later: 'kept' });
+    expect(withPrefs.users[0].preferences).toEqual({ ...EMPTY_PREFS, timeZone: 'Asia/Kolkata', timeZoneSetAt: '2026-09-01T00:00:00Z', later: 'kept' });
   });
 
   it('is idempotent', () => {
@@ -106,7 +120,7 @@ describe('migrateState', () => {
 
   it('never lets a newer version number go backwards', () => {
     expect(store.migrateState({ version: 7 }).version).toBe(7);
-    expect(store.migrateState({}).version).toBe(3);
+    expect(store.migrateState({}).version).toBe(4);
   });
 
   it('adds password resets and token versions (version 3), leaving orders, overrides and progress alone', () => {
@@ -119,12 +133,13 @@ describe('migrateState', () => {
       contentOverrides: { stages: { s2: { isPremium: false } }, challenges: {}, languages: {} }
     };
     const next = store.migrateState(clone(v2));
-    expect(next.version).toBe(3);
+    expect(next.version).toBe(store.SCHEMA_VERSION);
     expect(next.passwordResets).toEqual({});
     expect(next.users.map((u) => u.tokenVersion)).toEqual([0, 0]);
     expect(next.progress).toEqual(v2.progress);
     expect(next.orders).toEqual(v2.orders);
-    expect(next.contentOverrides).toEqual(v2.contentOverrides);
+    // Version 4 adds an empty `units` beside the other overrides, which stay as they were.
+    expect(next.contentOverrides).toEqual({ ...v2.contentOverrides, units: {} });
   });
 
   it('keeps stored resets and token versions, and repairs nonsense', () => {
@@ -145,16 +160,16 @@ describe('load() of a version 1 file', () => {
   });
 
   it('keeps a byte-for-byte copy of the old file before migrating', () => {
-    // Named after the version it migrates TO (a file from before version 3).
-    const copy = files.written.find((w) => /db\.json\.pre-v3-\d+$/.test(w.file));
-    expect(copy, 'db.json.pre-v3-<ts>').toBeTruthy();
+    // Named after the version it migrates TO (a file from before version 4).
+    const copy = files.written.find((w) => /db\.json\.pre-v4-\d+$/.test(w.file));
+    expect(copy, 'db.json.pre-v4-<ts>').toBeTruthy();
     expect(copy.text).toBe(JSON.stringify(OLD_DB));
     // Not treated as corrupt.
     expect(files.renamed.filter((r) => r.to.includes('.corrupt-'))).toEqual([]);
   });
 
   it('loads the migrated state with progress untouched', () => {
-    expect(store.db().version).toBe(3);
+    expect(store.db().version).toBe(4);
     expect(store.db().progress).toEqual(OLD_DB.progress);
     expect(store.getSettingsRecord().revision).toBe(0);
     expect(store.allActivity()).toEqual({});
@@ -179,5 +194,52 @@ describe('load() of a version 1 file', () => {
     expect(store.passwordResetsForUser('u1')).toEqual([]);
     expect(store.getPasswordReset('pr_two')).toMatchObject({ userId: 'u2' });
     expect(store.findPasswordResetByTokenHash('hash-pr_two')).toMatchObject({ id: 'pr_two' });
+  });
+});
+
+describe('version 4: units and preferences', () => {
+  it('adds contentOverrides.units, keeping a stored grouping and repairing nonsense', () => {
+    expect(store.migrateState(clone(OLD_DB)).contentOverrides.units).toEqual({});
+    const grouping = { 'stage-3': { units: [{ id: 'stage-3:m1', name: 'Warm-up', challengeIds: ['stage-3-a01'] }], nextSeq: 2, updatedAt: 'x' } };
+    const kept = store.migrateState({ contentOverrides: { stages: {}, challenges: {}, languages: {}, units: grouping } });
+    expect(kept.contentOverrides.units).toEqual(grouping);
+    expect(store.migrateState({ contentOverrides: { units: [1, 2] } }).contentOverrides.units).toEqual({});
+  });
+
+  it('normalizes preferences: only a boolean is a sound choice, only learn/practice a mode', () => {
+    const next = store.migrateState({
+      users: [
+        { id: 'u1', preferences: { soundOn: false, learningMode: 'learn' } },
+        { id: 'u2', preferences: { soundOn: 'yes', learningMode: 'fast' } }
+      ]
+    });
+    expect(next.users[0].preferences).toMatchObject({ soundOn: false, learningMode: 'learn' });
+    expect(next.users[1].preferences).toMatchObject({ soundOn: null, learningMode: null });
+  });
+
+  it('fills unitsCompleted on read without rewriting the stored row', () => {
+    const before = JSON.stringify(store.db().progress.u2);
+    const row = store.getProgress('u2');
+    expect(row.unitsCompleted).toEqual({});
+    // A fresh object: writing into it cannot reach the stored row.
+    row.unitsCompleted['stage-1:a1'] = { completedAt: 'x', perfect: true, bonusXp: 25 };
+    expect(JSON.stringify(store.db().progress.u2)).toBe(before);
+    expect(store.getProgress('u2').unitsCompleted).toEqual({});
+  });
+
+  it('stores, reads and drops a stage grouping, safely for any key', () => {
+    const record = { units: [{ id: 'stage-3:m1', name: 'A', challengeIds: ['x'] }], nextSeq: 2, updatedAt: '2026-09-27T00:00:00.000Z' };
+    store.setUnitOverride('stage-3', record);
+    expect(store.getUnitOverride('stage-3')).toEqual(record);
+    expect(store.getUnitOverride('constructor')).toBeNull();
+
+    store.setUnitOverride('__proto__', record);
+    expect(Object.hasOwn(store.getContentOverrides().units, '__proto__')).toBe(true);
+    expect(Object.getPrototypeOf(store.getContentOverrides().units)).toBe(Object.prototype);
+
+    store.setUnitOverride('stage-3', null);
+    store.setUnitOverride('__proto__', null);
+    expect(store.getUnitOverride('stage-3')).toBeNull();
+    expect(Object.keys(store.getContentOverrides().units)).toEqual([]);
   });
 });

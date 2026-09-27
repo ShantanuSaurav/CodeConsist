@@ -27,6 +27,8 @@ export { SectionHeader } from './primitives/SectionHeader';
 export { EmptyState } from './primitives/EmptyState';
 export { Switch } from './primitives/Switch';
 export { Segmented } from './primitives/Segmented';
+export { ProgressRing } from './primitives/ProgressRing';
+export { StreakFlame } from './primitives/StreakFlame';
 export type { SegmentedOption } from './primitives/Segmented';
 export {
   CodeConsistLogo,

@@ -1,18 +1,81 @@
 import React, { useMemo } from 'react';
-import { Award, Code2, Flame, Star, Swords } from 'lucide-react';
+import { Award, Code2, Flame, Layers, Sparkles, Star, Swords } from 'lucide-react';
 import { PageHeader, ProgressBar, SectionHeader, Stat } from '@/ui';
+import { BadgeTierChip } from '@/ui/celebrations';
 import { useLeveling, useSession } from '@/platform/session';
-import { achievements, relativeDay } from '@/platform/xp-leveling/insights';
+import { achievements, badgeProgress, relativeDay } from '@/platform/xp-leveling/insights';
+import type { AchievementKind, BadgeFamilyProgress } from '@/platform/xp-leveling/insights';
 
 /** Display names for the few languages whose slug does not read well capitalised. */
 const LANGUAGE_LABEL: Record<string, string> = { cpp: 'C++', javascript: 'JavaScript', sql: 'SQL', html: 'HTML', css: 'CSS' };
 
-const ICONS = {
+const ICONS: Record<AchievementKind, React.ReactNode> = {
   streak: <Flame size={15} />,
   stage: <Award size={15} />,
   first: <Star size={15} />,
   xp: <Code2 size={15} />,
-  test: <Swords size={15} />
+  test: <Swords size={15} />,
+  unit: <Layers size={15} />,
+  perfect: <Sparkles size={15} />
+};
+
+/** What a family's number counts, for "5 / 7 days to Silver". */
+const METRIC_UNIT: Record<string, string> = {
+  bestStreak: 'days',
+  solvedCount: 'solved',
+  unitsCompleted: 'units',
+  perfectUnits: 'perfect units',
+  xp: 'XP',
+  testsPassed: 'tests'
+};
+
+const KIND_OF_METRIC: Record<string, AchievementKind> = {
+  bestStreak: 'streak',
+  solvedCount: 'xp',
+  unitsCompleted: 'unit',
+  perfectUnits: 'perfect',
+  xp: 'xp',
+  testsPassed: 'test'
+};
+
+/** One tiered badge family: the tier reached, a pip per tier, and how far to the next. */
+const FamilyCard: React.FC<{ family: BadgeFamilyProgress }> = ({ family: f }) => {
+  const unit = METRIC_UNIT[f.family.metric] ?? '';
+  return (
+    <li className="p-4 border-r border-b border-border-subtle">
+      <div className="flex items-center gap-3">
+        <div
+          className={`w-7 h-7 rounded-sm flex items-center justify-center shrink-0 ${f.current ? 'bg-accent-soft text-accent' : 'border border-border text-fg-muted'}`}
+          aria-hidden="true"
+        >
+          {ICONS[KIND_OF_METRIC[f.family.metric] ?? 'xp']}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-fg truncate">{f.current?.title ?? f.next?.title ?? f.family.id}</div>
+          <div className="text-xs text-fg-muted truncate">{f.next ? f.next.detail : 'Every tier earned'}</div>
+        </div>
+        {f.current ? <BadgeTierChip tierName={f.current.tierName} tierIndex={f.current.tier} /> : null}
+      </div>
+      <div className="mt-3 flex items-center gap-1" aria-hidden="true">
+        {f.tiers.map((t) => (
+          <span
+            key={t.id}
+            title={`${t.tierName}: ${t.title}${t.earnedAt ? ' (earned)' : ''}`}
+            className={`h-1.5 flex-1 rounded-full ${t.earnedAt ? 'bg-accent' : 'bg-surface-3'}`}
+          />
+        ))}
+      </div>
+      <ProgressBar
+        value={f.percent}
+        size="sm"
+        className="mt-2"
+        label={f.next ? `${f.value} of ${f.next.n} ${unit} to ${f.next.tierName}` : `${f.current?.title ?? 'This badge'}: every tier earned`}
+      />
+      <div className="mt-1.5 text-[11px] font-mono text-fg-muted">
+        {f.next ? `${f.value.toLocaleString()} / ${f.next.n.toLocaleString()} ${unit} to ${f.next.tierName}` : 'Top tier'}
+      </div>
+    </li>
+  );
 };
 
 /**
@@ -20,7 +83,7 @@ const ICONS = {
  * this page is derived from stats and content - none of it is decorative.
  */
 export const AchievementsPage: React.FC = () => {
-  const { stats, stages, allChallenges } = useSession();
+  const { stats, stages, allChallenges, settings } = useSession();
   const { levelProgress, xpForLevel, rankTitle } = useLeveling();
   const level = levelProgress(stats.xp);
   const solved = useMemo(() => new Set(stats.completedChallenges), [stats.completedChallenges]);
@@ -45,7 +108,15 @@ export const AchievementsPage: React.FC = () => {
     return Math.round(entries.reduce((sum, a) => sum + a.score, 0) / entries.length);
   }, [stats.attempts]);
 
-  const badges = useMemo(() => achievements(stats, stages), [stats, stages]);
+  // The badge rules the admin set (settings.badges): families, tier names, stage badges.
+  const badgeOptions = useMemo(() => ({ perfectRequiresNoHints: settings.units.perfectRequiresNoHints }), [settings.units.perfectRequiresNoHints]);
+  const badges = useMemo(() => achievements(stats, stages, settings.badges, badgeOptions), [stats, stages, settings.badges, badgeOptions]);
+  const families = useMemo(() => badgeProgress(stats, stages, settings.badges, badgeOptions), [stats, stages, settings.badges, badgeOptions]);
+  // Stage badges and the first solve; the tiers are shown by family above them.
+  const singles = useMemo(() => {
+    const order = (id: string) => (id === 'first-solve' ? -1 : stages.findIndex((s) => `stage-${s.id}` === id));
+    return badges.filter((b) => !b.family).sort((a, b) => order(a.id) - order(b.id));
+  }, [badges, stages]);
   const earned = badges.filter((b) => b.earnedAt);
   const stagesCleared = stages.filter((s) => s.state === 'Completed').length;
   const testsPassed = stages.filter((s) => s.test && solved.has(s.test.id)).length;
@@ -109,8 +180,18 @@ export const AchievementsPage: React.FC = () => {
             </span>
           }
         />
-        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 border-t border-l border-border-subtle">
-          {badges.map((b) => (
+        {/* Tiered families: the tier reached and how far to the next one. */}
+        {families.length > 0 && (
+          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 border-t border-l border-border-subtle mb-6" aria-label="Badge families">
+            {families.map((f) => (
+              <FamilyCard key={f.family.id} family={f} />
+            ))}
+          </ul>
+        )}
+
+        {/* The single badges: the first solve and one per stage. */}
+        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 border-t border-l border-border-subtle" aria-label="Stage badges">
+          {singles.map((b) => (
             <li key={b.id} className={`flex items-center gap-3 p-4 border-r border-b border-border-subtle ${b.earnedAt ? '' : 'opacity-60'}`}>
               <div
                 className={`w-7 h-7 rounded-sm flex items-center justify-center shrink-0 ${

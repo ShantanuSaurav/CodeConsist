@@ -17,7 +17,8 @@ import { patchIssues, resolveSettings, validateSettings } from '../schema';
 import { fillCopy, tokensIn } from '../copy';
 import { getCopy, getSettingsSnapshot, setSettingsSnapshot, subscribe } from '../store';
 import { DEFAULT_LEVEL_CURVE, DEFAULT_XP_RULES } from '../../xp-leveling/leveling';
-import { DEFAULT_RANKS } from '../../xp-leveling/insights';
+import { DEFAULT_BADGES, DEFAULT_RANKS } from '../../xp-leveling/insights';
+import { DEFAULT_UNIT_SETTINGS } from '../../progress/units';
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
@@ -38,9 +39,25 @@ describe('defaults', () => {
     expect(DEFAULT_SETTINGS.xp).toMatchObject({ retryPenalty: 10, hintPenalty: 10, scoreFloor: 50, passScore: 60, minXpPerSolve: 1 });
     expect(DEFAULT_SETTINGS.levels.thresholds).toEqual(DEFAULT_LEVEL_CURVE.thresholds);
     expect(DEFAULT_SETTINGS.levels.thresholds.slice(0, 5)).toEqual([0, 100, 300, 600, 1000]);
-    expect(DEFAULT_SETTINGS.levels.overflowStep).toBe(4000);
+    // Phase 2: the retuned curve (owner decision 2) - 900 XP per level past level 10.
+    expect(DEFAULT_SETTINGS.levels.overflowStep).toBe(900);
     expect(DEFAULT_SETTINGS.levels.ranks).toEqual(DEFAULT_RANKS);
     expect(DEFAULT_SETTINGS.streak).toEqual({ defaultTimeZone: null, timeZoneChangeCooldownHours: 20, maxPlausibleMergedStreak: 400 });
+  });
+
+  it('carry the Phase 2 units, celebrations and badges from the code that uses them', () => {
+    expect(DEFAULT_SETTINGS.units).toEqual(DEFAULT_UNIT_SETTINGS);
+    expect(DEFAULT_SETTINGS.units).toMatchObject({ targetSize: 5, minSize: 3, maxSize: 8, targetMinutes: 8, perfectBonusXp: 25, perfectRequiresNoHints: true });
+    expect(DEFAULT_SETTINGS.badges).toEqual(DEFAULT_BADGES);
+    expect(DEFAULT_SETTINGS.badges.families.map((f) => f.id)).toEqual(['streak', 'solved', 'units', 'perfect', 'tests', 'xp']);
+    expect(DEFAULT_SETTINGS.celebrations.confetti).toEqual({ onCorrect: true, onCorrectParticles: 40, onReSolve: false, onUnitEnd: true, unitEndParticles: 140 });
+    expect(DEFAULT_SETTINGS.celebrations.sound).toEqual({
+      defaultOn: true,
+      volume: 0.5,
+      events: { correct: true, wrong: true, unitComplete: true, levelUp: true, badge: true }
+    });
+    // Learners get all three (none is admin only).
+    expect(Object.keys(publicSettings(DEFAULT_SETTINGS))).toEqual(expect.arrayContaining(['units', 'celebrations', 'badges']));
   });
 
   it('every leaf has admin metadata, so nothing can be added without being editable', () => {
@@ -63,6 +80,44 @@ describe('defaults', () => {
       const value = getPath(DEFAULT_SETTINGS, path) as string;
       for (const token of tokensIn(value)) expect(meta.tokens ?? [], `${path} uses {${token}}`).toContain(token);
     }
+  });
+});
+
+describe('Phase 2 rules', () => {
+  const check = (patch: object) => validateSettings(mergeSettings(DEFAULT_SETTINGS, patch)).issues.map((i) => i.path);
+
+  it('keeps minSize <= targetSize <= maxSize', () => {
+    expect(check({ units: { minSize: 6 } })).toEqual(['units.minSize']);
+    expect(check({ units: { targetSize: 9 } })).toEqual(['units.targetSize']);
+    expect(check({ units: { minSize: 5, targetSize: 5, maxSize: 5 } })).toEqual([]);
+  });
+
+  it('bounds the minutes per question kind and the bonus', () => {
+    expect(check({ units: { minutesByType: { ...DEFAULT_SETTINGS.units.minutesByType, quiz: 0 } } })).toEqual(['units.minutesByType.quiz']);
+    expect(check({ units: { perfectBonusXp: 501 } })).toEqual(['units.perfectBonusXp']);
+  });
+
+  it('checks every badge family: a slug id, unique, {n} in its words, tiers that climb', () => {
+    const families = DEFAULT_SETTINGS.badges.families.map((f) => ({ ...f }));
+    families[0] = { ...families[0], id: 'Streak!' };
+    families[1] = { ...families[1], id: 'units' };
+    families[2] = { ...families[2], title: 'Units done', detail: 'Done {n} of {total}' };
+    families[3] = { ...families[3], tiers: [1, 5, 5] };
+    expect(check({ badges: { families } }).sort()).toEqual(
+      ['badges.families.0.id', 'badges.families.2.id', 'badges.families.2.title', 'badges.families.2.detail', 'badges.families.3.tiers.2'].sort()
+    );
+    expect(check({ badges: { families: [{ ...families[5], metric: 'coins' }] } })).toEqual(['badges.families.0.metric']);
+    expect(check({ badges: { tierNames: ['Only one'] } })).toEqual(['badges.tierNames']);
+  });
+
+  it('refuses a token a celebration line does not have', () => {
+    expect(check({ celebrations: { copy: { perfect: 'Perfect! +{xp} XP, level {level}' } } })).toEqual(['celebrations.copy.perfect']);
+    expect(check({ badges: { stageBadges: { coreTitle: '{name} cleared' } } })).toEqual(['badges.stageBadges.coreTitle']);
+  });
+
+  it('merges one sound event without losing the others', () => {
+    const merged = mergeSettings(DEFAULT_SETTINGS, { celebrations: { sound: { events: { wrong: false } } } });
+    expect(merged.celebrations.sound.events).toEqual({ correct: true, wrong: false, unitComplete: true, levelUp: true, badge: true });
   });
 });
 
@@ -153,18 +208,18 @@ describe('applySettingsPatch', () => {
 
   it('lets null remove a stored key this build does not know - but never set one', () => {
     // What a rollback leaves behind: keys a newer build wrote.
-    const stored = { celebrations: { confetti: true }, xp: { passScore: 70, ghost: 1 } };
-    expect(applySettingsPatch(stored, { celebrations: null })).toEqual({
+    const stored = { fireworks: { confetti: true }, xp: { passScore: 70, ghost: 1 } };
+    expect(applySettingsPatch(stored, { fireworks: null })).toEqual({
       overrides: { xp: { passScore: 70, ghost: 1 } },
-      changedPaths: ['celebrations'],
+      changedPaths: ['fireworks'],
       unknownPaths: []
     });
-    expect(applySettingsPatch(stored, { xp: { ghost: null } }).overrides).toEqual({ celebrations: { confetti: true }, xp: { passScore: 70 } });
-    expect(applySettingsPatch(stored, { celebrations: { confetti: null } }).overrides).toEqual({ xp: { passScore: 70, ghost: 1 } });
-    expect(applySettingsPatch(stored, { celebrations: { confetti: false } }).unknownPaths).toEqual(['celebrations.confetti']);
+    expect(applySettingsPatch(stored, { xp: { ghost: null } }).overrides).toEqual({ fireworks: { confetti: true }, xp: { passScore: 70 } });
+    expect(applySettingsPatch(stored, { fireworks: { confetti: null } }).overrides).toEqual({ xp: { passScore: 70, ghost: 1 } });
+    expect(applySettingsPatch(stored, { fireworks: { confetti: false } }).unknownPaths).toEqual(['fireworks.confetti']);
     expect(applySettingsPatch(stored, { xp: { ghost: 2 } }).unknownPaths).toEqual(['xp.ghost']);
     // Nothing stored there: still not a setting.
-    expect(applySettingsPatch({}, { celebrations: null }).unknownPaths).toEqual(['celebrations']);
+    expect(applySettingsPatch({}, { fireworks: null }).unknownPaths).toEqual(['fireworks']);
   });
 
   it('builds a nested patch from flat edits', () => {
@@ -183,7 +238,7 @@ describe('patchIssues', () => {
   };
 
   it('never blocks a patch on a stored value it leaves alone', () => {
-    expect(blocking({ celebrations: { confetti: true } }, { xp: { passScore: 70 } })).toEqual([]);
+    expect(blocking({ fireworks: { confetti: true } }, { xp: { passScore: 70 } })).toEqual([]);
     expect(blocking({ xp: { ghost: 1, passScore: 'high' } }, { xp: { hintPenalty: 5 } })).toEqual([]);
     expect(blocking({ xp: { scoreFloor: 95 } }, { streak: { maxPlausibleMergedStreak: 30 } })).toEqual([]);
   });

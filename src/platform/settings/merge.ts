@@ -84,6 +84,24 @@ export function publicSettings(settings: Settings): PublicSettings {
 
 export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = publicSettings(DEFAULT_SETTINGS);
 
+/**
+ * A short, stable fingerprint of a JSON value (32-bit FNV-1a over its JSON
+ * text, base 36). Not for security - only to tell "the same rules" from
+ * "different rules" where the revision number cannot: a default changed in
+ * code (the Phase 2 level curve) or an environment value leaves the revision
+ * as it was. The learner cache is tagged with the build's defaults through
+ * it, and `GET /api/settings` puts it in its ETag.
+ */
+export function settingsFingerprint(value: unknown): string {
+  const text = JSON.stringify(value) ?? '';
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 /** The value at a dot path (`levels.ranks.0.title`), or undefined. Own properties only. */
 export function getPath(source: unknown, path: string): unknown {
   let node: unknown = source;

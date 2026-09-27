@@ -281,10 +281,39 @@ function emptyRow(columns: RowFieldMeta[], rows: Record<string, unknown>[]): Rec
       row[column.key] = Number.isFinite(last) ? last + 1 : column.min ?? 0;
     } else if (column.kind === 'bool') row[column.key] = false;
     else if (column.kind === 'enum') row[column.key] = column.values?.[0] ?? '';
+    else if (column.kind === 'intList') row[column.key] = [];
     else row[column.key] = '';
   }
   return row;
 }
+
+/** A comma-separated list of whole numbers in one table cell (a badge family's tiers). Keeps what is typed. */
+const IntListCell: React.FC<{ value: unknown; invalid: boolean; ariaLabel: string; onChange: (list: number[]) => void }> = ({ value, invalid, ariaLabel, onChange }) => {
+  const list = Array.isArray(value) ? value : [];
+  const [text, setText] = useState(list.join(', '));
+  useEffect(() => {
+    if (text.split(',').map((s) => s.trim()).filter(Boolean).join(',') !== list.map(String).join(',')) setText(list.join(', '));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(list)]);
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      className={`w-40 font-mono text-[13px] ${invalid ? 'is-invalid' : ''}`.trim()}
+      aria-label={ariaLabel}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const numbers = e.target.value
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map(Number);
+        if (numbers.every((n) => Number.isFinite(n))) onChange(numbers);
+      }}
+    />
+  );
+};
 
 /** A small table: one row per entry, one column per field in `rowMeta`. */
 export const SettingRows: React.FC<SettingFieldProps & { id: string; issueFor?: (path: string) => string | undefined }> = ({ id, path, meta, value, onChange, issueFor }) => {
@@ -315,6 +344,8 @@ export const SettingRows: React.FC<SettingFieldProps & { id: string; issueFor?: 
                     <td key={column.key} className="align-top">
                       {column.kind === 'int' || column.kind === 'number' ? (
                         <NumberInput className="w-28" value={cell} min={column.min} max={column.max} invalid={Boolean(cellError)} ariaLabel={`${column.label}, row ${index + 1}`} onChange={(n) => update(index, column.key, n)} />
+                      ) : column.kind === 'intList' ? (
+                        <IntListCell value={cell} invalid={Boolean(cellError)} ariaLabel={`${column.label}, row ${index + 1}`} onChange={(list) => update(index, column.key, list)} />
                       ) : column.kind === 'bool' ? (
                         <input type="checkbox" aria-label={`${column.label}, row ${index + 1}`} checked={cell === true} onChange={(e) => update(index, column.key, e.target.checked)} />
                       ) : column.kind === 'enum' ? (

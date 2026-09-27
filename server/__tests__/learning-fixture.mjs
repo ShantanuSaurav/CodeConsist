@@ -57,11 +57,39 @@ export async function verifySubmission(challenge, body) {
 
 export const completedStagesFor = (ids) => (Object.keys(CHALLENGES).every((id) => ids.includes(id)) ? ['stage-1'] : []);
 
-/** The real services over the real store. `serverZone` pins the fallback zone so tests do not depend on the machine. */
-export function createLearningDeps(store, { env = {}, serverZone = () => 'UTC' } = {}) {
+/**
+ * The fixture stage's units, as an admin might group it: two lessons, then
+ * three. The stage test is in neither.
+ */
+export const UNIT_DEFS = [
+  { id: 'stage-1:m1', name: 'Pick and choose', challengeIds: ['q-quiz', 'q-multi'] },
+  { id: 'stage-1:m2', name: 'Write and order', challengeIds: ['q-blank', 'q-order', 'q-code'] }
+];
+
+/** A units service over the fixture (the shape server/units.js returns, as far as the progress routes use it). */
+export function createFixtureUnits(settings, defs = UNIT_DEFS) {
+  const unitsFor = () => lib.toUnitDefs(lib.resolveUnits('stage-1', Object.values(CHALLENGES), defs, settings.current().units));
+  return {
+    unitFor: (id) => unitsFor().find((u) => u.challengeIds.includes(id)) ?? null,
+    unitsForStage: (stageId) => (stageId === 'stage-1' ? unitsFor() : [])
+  };
+}
+
+/**
+ * The real services over the real store. `serverZone` pins the fallback zone
+ * so tests do not depend on the machine; `units: true` adds the fixture's
+ * units (the perfect-unit bonus is paid only then).
+ */
+export function createLearningDeps(store, { env = {}, serverZone = () => 'UTC', units = false } = {}) {
   const settings = createSettingsService({ store, lib, env });
   const activity = createActivityService({ lib, store, settings, getChallengeMerged: getChallenge, gradeAnswer: lib.gradeAnswer, serverZone });
-  return { lib, settings, activity, runtimeInfo: () => ({ pythonVerifiable: false, judge0Languages: [] }) };
+  return {
+    lib,
+    settings,
+    activity,
+    units: units ? createFixtureUnits(settings) : null,
+    runtimeInfo: () => ({ pythonVerifiable: false, judge0Languages: [] })
+  };
 }
 
 /** Clear every store the learning routes write, and add learners. */

@@ -27,7 +27,8 @@ import {
 import { useToast } from '@/ui';
 import { eventBus } from '../events';
 import { applyProgressByTrack, stagesForTrack } from '../progress/stages';
-import { loadFromApi } from './content';
+import { unitFor } from '../progress/units';
+import { loadFromApi, readUnitDefCache, withUnits } from './content';
 import type { ContentBundle } from './content';
 import { compilerService, ExecuteOptions } from '../execution/compilerService';
 import { api, ApiError, OfflineError, getToken, setToken } from '../api-client/api';
@@ -41,10 +42,15 @@ import { isCodeChallengeType, normalizeMissAnswer, rawAnswerFromMiss, wrongAnswe
 import { gradeAnswer } from '../grading-engine/grading';
 import { DEFAULT_SETTINGS } from '../settings/defaults';
 import { getCopy } from '../settings/store';
-import type { PublicSettings } from '../settings/types';
+import type { PublicSettings, SfxEvent } from '../settings/types';
+import { applyUnitRewards } from '../xp-leveling/rewards';
+import { playSfx } from '../sound/sfx';
 import { INITIAL_STATS, adoptAccountProgress, hydrateStats, sessionToday, solveWasDeferred, statsAfterSolve } from './stats';
 import { useSettingsState } from './useSettingsState';
 import { useActivityLog } from './useActivityLog';
+import { readLocalPreferences, reconcilePreferences, resolveSoundOn, writeLocalPreferences } from './preferences';
+import type { LocalPreferences } from './preferences';
+import { createCelebrationHold } from './celebrationHold';
 
 /**
  * How long a typed answer may be when it is kept as a miss. The real cap is
@@ -72,7 +78,42 @@ export interface SolveOptions {
   code?: string;
   /** Where it was answered: a lesson (default), a stage test, the library. */
   context?: ActivityContext;
+  /**
+   * Inside a unit run (or a stage test): no XP or level-up toast - the end
+   * screen celebrates the whole run at once (and the practice modal toasts a
+   * level crossed in a run closed before its end screen). Confetti per
+   * answer still follows `celebrations.confetti`.
+   */
+  deferCelebrations?: boolean;
 }
+
+/**
+ * What a solve paid, as best known: the server's figures when it answered,
+ * else the optimistic ones this browser worked out with the same rules.
+ */
+export interface SolveOutcome {
+  /** The solve's own XP (0 on a re-solve). */
+  solveXp: number;
+  /** A perfect-unit bonus paid on top (0 when none). */
+  perfectBonusXp: number;
+  totalXp: number;
+  /** The unit this solve completed for the first time, or null. */
+  unitCompleted: string | null;
+  /** That unit was cleared perfectly. */
+  perfect: boolean;
+  /** The server checked and recorded it (false for a guest, offline, or a solve kept for later). */
+  verifiedByServer: boolean;
+  /** The server refused it (a wrong submission, a premium lesson) and it was rolled back: nothing was paid. */
+  rejected?: boolean;
+}
+
+/** Confetti, for the end screens and a correct answer. */
+export interface CelebrateOptions {
+  /** How many particles; `celebrations.confetti.onCorrectParticles` when omitted. 0 is none. */
+  particles?: number;
+}
+
+const NO_OUTCOME: SolveOutcome = { solveXp: 0, perfectBonusXp: 0, totalXp: 0, unitCompleted: null, perfect: false, verifiedByServer: false };
 
 /** A wrong answer as the practice modal saw it: the answer given, or a failed run's pass counts. */
 export interface MissSubmission {
@@ -161,8 +202,24 @@ export interface SessionContextType {
    */
   runtimes: Record<string, RuntimeInfo>;
 
+  /* sound */
+  /**
+   * Sound effects on or off: the account's choice, else this browser's, else
+   * `celebrations.sound.defaultOn`. Survives a reload and a sign-out.
+   */
+  soundOn: boolean;
+  /** Remember the choice here and, signed in, on the account. */
+  setSoundOn: (on: boolean) => void;
+  /** Play one effect, if sound is on and the admin has not switched that event off. */
+  playSound: (event: SfxEvent) => void;
+
   /* actions */
-  completeChallenge: (challenge: Challenge, options?: SolveOptions) => Promise<number>;
+  /**
+   * Record a solve. Resolves with what it paid - the solve's XP, a
+   * perfect-unit bonus when it completed a unit - from the server when it
+   * answered, else from the same rules run here.
+   */
+  completeChallenge: (challenge: Challenge, options?: SolveOptions) => Promise<SolveOutcome>;
   /**
    * Record a wrong answer. Fire and forget: a guest's stays in this browser;
    * a signed-in learner's goes to the server, or waits (marked unsynced) for
@@ -228,7 +285,21 @@ export interface SessionContextType {
   leaderboard: LeaderboardEntry[];
   refreshLeaderboard: () => Promise<void>;
 
-  celebrate: () => void;
+  /** Confetti (never with reduced motion). */
+  celebrate: (options?: CelebrateOptions) => void;
+
+  /**
+   * "Celebrations deferred" (./celebrationHold): while a lesson run is on
+   * screen its end screen announces what it earned, so other toasts (a badge
+   * the moment it is earned) are held. The practice modal holds when a run
+   * opens and releases when it closes - `announced: true` when the end
+   * screen was reached (the held toasts are dropped), false when it was
+   * closed before (they are shown then). Stable identities.
+   */
+  holdCelebrations: () => void;
+  releaseCelebrations: (outcome: { announced: boolean }) => void;
+  /** Show a celebration now, or hold it while a run is on screen. */
+  celebrateOrHold: (show: () => void) => void;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -428,6 +499,78 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+
+  /* ---------------------------------------------------------------- sound */
+  // This browser's own choice (a guest's, or the last one seen here); the
+  // account's wins once there is one. See ./preferences.
+  const [localPrefs, setLocalPrefsState] = useState<LocalPreferences>(readLocalPreferences);
+  const setLocalPrefs = useCallback((next: LocalPreferences) => {
+    setLocalPrefsState(next);
+    writeLocalPreferences(next);
+  }, []);
+  const signedInUser = user && user.provider !== 'guest' ? user : null;
+  const soundOn = resolveSoundOn(signedInUser?.preferences, localPrefs, settings.celebrations.sound.defaultOn);
+  const soundRef = useRef({ soundOn, sound: settings.celebrations.sound });
+  useEffect(() => {
+    soundRef.current = { soundOn, sound: settings.celebrations.sound };
+  }, [soundOn, settings.celebrations.sound]);
+
+  const playSound = useCallback((event: SfxEvent) => {
+    const { soundOn: on, sound } = soundRef.current;
+    playSfx(event, { volume: sound.volume, enabled: on && sound.events[event] !== false });
+  }, []);
+
+  const setSoundOn = useCallback(
+    (on: boolean) => {
+      const account = userRef.current && userRef.current.provider !== 'guest' && getToken() ? userRef.current : null;
+      // Remembered here either way, so it survives a reload and a sign-out;
+      // pending until an account has it.
+      setLocalPrefs({ soundOn: on, pendingSync: account ? account.id : 'guest' });
+      if (!account) return;
+      setUser((prev) => (prev ? { ...prev, preferences: { ...prev.preferences, soundOn: on } } : prev));
+      api
+        .updatePreferences({ soundOn: on })
+        .then((res) => {
+          if (res?.user) setUser((prev) => (prev && prev.id === res.user.id ? { ...prev, ...res.user } : prev));
+          setLocalPrefs({ soundOn: on, pendingSync: null });
+        })
+        .catch(() => {
+          /* offline, or an older server: it stays pending and goes up on the next sign-in */
+        });
+    },
+    [setLocalPrefs]
+  );
+
+  /**
+   * Bring this browser's choice and the account's together once the account
+   * is known (sign-in, a restored session): a choice still pending goes up
+   * (a guest's only where the account has none), otherwise the account's is
+   * remembered here.
+   */
+  const reconcileAccountPreferences = useCallback(
+    async (profile: UserProfile) => {
+      const local = readLocalPreferences();
+      const { patch, local: next } = reconcilePreferences(profile.id, profile.preferences, local);
+      if (patch) {
+        try {
+          const res = await api.updatePreferences(patch);
+          if (res?.user) setUser((prev) => (prev && prev.id === res.user.id ? { ...prev, ...res.user } : prev));
+          setLocalPrefs({ soundOn: typeof patch.soundOn === 'boolean' ? patch.soundOn : local.soundOn, pendingSync: null });
+        } catch {
+          setLocalPrefs(local);
+        }
+        return;
+      }
+      setLocalPrefs(next);
+    },
+    [setLocalPrefs]
+  );
+
+  /** A guest's own choices, to go up with a merge (the server adopts them only where the account has none). */
+  const guestPreferences = useCallback(() => {
+    const local = readLocalPreferences();
+    return local.pendingSync === 'guest' && typeof local.soundOn === 'boolean' ? { soundOn: local.soundOn } : null;
+  }, []);
 
   /* --------------------------------------------------------------- drafts */
   /**
@@ -806,9 +949,17 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     [bundle]
   );
 
+  // Each stage's lessons in units: the server's grouping (on content from the
+  // API), else the one it sent last time, else the default - resolved with
+  // the current unit settings, so an admin's change to them applies here too.
+  const unitDefCache = useMemo(() => (bundle && bundle.source !== 'api' ? readUnitDefCache() : null), [bundle]);
+  const unitStages = useMemo(
+    () => (bundle ? withUnits(bundle.stages, settings.units, unitDefCache) : NO_STAGES),
+    [bundle, settings.units, unitDefCache]
+  );
   const stages = useMemo(
-    () => (bundle ? applyProgressByTrack(bundle.stages, visibleTracks, stats) : NO_STAGES),
-    [bundle, visibleTracks, stats]
+    () => (bundle ? applyProgressByTrack(unitStages, visibleTracks, stats) : NO_STAGES),
+    [bundle, unitStages, visibleTracks, stats]
   );
   const allChallenges = bundle?.challenges ?? EMPTY;
   const challengeById = useCallback((id: string) => bundle?.byId.get(id), [bundle]);
@@ -963,6 +1114,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         // (and a pending one that could not be sent stays pending).
         await adoptAccountActivity(me.id, mergedActivity);
 
+        // Sound on or off: a choice made offline goes up now.
+        void reconcileAccountPreferences(me);
+
         // Unfinished code is part of "where I left off", so it is restored in
         // the same breath as the progress - not when an editor happens to open.
         await restoreDrafts(me.id);
@@ -1094,12 +1248,17 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   /* -------------------------------------------------------------- actions */
 
-  const celebrate = useCallback(() => {
+  // One hold per provider; its functions never change identity.
+  const [celebrationHold] = useState(createCelebrationHold);
+
+  const celebrate = useCallback((options: CelebrateOptions = {}) => {
     if (prefersReducedMotion()) return;
-    // Fetched on the first solve, not on page load - nobody celebrates before that.
+    const particles = Math.max(0, Math.round(options.particles ?? settingsRef.current.celebrations.confetti.onCorrectParticles));
+    if (particles === 0) return;
+    // Fetched on the first celebration, not on page load - nobody celebrates before that.
     import('canvas-confetti').then(({ default: confetti }) =>
       confetti({
-        particleCount: 70,
+        particleCount: particles,
         spread: 68,
         origin: { y: 0.65 },
         disableForReducedMotion: true,
@@ -1109,12 +1268,15 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   }, []);
 
   /**
-   * Record a solve. Returns the XP actually awarded (0 when re-solving).
-   * All side effects live here - never inside a setState updater, which React
-   * may run twice.
+   * Record a solve. Resolves with what it paid (SolveOutcome): the solve's
+   * XP (0 when re-solving) and, when this first solve completed a unit, the
+   * perfect-unit bonus - worked out here with the same rules the server runs
+   * (src/platform/xp-leveling/rewards.ts), then replaced by the server's
+   * figures when it answers. All side effects live here - never inside a
+   * setState updater, which React may run twice.
    */
   const completeChallenge = useCallback(
-    async (challenge: Challenge, options: SolveOptions = {}): Promise<number> => {
+    async (challenge: Challenge, options: SolveOptions = {}): Promise<SolveOutcome> => {
       const attempts = Math.max(1, options.attempts ?? 1);
       const hintsUsed = Math.max(0, options.hintsUsed ?? 0);
       const alreadySolved = stats.completedChallenges.includes(challenge.id);
@@ -1130,7 +1292,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       const xp = stats.xp + awarded;
       const previous = stats.attempts[challenge.id];
 
-      const optimistic: UserStats = {
+      const solved: UserStats = {
         ...stats,
         xp,
         level: levelFromXp(xp, settings.levels),
@@ -1156,14 +1318,46 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         }
       };
 
+      // A first solve that completes a unit: its record, and the perfect-unit
+      // bonus when every lesson in it was clean - the rule the server applies.
+      const stage = stages.find((s) => s.id === challenge.stageId);
+      const { progress: rewarded, reward } = applyUnitRewards(
+        stats,
+        solved,
+        { challengeId: challenge.id, firstSolve: !alreadySolved, now: at },
+        { cfg: settings.units, unitFor: (id) => unitFor(stage?.units, id) }
+      );
+      const optimistic: UserStats = reward ? { ...rewarded, level: levelFromXp(rewarded.xp, settings.levels) } : solved;
+      const localBonus = reward?.bonusXp ?? 0;
+      let outcome: SolveOutcome = {
+        solveXp: awarded,
+        perfectBonusXp: localBonus,
+        totalXp: awarded + localBonus,
+        unitCompleted: reward?.unitId ?? null,
+        perfect: Boolean(reward?.perfect),
+        verifiedByServer: false
+      };
+
       const levelledUp = optimistic.level > stats.level;
       setStats(optimistic);
       // Today's row, optimistically: a re-solve counts as one and pays nothing.
       const activityBefore = activityLog.applyEvent(
-        { type: 'solve', challengeId: challenge.id, isTest: Boolean(challenge.isStageTest), firstSolve: !alreadySolved, awardedXp: awarded },
+        {
+          type: 'solve',
+          challengeId: challenge.id,
+          isTest: Boolean(challenge.isStageTest),
+          firstSolve: !alreadySolved,
+          awardedXp: awarded,
+          unitCompleted: Boolean(reward),
+          perfectBonusXp: localBonus
+        },
         { day, at }
       );
-      celebrate();
+
+      // Confetti only for a solve that paid something - a 0-XP re-solve gets
+      // none unless the admin asked for it (`celebrations.confetti`).
+      const confetti = settings.celebrations.confetti;
+      if (confetti.onCorrect && (outcome.totalXp > 0 || confetti.onReSolve)) celebrate({ particles: confetti.onCorrectParticles });
 
       eventBus.emit('challenge:completed', {
         challenge,
@@ -1172,19 +1366,24 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         hintsUsed,
         firstTime: !alreadySolved
       });
+      if (reward) {
+        eventBus.emit('unit:completed', { stageId: challenge.stageId, unitId: reward.unitId, perfect: reward.perfect, xpEarned: reward.bonusXp });
+      }
       if (!alreadySolved) {
-        const stage = stages.find((s) => s.id === challenge.stageId);
-        const solved = new Set(optimistic.completedChallenges);
+        const solvedIds = new Set(optimistic.completedChallenges);
         const cleared =
           stage &&
           stage.challenges.length > 0 &&
-          stage.challenges.every((c) => solved.has(c.id)) &&
-          (!stage.test || solved.has(stage.test.id));
+          stage.challenges.every((c) => solvedIds.has(c.id)) &&
+          (!stage.test || solvedIds.has(stage.test.id));
         if (cleared) eventBus.emit('stage:completed', { stageId: stage.id });
       }
 
-      if (levelledUp) notify(`Level ${optimistic.level} reached! +${awarded} XP`, 'success');
-      else if (awarded > 0) notify(challenge.uiPreview ? `+${awarded} XP · Assessment Completed!` : `+${awarded} XP`, 'success');
+      // Inside a unit run the end screen celebrates the whole run instead.
+      if (!options.deferCelebrations) {
+        if (levelledUp) notify(`Level ${optimistic.level} reached! +${outcome.totalXp} XP`, 'success');
+        else if (outcome.totalXp > 0) notify(challenge.uiPreview ? `+${outcome.totalXp} XP · Assessment Completed!` : `+${outcome.totalXp} XP`, 'success');
+      }
 
       // The server is authoritative when signed in; reconcile after the fact so
       // the UI never waits on the network to feel responsive.
@@ -1197,18 +1396,30 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
           });
           const { progress } = res;
           // Priced with other rules than the server's (an admin changed them
-          // since this tab fetched its copy): the server's XP is the truth,
-          // not the larger of the two.
-          const rulesChanged = typeof res.settingsRevision === 'number' && res.settingsRevision !== pricedWith;
+          // since this tab fetched its copy), or the server grouped the unit
+          // differently: the server's XP is the truth, not the larger of the two.
+          const serverBonus = typeof res.bonusXp === 'number' ? res.bonusXp : localBonus;
+          const rulesChanged =
+            (typeof res.settingsRevision === 'number' && res.settingsRevision !== pricedWith) || serverBonus !== localBonus;
           // The rules changed since this tab last looked: fetch them.
           noteRevision(res.settingsRevision);
           // The server's day row wins over the optimistic one.
           activityLog.adoptDay(res.today);
           // Union rather than overwrite: anything solved locally while this
           // request was in flight must not be erased by an older snapshot.
+          // `unitsCompleted` is the server's.
           setStats((prev) =>
             statsAfterSolve(prev, progress, { rulesChanged, curve: settingsRef.current.levels, serverDay: res.today?.day ?? day })
           );
+          const solveXp = typeof res.awardedXp === 'number' ? res.awardedXp : awarded;
+          outcome = {
+            solveXp,
+            perfectBonusXp: serverBonus,
+            totalXp: solveXp + serverBonus,
+            unitCompleted: res.unitCompleted !== undefined ? res.unitCompleted : outcome.unitCompleted,
+            perfect: typeof res.unitPerfect === 'boolean' ? res.unitPerfect : outcome.perfect,
+            verifiedByServer: true
+          };
         } catch (err) {
           if (err instanceof OfflineError) {
             // Kept locally; the next session restore pushes it up.
@@ -1220,7 +1431,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
             setStats(stats);
             activityLog.replaceActivity(activityBefore);
             notify('The server did not accept that answer, so no XP was awarded.', 'error');
-            return 0;
+            return { ...NO_OUTCOME, rejected: true };
           } else if (err instanceof ApiError && err.status === 403 && err.reason === 'premium-locked') {
             // A premium lesson this account has not unlocked: the server
             // credits nothing, so neither does this tab - rolled back exactly
@@ -1230,7 +1441,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
             activityLog.replaceActivity(activityBefore);
             notify(getCopy('premium.lockedSolve') || err.message, 'error');
             void refreshAccountRef.current().catch(() => {});
-            return 0;
+            return { ...NO_OUTCOME, rejected: true };
           } else if (solveWasDeferred(err)) {
             // Too many solves in a row, or every code-runner slot busy while
             // the server re-ran the code: not a verdict on the answer, and
@@ -1251,7 +1462,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         }
       }
 
-      return awarded;
+      return outcome;
     },
     [stats, stages, user, serverStatus, celebrate, notify, settings, settingsRevision, todayKey, activityLog, noteRevision, clearDraftsFromMemory]
   );
@@ -1393,27 +1604,32 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   const enterAccount = useCallback(
     async (profile: UserProfile, serverProgress: any): Promise<void> => {
       let progress = serverProgress;
+      let account = profile;
       let mergedActivity: ActivityView | null = null;
       const guest = mergeableGuestProgress();
       if (guest) {
         try {
-          const merged = await api.mergeProgress(guest.stats, guest.activity);
+          const merged = await api.mergeProgress(guest.stats, guest.activity, guestPreferences());
           progress = merged.progress;
           mergedActivity = merged.activity ?? null;
+          // The guest's sound choice, where the account had none.
+          if (merged.preferences) account = { ...profile, preferences: { ...profile.preferences, ...merged.preferences } };
           const skipped = skippedLockedMessage(merged.skippedLocked);
           if (skipped) notify(skipped, 'info');
         } catch {
           /* keep the server copy */
         }
       }
-      adoptSession(profile, progress);
+      adoptSession(account, progress);
       await adoptAccountActivity(profile.id, mergedActivity);
+      // Sound on or off: a choice made here goes up, else the account's is remembered here.
+      void reconcileAccountPreferences(account);
       // The bank as this account may see it: a premium stage it has unlocked
       // arrives in full, one it has not as stubs. Not awaited - the sign-in
       // window closes now and the lessons swap in when they land.
       void reloadContent();
     },
-    [mergeableGuestProgress, adoptSession, adoptAccountActivity, reloadContent, notify]
+    [mergeableGuestProgress, guestPreferences, adoptSession, adoptAccountActivity, reconcileAccountPreferences, reloadContent, notify]
   );
 
   const loginWithEmail = useCallback(
@@ -1599,6 +1815,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       serverStatus,
       judge0Configured,
       runtimes,
+      soundOn,
+      setSoundOn,
+      playSound,
       completeChallenge,
       recordMiss,
       markConceptSeen,
@@ -1620,7 +1839,10 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       resetProgress,
       leaderboard,
       refreshLeaderboard,
-      celebrate
+      celebrate,
+      holdCelebrations: celebrationHold.hold,
+      releaseCelebrations: celebrationHold.release,
+      celebrateOrHold: celebrationHold.celebrateOrHold
     }),
     [
       settings,
@@ -1646,6 +1868,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       serverStatus,
       judge0Configured,
       runtimes,
+      soundOn,
+      setSoundOn,
+      playSound,
       completeChallenge,
       markConceptSeen,
       executeCode,
@@ -1666,7 +1891,8 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       resetProgress,
       leaderboard,
       refreshLeaderboard,
-      celebrate
+      celebrate,
+      celebrationHold
     ]
   );
 

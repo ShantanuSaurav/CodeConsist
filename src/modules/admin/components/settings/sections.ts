@@ -12,6 +12,7 @@ import type { SectionProps } from './GenericSection';
 import { LevelsSection } from './LevelsSection';
 import { CopySection } from './CopySection';
 import { AccessSection } from './AccessSection';
+import { UnitsSection } from './UnitsSection';
 
 export interface SectionEntry extends Pick<SectionMeta, 'id' | 'title' | 'description' | 'audience'> {
   Component?: React.FC<SectionProps>;
@@ -19,6 +20,8 @@ export interface SectionEntry extends Pick<SectionMeta, 'id' | 'title' | 'descri
 
 const CUSTOM: Partial<Record<string, React.FC<SectionProps>>> = {
   levels: LevelsSection,
+  // Units, with how many there are and the most the perfect bonus can pay.
+  units: UnitsSection,
   // Site copy, grouped by where it appears, with previews in the real counts.
   copy: CopySection,
   // Limits & access, with the live status card (proxy diagnostic, limiter, CORS).

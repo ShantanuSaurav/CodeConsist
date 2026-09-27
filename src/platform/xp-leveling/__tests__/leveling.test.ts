@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_LEVEL_CURVE,
   DEFAULT_XP_RULES,
+  FORMULA_LEVEL_CURVE,
   PASS_SCORE,
   currentStreak,
   dayKey,
@@ -145,12 +146,13 @@ const OLD = {
   }
 };
 
-describe('the defaults reproduce the old constants exactly', () => {
+describe('the formula curve and the default rules reproduce the old constants exactly', () => {
   it('gives the old level for every XP total from 0 to 82,000', () => {
     for (let xp = 0; xp <= 82_000; xp++) {
-      if (levelFromXp(xp) !== OLD.levelFromXp(xp)) throw new Error(`level differs at ${xp} XP: ${levelFromXp(xp)} vs ${OLD.levelFromXp(xp)}`);
+      const level = levelFromXp(xp, FORMULA_LEVEL_CURVE);
+      if (level !== OLD.levelFromXp(xp)) throw new Error(`level differs at ${xp} XP: ${level} vs ${OLD.levelFromXp(xp)}`);
     }
-    for (let level = 1; level <= 41; level++) expect(xpForLevel(level)).toBe(OLD.xpForLevel(level));
+    for (let level = 1; level <= 41; level++) expect(xpForLevel(level, FORMULA_LEVEL_CURVE)).toBe(OLD.xpForLevel(level));
   });
 
   it('gives the old progress within a level', () => {
@@ -158,7 +160,7 @@ describe('the defaults reproduce the old constants exactly', () => {
       const level = OLD.levelFromXp(xp);
       const floor = OLD.xpForLevel(level);
       const needed = OLD.xpForLevel(level + 1) - floor;
-      expect(levelProgress(xp)).toEqual({
+      expect(levelProgress(xp, FORMULA_LEVEL_CURVE)).toEqual({
         level,
         into: xp - floor,
         needed,
@@ -187,9 +189,31 @@ describe('the defaults reproduce the old constants exactly', () => {
 
   it('keeps the curve and rules as data', () => {
     expect(DEFAULT_XP_RULES).toEqual({ retryPenalty: 10, hintPenalty: 10, scoreFloor: 50, passScore: 60, minXpPerSolve: 1 });
-    expect(DEFAULT_LEVEL_CURVE.thresholds).toHaveLength(40);
-    expect(DEFAULT_LEVEL_CURVE.overflowStep).toBe(4000);
+    expect(FORMULA_LEVEL_CURVE.thresholds).toHaveLength(40);
+    expect(FORMULA_LEVEL_CURVE.overflowStep).toBe(4000);
     expect(DEFAULT_RANKS.map((r) => r.minLevel)).toEqual([1, 3, 6, 10, 15, 20]);
+  });
+});
+
+describe('the retuned default curve (Phase 2)', () => {
+  it('is levels 1-10 as before, then 900 XP per level to 13,500 at level 20, then 900 per level', () => {
+    expect(DEFAULT_LEVEL_CURVE.thresholds).toEqual([0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, 5400, 6300, 7200, 8100, 9000, 9900, 10800, 11700, 12600, 13500]);
+    expect(DEFAULT_LEVEL_CURVE.overflowStep).toBe(900);
+    for (let level = 1; level <= 10; level++) expect(xpForLevel(level)).toBe(OLD.xpForLevel(level));
+    expect(xpForLevel(20)).toBe(13_500);
+    expect(xpForLevel(21)).toBe(14_400);
+    expect(levelFromXp(13_499)).toBe(19);
+    expect(levelFromXp(13_500)).toBe(20);
+  });
+
+  it('never puts anyone at a lower level than the formula did (0 - 100,000 XP, every 50)', () => {
+    for (let xp = 0; xp <= 100_000; xp += 50) {
+      const retuned = levelFromXp(xp, DEFAULT_LEVEL_CURVE);
+      const formula = levelFromXp(xp, FORMULA_LEVEL_CURVE);
+      if (retuned < formula) throw new Error(`at ${xp} XP the retuned curve gives level ${retuned}, the formula ${formula}`);
+    }
+    // And no level costs more than it used to.
+    for (let level = 1; level <= 60; level++) expect(xpForLevel(level, DEFAULT_LEVEL_CURVE)).toBeLessThanOrEqual(xpForLevel(level, FORMULA_LEVEL_CURVE));
   });
 });
 

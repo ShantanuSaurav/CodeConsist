@@ -66,6 +66,8 @@ function rowFieldSchema(field: RowFieldMeta): z.ZodTypeAny {
       return z.boolean({ invalid_type_error: 'Must be on or off.' });
     case 'enum':
       return z.enum((field.values ?? ['']) as [string, ...string[]], { errorMap: () => ({ message: `Must be one of: ${(field.values ?? []).join(', ')}.` }) });
+    case 'intList':
+      return listBounds(intSchema(field.min, field.max), { label: field.label, help: '', kind: 'intList', minItems: field.minItems, maxItems: field.maxItems });
     default:
       return stringSchema(field.minLength, field.maxLength);
   }
@@ -192,8 +194,43 @@ const REFINEMENTS: Partial<Record<string, Refiner>> = {
       const at = strictlyAscending(ranks.map((r: any) => Number(r?.minLevel)));
       if (at !== -1) add(`ranks.${at}.minLevel`, 'Each rank must start at a higher level than the one before.');
     }
+  },
+  units: (units, add) => {
+    const { minSize, targetSize, maxSize } = units ?? {};
+    if ([minSize, targetSize, maxSize].every((n) => typeof n === 'number')) {
+      if (minSize > targetSize) add('minSize', `Must be at most the target size (${targetSize}).`);
+      if (targetSize > maxSize) add('targetSize', `Must be at most the largest size (${maxSize}).`);
+    }
+  },
+  badges: (badges, add) => {
+    const families: unknown = badges?.families;
+    if (!Array.isArray(families)) return;
+    const seen = new Set<string>();
+    families.forEach((family: any, i: number) => {
+      const id = family?.id;
+      if (typeof id === 'string') {
+        if (!BADGE_FAMILY_ID_RE.test(id)) add(`families.${i}.id`, 'Use lower-case letters, digits and dashes (at most 32).');
+        else if (seen.has(id)) add(`families.${i}.id`, `"${id}" is used by two families.`);
+        seen.add(id);
+      }
+      for (const key of ['title', 'detail'] as const) {
+        const text = family?.[key];
+        if (typeof text !== 'string') continue;
+        const tokens = tokensIn(text);
+        if (!tokens.includes('n')) add(`families.${i}.${key}`, 'Must contain {n}, the tier.');
+        const bad = tokens.filter((t) => t !== 'n');
+        if (bad.length) add(`families.${i}.${key}`, `Only {n} may be used (not ${bad.map((t) => `{${t}}`).join(', ')}).`);
+      }
+      if (Array.isArray(family?.tiers)) {
+        const at = strictlyAscending(family.tiers.map(Number));
+        if (at !== -1) add(`families.${i}.tiers.${at}`, 'Each tier must be higher than the one before.');
+      }
+    });
   }
 };
+
+/** A badge family id: it becomes part of every badge id (`streak-3`). */
+const BADGE_FAMILY_ID_RE = /^[a-z0-9-]{1,32}$/;
 
 const SECTION_SCHEMAS: Record<string, z.ZodTypeAny> = Object.fromEntries(
   SECTION_META.map((section) => {

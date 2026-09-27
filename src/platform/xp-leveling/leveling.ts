@@ -33,10 +33,27 @@ export function formulaThresholds(base: number, count: number): number[] {
 }
 
 /**
- * Levels 1-40 from the formula, then 4000 XP per level. Identical to the old
- * `50·n·(n+1)` curve for every total up to 82,000 XP (level 41).
+ * The curve learners had before the retune: levels 1-40 from the formula,
+ * then 4000 XP per level - identical to the old `50·n·(n+1)` curve for every
+ * total up to 82,000 XP (level 41). Kept as data: it is the "never lower
+ * anyone's level" reference the default below is tested against, and what
+ * the admin's "Generate curve" helper reproduces with base 50.
  */
-export const DEFAULT_LEVEL_CURVE: LevelCurve = { thresholds: formulaThresholds(50, 40), overflowStep: 4000 };
+export const FORMULA_LEVEL_CURVE: LevelCurve = { thresholds: formulaThresholds(50, 40), overflowStep: 4000 };
+
+/**
+ * The retuned default (owner decision 2): levels 1-10 exactly as before
+ * (0, 100, 300, ... 4500), then +900 XP per level up to level 20 at 13,500,
+ * and +900 per level after the table. Every level costs no more than it did
+ * under the formula (level 11 is 5,400 against 5,500; level 20 is 13,500
+ * against 19,000), so a curve change can only move a learner UP - a unit
+ * test checks `levelFromXp(x) >= levelFromXp(x, FORMULA_LEVEL_CURVE)`.
+ * The top rank (level 20) is now reachable with the free content alone.
+ */
+export const DEFAULT_LEVEL_CURVE: LevelCurve = {
+  thresholds: [0, 100, 300, 600, 1000, 1500, 2100, 2800, 3600, 4500, ...Array.from({ length: 10 }, (_, i) => 5400 + i * 900)],
+  overflowStep: 900
+};
 
 function tableOf(curve: LevelCurve): number[] {
   return Array.isArray(curve?.thresholds) && curve.thresholds.length > 0 ? curve.thresholds : [0];

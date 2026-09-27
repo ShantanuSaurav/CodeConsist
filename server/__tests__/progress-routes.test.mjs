@@ -26,7 +26,8 @@ let app;
 
 beforeAll(async () => {
   await store.load();
-  app = await startLearnerApp(store);
+  // With the fixture's units (two lessons, then three), so a unit can be completed.
+  app = await startLearnerApp(store, { units: true });
 });
 
 afterAll(async () => {
@@ -130,7 +131,7 @@ describe('characterization: what the routes did before the move', () => {
   it('reset starts the row over', async () => {
     await solve({ challengeId: 'q-quiz', answer: 1 });
     const res = await app.call('POST', '/progress/reset', { user: 'u1' });
-    expect(res.json.progress).toEqual({ xp: 0, level: 1, streak: 0, bestStreak: 0, lastActiveDay: null, completedChallenges: [], completedStages: [], attempts: {} });
+    expect(res.json.progress).toEqual({ xp: 0, level: 1, streak: 0, bestStreak: 0, lastActiveDay: null, completedChallenges: [], completedStages: [], attempts: {}, unitsCompleted: {} });
     expect(store.getProgress('u1').xp).toBe(0);
   });
 
@@ -289,5 +290,111 @@ describe('reset and activity', () => {
     expect(after.misses).toEqual({});
     expect(after.missLog).toEqual([]);
     expect(after.days).toEqual(before.days);
+  });
+});
+
+/* --------------------------------------------------------------- phase 2 */
+
+describe('units: the perfect-unit bonus on a solve', () => {
+  it('pays the bonus once, when a first solve completes a unit cleared first try', async () => {
+    const first = await solve({ challengeId: 'q-quiz', answer: 1 }, { zone: 'UTC' });
+    expect(first.json).toMatchObject({ bonuses: [], bonusXp: 0, unitCompleted: null });
+
+    const done = await solve({ challengeId: 'q-multi', answer: [0, 2] }, { zone: 'UTC' });
+    expect(done.status).toBe(200);
+    expect(done.json).toMatchObject({
+      awardedXp: 50,
+      bonusXp: 25,
+      bonuses: [{ kind: 'perfect-unit', unitId: 'stage-1:m1', xp: 25 }],
+      unitCompleted: 'stage-1:m1',
+      unitPerfect: true
+    });
+    expect(done.json.progress.xp).toBe(40 + 50 + 25);
+    expect(done.json.progress.unitsCompleted['stage-1:m1']).toMatchObject({ perfect: true, bonusXp: 25 });
+    // The day row: the bonus is in the day's XP and counted on its own.
+    expect(done.json.today).toMatchObject({ xp: 115, lessons: 2, units: 1, perfectBonusXp: 25 });
+    expect(store.getProgress('u1').xp).toBe(115);
+
+    // A replay pays nothing more.
+    const again = await solve({ challengeId: 'q-multi', answer: [0, 2] }, { zone: 'UTC' });
+    expect(again.json).toMatchObject({ awardedXp: 0, bonusXp: 0, bonuses: [], unitCompleted: null });
+    expect(again.json.progress.xp).toBe(115);
+  });
+
+  it('records a completion without a bonus when a lesson took a retry or a hint', async () => {
+    await solve({ challengeId: 'q-blank', answer: ['x'], attempts: 2 });
+    await solve({ challengeId: 'q-order', answer: ['start', 'loop', 'end'] });
+    const done = await solve({ challengeId: 'q-code', code: PASSING_CODE });
+    expect(done.json).toMatchObject({ bonusXp: 0, bonuses: [], unitCompleted: 'stage-1:m2', unitPerfect: false });
+    expect(done.json.progress.unitsCompleted['stage-1:m2']).toMatchObject({ perfect: false, bonusXp: 0 });
+
+    await solve({ challengeId: 'q-quiz', answer: 1, hintsUsed: 1 });
+    const hinted = await solve({ challengeId: 'q-multi', answer: [0, 2] });
+    expect(hinted.json).toMatchObject({ bonusXp: 0, unitCompleted: 'stage-1:m1', unitPerfect: false });
+  });
+
+  it('pays what units.perfectBonusXp says, and counts hints only while perfectRequiresNoHints is on', async () => {
+    app.learningDeps.settings.update({ revision: 0, patch: { units: { perfectBonusXp: 40, perfectRequiresNoHints: false } } });
+    await solve({ challengeId: 'q-quiz', answer: 1, hintsUsed: 1 });
+    const done = await solve({ challengeId: 'q-multi', answer: [0, 2] });
+    expect(done.json).toMatchObject({ bonusXp: 40, bonuses: [{ kind: 'perfect-unit', unitId: 'stage-1:m1', xp: 40 }] });
+  });
+
+  it('levels with the bonus included, on the curve from the store', async () => {
+    app.learningDeps.settings.update({ revision: 0, patch: { levels: { thresholds: [0, 50, 100, 110, 200], overflowStep: 100 } } });
+    await solve({ challengeId: 'q-quiz', answer: 1 });
+    const done = await solve({ challengeId: 'q-multi', answer: [0, 2] });
+    // 115 XP: past 110 (level 4) only because of the bonus.
+    expect(done.json.progress).toMatchObject({ xp: 115, level: 4 });
+  });
+
+  it('never takes XP, a bonus or a completion from the request', async () => {
+    const res = await solve({ challengeId: 'q-quiz', answer: 1, bonusXp: 500, unitsCompleted: { 'stage-1:m1': { perfect: true, bonusXp: 500 } } });
+    expect(res.json.progress.xp).toBe(40);
+    expect(res.json.progress.unitsCompleted).toEqual({});
+  });
+
+  it('reset clears the completions', async () => {
+    await solve({ challengeId: 'q-quiz', answer: 1 });
+    await solve({ challengeId: 'q-multi', answer: [0, 2] });
+    await app.call('POST', '/progress/reset', { user: 'u1' });
+    expect(store.getProgress('u1').unitsCompleted).toEqual({});
+  });
+});
+
+describe('units: a merge pays only for units the new ids complete', () => {
+  const merge = (progress, extra = {}) => app.call('POST', '/progress/merge', { user: 'u1', zone: 'UTC', body: { progress, ...extra } });
+  const clean = (ids) => Object.fromEntries(ids.map((id) => [id, { attempts: 1, hintsUsed: 0 }]));
+
+  it('pays a unit the merge completes, once', async () => {
+    const res = await merge({ completedChallenges: ['q-quiz', 'q-multi'], attempts: clean(['q-quiz', 'q-multi']), xp: 99999, unitsCompleted: { forged: {} } });
+    expect(res.json).toMatchObject({ awardedXp: 90, bonusXp: 25, bonuses: [{ kind: 'perfect-unit', unitId: 'stage-1:m1', xp: 25 }] });
+    expect(res.json.progress.xp).toBe(115);
+    expect(Object.keys(res.json.progress.unitsCompleted)).toEqual(['stage-1:m1']);
+    // The bonus is on the day of the completing solve.
+    const day = Object.values(res.json.activity.days).find((d) => d.units === 1);
+    expect(day).toMatchObject({ perfectBonusXp: 25, xp: 115 });
+
+    const again = await merge({ completedChallenges: ['q-quiz', 'q-multi'], attempts: clean(['q-quiz', 'q-multi']) });
+    expect(again.json).toMatchObject({ awardedXp: 0, bonusXp: 0 });
+    expect(again.json.progress.xp).toBe(115);
+  });
+
+  it('pays when a new id finishes a unit the account had started', async () => {
+    await solve({ challengeId: 'q-quiz', answer: 1 });
+    const res = await merge({ completedChallenges: ['q-multi'], attempts: clean(['q-multi']) });
+    expect(res.json).toMatchObject({ bonusXp: 25 });
+  });
+
+  it('pays nothing for a unit that was complete before the merge', async () => {
+    // Complete before units were recorded: no record, and no new id in it.
+    store.setProgress('u1', {
+      ...store.getProgress('u1'),
+      completedChallenges: ['q-quiz', 'q-multi'],
+      attempts: { 'q-quiz': { challengeId: 'q-quiz', score: 100, attempts: 1, hintsUsed: 0, solvedAt: new Date().toISOString() }, 'q-multi': { challengeId: 'q-multi', score: 100, attempts: 1, hintsUsed: 0, solvedAt: new Date().toISOString() } }
+    });
+    const res = await merge({ completedChallenges: ['q-quiz', 'q-multi', 'q-blank'], attempts: clean(['q-blank']) });
+    expect(res.json).toMatchObject({ mergedChallenges: 1, bonusXp: 0 });
+    expect(res.json.progress.unitsCompleted).toEqual({});
   });
 });

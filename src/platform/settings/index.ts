@@ -6,6 +6,10 @@
  */
 export type {
   AccessSettings,
+  BadgeFamily,
+  BadgeMetric,
+  BadgeSettings,
+  CelebrationSettings,
   CopySettings,
   CorsMode,
   GateMode,
@@ -19,15 +23,20 @@ export type {
   SettingsIssue,
   SettingsOverrides,
   SettingsSectionId,
+  SfxEvent,
   StreakSettings,
+  UnitSettings,
   XpSettings
 } from './types';
 export { DEFAULT_SETTINGS } from './defaults';
 export {
   ADMIN_ONLY_SECTIONS,
+  BADGE_METRICS,
   COPY_MAX_LENGTH,
   COPY_SAMPLE,
+  QUESTION_KINDS,
   RATE_LIMIT_BUCKETS,
+  SOUND_EVENTS,
   SECTION_META,
   SETTING_META,
   isSettingsGroup,
@@ -49,7 +58,8 @@ export {
   overrideLeaves,
   patchFromEdits,
   publicSettings,
-  setPath
+  setPath,
+  settingsFingerprint
 } from './merge';
 export type { PatchResult } from './merge';
 export { fillCopy, tokensIn } from './copy';

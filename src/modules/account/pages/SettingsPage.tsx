@@ -73,7 +73,9 @@ export const SettingsPage: React.FC = () => {
     selectedTrackId,
     setSelectedTrack,
     oauthProviders,
-    refreshAccount
+    refreshAccount,
+    soundOn,
+    setSoundOn
   } = useSession();
   const { theme, toggleTheme } = useTheme();
   const copy = useCopy();
@@ -450,6 +452,16 @@ export const SettingsPage: React.FC = () => {
       <Section id="settings-appearance" title="Appearance">
         <Row title="Dark mode" description="Switch between the light and dark interface.">
           <Switch checked={theme === 'dark'} onChange={toggleTheme} ariaLabel="Dark mode" />
+        </Row>
+        <Row
+          title="Sound effects"
+          description={
+            signedIn
+              ? 'Short sounds for right and wrong answers, a finished unit, a new level and a badge. Saved to your account.'
+              : 'Short sounds for right and wrong answers, a finished unit, a new level and a badge. Saved in this browser.'
+          }
+        >
+          <Switch checked={soundOn} onChange={setSoundOn} ariaLabel="Sound effects" />
         </Row>
       </Section>
 

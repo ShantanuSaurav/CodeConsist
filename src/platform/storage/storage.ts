@@ -95,9 +95,11 @@ export const STORAGE_KEYS = {
   /** '1' once the welcome intro at "/" has played this visit (sessionStorage, not localStorage). */
   intro: 'cq-intro-seen',
   /**
-   * The learning rules the server last served, as `{ revision, settings }`
-   * (src/platform/settings). Read through `coerceSettings`, so a stale or
-   * hand-edited copy can only ever fall back to the defaults.
+   * The learning rules the server last served, as `{ revision, settings,
+   * defaults }` (src/platform/settings; `defaults` fingerprints the build's
+   * defaults, so a copy written under other defaults is ignored). Read
+   * through `coerceSettings`, so a stale or hand-edited copy can only ever
+   * fall back to the defaults.
    */
   settings: 'cq-settings-v1',
   /**
@@ -105,5 +107,18 @@ export const STORAGE_KEYS = {
    * or a signed-in learner's mirror of the server's, tagged with `ownerId`
    * exactly like the stats so one account's log never reaches another.
    */
-  activity: 'cq-activity-v1'
+  activity: 'cq-activity-v1',
+  /**
+   * The learner's own choices in this browser (`soundOn`, ...), in the
+   * shape of the account's `preferences`, plus `pendingSync` while a choice
+   * made as a guest (or offline) has not reached an account yet. Kept on
+   * sign-out, so the device remembers what its user chose.
+   */
+  preferences: 'cq-preferences-v1',
+  /**
+   * The last unit groupings the server sent, per stage - ids and names only
+   * (`{ [stageId]: UnitDef[] }`). Used for the bundled content while offline;
+   * without it the default grouping is used.
+   */
+  unitDefs: 'cq-unit-defs-v1'
 } as const;

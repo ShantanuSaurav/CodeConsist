@@ -243,3 +243,18 @@ describe('sessions and password resets', () => {
     expect(source).toMatch(/app\.use\(\s*'\/api',\s*createPasswordResetRouter\(/);
   });
 });
+
+describe('units and preferences (Phase 2)', () => {
+  it('builds the units service at boot and sends each stage its units from /api/content', () => {
+    expect(source).toContain('learningDeps.units = createUnitsService(');
+    expect(handlerSource('/api/content')).toContain('learningDeps.units.attachUnits(');
+  });
+
+  it('mounts PATCH /api/me/preferences behind the small-writes limit', () => {
+    expect(source).toMatch(/createPreferencesRouter\(\{[^}]*writeLimit: limitBy\('write\.account'/);
+  });
+
+  it('sends the preferences through publicPreferences, never timeZoneSetAt', () => {
+    expect(source).toContain('preferences: publicPreferences(store.normalizePreferences(user.preferences))');
+  });
+});

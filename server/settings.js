@@ -80,6 +80,21 @@ export function createSettingsService({ store, lib, env = process.env }) {
     return { revision: rev, settings: lib.publicSettings(settings) };
   }
 
+  /**
+   * The `GET /api/settings` ETag: the revision plus a fingerprint of what is
+   * served. The revision alone is not enough - a default changed in code, or
+   * an environment value, changes the rules without bumping it, and a
+   * browser revalidating with the old tag would get a 304 and keep the old
+   * rules. Computed once per resolved revision.
+   */
+  function publicTag() {
+    const state = resolved();
+    if (state.tag === undefined) {
+      state.tag = `"r${state.revision}-${lib.settingsFingerprint(lib.publicSettings(state.settings))}"`;
+    }
+    return state.tag;
+  }
+
   function adminView() {
     const record = store.getSettingsRecord();
     const { settings, issues } = resolved();
@@ -141,5 +156,5 @@ export function createSettingsService({ store, lib, env = process.env }) {
     return { ok: true, status: 200, view: adminView(), changes, changedPaths };
   }
 
-  return { current, revision, get, copyText, publicView, adminView, update };
+  return { current, revision, get, copyText, publicView, publicTag, adminView, update };
 }

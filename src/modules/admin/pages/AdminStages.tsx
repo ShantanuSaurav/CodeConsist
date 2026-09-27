@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, Pencil } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowDown, ArrowUp, Layers, Pencil } from 'lucide-react';
 import { AdminStageRow, adminApi } from '../services/adminApi';
 import { AdminPageHeader, Badge, Button, Card, Drawer, EmptyState, ErrorText, Spinner, Table, TextArea, TextField, Toggle } from '../components/ui';
 
@@ -69,7 +70,7 @@ export const AdminStages: React.FC = () => {
     <div>
       <AdminPageHeader
         title="Stages"
-        description="Rename, hide/unpublish, mark premium, or reorder a stage within its language track. The lessons and stage test inside a stage are edited from Challenges."
+        description="Rename, hide/unpublish, mark premium, or reorder a stage within its language track. Group a stage's lessons into short units with Units. The lessons and stage test inside a stage are edited from Challenges."
       />
 
       {error && <ErrorText>{error}</ErrorText>}
@@ -89,6 +90,7 @@ export const AdminStages: React.FC = () => {
                       <tr>
                         <th>Stage</th>
                         <th>Lessons</th>
+                        <th>Units</th>
                         <th>Test</th>
                         <th>Status</th>
                         <th>Order</th>
@@ -103,6 +105,12 @@ export const AdminStages: React.FC = () => {
                             <div className="text-xs text-fg-muted line-clamp-1 max-w-md">{stage.description}</div>
                           </td>
                           <td className="cell-num">{stage.challengeCount}</td>
+                          <td>
+                            <div className="flex items-center gap-1.5">
+                              <span className="cell-num">{stage.unitCount ?? '—'}</span>
+                              {stage.unitsCustomized && <Badge tone="warning">custom</Badge>}
+                            </div>
+                          </td>
                           <td>
                             <Badge tone={stage.hasTest ? 'success' : 'default'}>{stage.hasTest ? 'Yes' : 'No'}</Badge>
                           </td>
@@ -141,7 +149,15 @@ export const AdminStages: React.FC = () => {
                               </button>
                             </div>
                           </td>
-                          <td className="text-right">
+                          <td className="text-right whitespace-nowrap">
+                            <Link
+                              to={`/admin/stages/${encodeURIComponent(stage.id)}/units`}
+                              className="btn btn-ghost btn-sm"
+                              aria-label={`Units of ${stage.name}`}
+                              title="Group this stage's lessons into units"
+                            >
+                              <Layers size={14} /> Units
+                            </Link>
                             <Button variant="ghost" size="sm" onClick={() => setEditing(stage)} aria-label={`Edit ${stage.name}`}>
                               <Pencil size={14} />
                             </Button>

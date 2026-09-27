@@ -11,21 +11,31 @@
  *           code runs -> verify the submission (the only await; code runs in
  *           an execution slot, 503 when they are all busy) -> pass mark? 422
  *           -> capture the zone, pick the learner's day -> score, pay, record
- *           -> the day row -> streak -> level -> persist, drop the draft, Excel
+ *           -> a unit completed? its perfect bonus -> the day row -> streak
+ *           -> level -> persist, drop the draft, Excel
  *   merge:  premium filter on the new ids (-> skippedLocked) -> capture the
- *           zone -> re-price the new ids -> merge the activity log -> clamp
- *           the streak -> level -> persist
+ *           zone -> re-price the new ids -> bonuses for units the new ids
+ *           complete -> merge the activity log -> clamp the streak -> adopt
+ *           the guest's preferences where the account has none -> level ->
+ *           persist
  *
  * Everything after the last `await` is synchronous, so progress and the
  * activity log are written in the same tick and two requests cannot
  * interleave between a read and its write.
  *
- * `learningDeps` ({ lib, settings, activity }) is read per request: it is
- * filled in by server/index.js's bootstrap, after this router is mounted.
+ * `learningDeps` ({ lib, settings, activity, units }) is read per request:
+ * it is filled in by server/index.js's bootstrap, after this router is mounted.
  */
 import express from 'express';
-import { applySolveCore, mergeCore, parseSolveBody, recalcProgress, resetProgress } from './progress-rules.js';
+import { applySolveCore, applySolveRewards, bonusesOf, mergeCore, parseSolveBody, recalcProgress, resetProgress } from './progress-rules.js';
+import { adoptGuestPreferences, publicPreferences } from './preferences-routes.js';
 import { BusyError } from './rate-limit.js';
+
+/** The server's unit lookup (server/units.js), or null before boot / in a bare test. */
+function unitLookup(learningDeps) {
+  const units = learningDeps.units;
+  return units ? (id) => units.unitFor(id) : null;
+}
 
 const passThrough = (_req, _res, next) => next();
 
@@ -140,7 +150,7 @@ export function createProgressRouter({
       const progress = store.getProgress(req.user.id);
       const today = activity.todayFor(req.user, progress, now);
 
-      const { next, awarded, score, firstSolve } = applySolveCore({
+      const solved = applySolveCore({
         progress,
         challenge,
         attempts: input.attempts,
@@ -152,12 +162,29 @@ export function createProgressRouter({
         levels: rules.levels,
         completedStagesFor
       });
+      const { awarded, score, firstSolve } = solved;
+
+      // Did this first solve complete a unit? Then its record, and the
+      // perfect-unit bonus when every lesson in it was clean.
+      const { next, reward } = applySolveRewards({
+        progress,
+        next: solved.next,
+        challengeId: challenge.id,
+        firstSolve,
+        now,
+        lib,
+        units: rules.units,
+        levels: rules.levels,
+        unitFor: unitLookup(learningDeps)
+      });
 
       const todayRow = activity.recordSolve(req.user, {
         challengeId: challenge.id,
         isTest: Boolean(challenge.isStageTest),
         firstSolve,
         awardedXp: awarded,
+        unitCompleted: Boolean(reward),
+        perfectBonusXp: reward?.bonusXp ?? 0,
         day: today,
         at: now.toISOString()
       });
@@ -171,12 +198,17 @@ export function createProgressRouter({
 
       res.json({
         progress: next,
+        // Solve XP only, as always; a bonus is reported beside it.
         awardedXp: awarded,
         score,
         firstSolve,
         verified: verdict.verified,
         settingsRevision: settings.revision(),
-        today: todayRow
+        today: todayRow,
+        bonuses: bonusesOf(reward ? [reward] : []),
+        bonusXp: reward?.bonusXp ?? 0,
+        unitCompleted: reward?.unitId ?? null,
+        unitPerfect: Boolean(reward?.perfect)
       });
     })
   );
@@ -199,7 +231,7 @@ export function createProgressRouter({
     const current = store.getProgress(req.user.id);
     const today = activity.todayFor(req.user, current, now);
 
-    const { merged, newIds, awarded, credits, skippedLocked } = mergeCore({
+    const { merged, newIds, awarded, bonusXp, unitRewards, credits, skippedLocked } = mergeCore({
       current,
       incoming: req.body?.progress,
       lib,
@@ -210,20 +242,34 @@ export function createProgressRouter({
       zone: activity.zoneFor(req.user),
       today,
       now,
-      allows: gate ? (challenge) => gate.allows(challenge) : undefined
+      allows: gate ? (challenge) => gate.allows(challenge) : undefined,
+      unitFor: unitLookup(learningDeps)
     });
 
     activity.merge(req.user, req.body?.activity, { credits, today, now });
     store.setProgress(req.user.id, merged);
 
+    // A guest's own choices (sound on or off) come along - but never over
+    // one the account already made.
+    let user = req.user;
+    const adopt = adoptGuestPreferences(store.normalizePreferences?.(user.preferences) ?? user.preferences, req.body?.preferences);
+    if (adopt) {
+      const prefs = store.normalizePreferences(user.preferences);
+      user = store.updateUser(user.id, { preferences: { ...prefs, ...adopt, updatedAt: now.toISOString() } }) ?? user;
+    }
+
     res.json({
       // Level and streak as they stand on the learner's today, like GET
       // /progress: the browser adopts this streak as it is, rather than
       // judging it against a day of its own.
-      progress: recalcForUser({ store, learningDeps }, req.user, now),
+      progress: recalcForUser({ store, learningDeps }, user, now),
       mergedChallenges: newIds.length,
+      // Solve XP only; unit bonuses are reported beside it.
       awardedXp: awarded,
-      activity: activity.view(req.user, { now }),
+      bonusXp,
+      bonuses: bonusesOf(unitRewards),
+      activity: activity.view(user, { now }),
+      preferences: publicPreferences(store.normalizePreferences?.(user.preferences) ?? user.preferences),
       ...(skippedLocked.length ? { skippedLocked } : {})
     });
   });

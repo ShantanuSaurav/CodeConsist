@@ -211,6 +211,10 @@ function settingsContext(deps) {
     if (!premium.has(c.stageId)) freeXp += xp;
   }
   const allProgress = store.allProgress();
+  // Units learners see, and the most the perfect-unit bonus could ever pay
+  // out in total with the current setting.
+  const unitCount = deps.learning?.units ? deps.learning.units.unitCount() : null;
+  const perfectBonusXp = deps.learning?.settings?.current().units.perfectBonusXp ?? 0;
   return {
     content: {
       lessons: merged.challenges.filter((c) => !c.isStageTest).length,
@@ -220,7 +224,9 @@ function settingsContext(deps) {
       freeStages: merged.stages.length - premium.size,
       premiumStages: premium.size,
       totalXp,
-      freeXp
+      freeXp,
+      unitCount,
+      maxPerfectBonusXp: unitCount === null ? null : unitCount * perfectBonusXp
     },
     runtime: deps.learning?.runtimeInfo?.() ?? { pythonVerifiable: false, judge0Languages: [] },
     levels: { learnerXp: store.allUsers().map((u) => Number(allProgress[u.id]?.xp) || 0) }
@@ -594,6 +600,9 @@ export function createAdminRouter(deps = {}) {
   router.get('/content/stages', (_req, res) => {
     const snapshot = contentSnapshot();
     const overrides = store.getContentOverrides().stages;
+    // An older mocked store has no `units`; read it defensively.
+    const unitOverrides = store.getContentOverrides().units ?? {};
+    const units = deps.learning?.units ?? null;
     const trackOf = new Map();
     for (const track of snapshot?.languageTracks ?? []) for (const id of track.stageIds) trackOf.set(id, track);
     const stages = (snapshot?.stages ?? [])
@@ -604,6 +613,10 @@ export function createAdminRouter(deps = {}) {
         challengeCount: allChallenges().filter((c) => c.stageId === stage.id && !c.isStageTest).length,
         hasTest: allChallenges().some((c) => c.stageId === stage.id && c.isStageTest),
         hidden: Boolean(overrides[stage.id]?.hidden),
+        // Units as learners see them (null before the units service exists),
+        // and whether an admin regrouped this stage.
+        unitCount: units ? units.unitsForStage(stage.id).length : null,
+        unitsCustomized: Object.hasOwn(unitOverrides, stage.id),
         order: overrides[stage.id]?.order ?? i,
         // The admin view always shows the ORIGINAL authored values alongside
         // the merged ones, so editing a field shows what it overrides.
@@ -666,6 +679,73 @@ export function createAdminRouter(deps = {}) {
     ordered.forEach((stageId, i) => store.setStageOverride(stageId, { order: i }));
     audit(req, 'content.stage.reorder', req.params.id, { direction: direction === 1 ? 'down' : 'up' });
     res.json({ ok: true });
+  });
+
+  /* ---------------------------------------------------- content: units */
+  // A stage's lessons grouped into units: the admin's own grouping, stored
+  // in contentOverrides.units, or the default one (server/units.js). Every
+  // lesson - hidden ones included - must be in exactly one unit, so
+  // unhiding a question never orphans it; the stage test is in none.
+  const unitsService = (res) => {
+    const units = deps.learning?.units;
+    if (!units || !deps.learning?.lib || !deps.learning?.settings) {
+      res.status(503).json({ error: 'Units are not available yet. Try again in a moment.' });
+      return null;
+    }
+    return units;
+  };
+  const stageExists = (id) => Boolean(contentSnapshot()?.stages.some((s) => s.id === id));
+
+  router.get('/content/stages/:id/units', (req, res) => {
+    const units = unitsService(res);
+    if (!units) return;
+    if (!stageExists(req.params.id)) return res.status(404).json({ error: 'No such stage.' });
+    res.json(units.adminView(req.params.id));
+  });
+
+  router.put('/content/stages/:id/units', (req, res) => {
+    const units = unitsService(res);
+    if (!units) return;
+    const stageId = req.params.id;
+    if (!stageExists(stageId)) return res.status(404).json({ error: 'No such stage.' });
+
+    const { lessons, testIds } = units.adminLessons(stageId);
+    const check = deps.learning.lib.validateUnitOverride(stageId, lessons, req.body ?? {}, units.cfg(), {
+      testIds,
+      stageOf: (id) => getChallenge(id)?.stageId ?? null
+    });
+    if (check.issues.length) {
+      return res.status(422).json({ error: 'The units are not ready to save yet.', issues: check.issues, warnings: check.warnings });
+    }
+
+    // New units get `${stageId}:m<n>` from a counter that only goes up, so an
+    // id deleted in the editor is never handed to a different unit.
+    const existing = store.getUnitOverride(stageId);
+    let nextSeq = Number.isInteger(existing?.nextSeq) && existing.nextSeq > 0 ? existing.nextSeq : 1;
+    const taken = new Set(check.units.map((u) => u.id).filter(Boolean));
+    const saved = check.units.map((unit) => {
+      let id = unit.id;
+      while (!id) {
+        const candidate = `${stageId}:m${nextSeq++}`;
+        if (!taken.has(candidate)) id = candidate;
+      }
+      taken.add(id);
+      return { id, name: unit.name, ...(unit.description ? { description: unit.description } : {}), challengeIds: [...unit.challengeIds] };
+    });
+    store.setUnitOverride(stageId, { units: saved, nextSeq, updatedAt: new Date().toISOString() });
+    audit(req, 'content.units.update', stageId, { stageId, units: saved.length });
+    res.json(units.adminView(stageId));
+  });
+
+  router.delete('/content/stages/:id/units', (req, res) => {
+    const units = unitsService(res);
+    if (!units) return;
+    const stageId = req.params.id;
+    if (!stageExists(stageId)) return res.status(404).json({ error: 'No such stage.' });
+    const had = Boolean(store.getUnitOverride(stageId));
+    store.setUnitOverride(stageId, null);
+    audit(req, 'content.units.reset', stageId, { stageId, had });
+    res.json(units.adminView(stageId));
   });
 
   /* --------------------------------------------------- content: challenges */

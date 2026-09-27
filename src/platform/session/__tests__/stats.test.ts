@@ -113,3 +113,17 @@ describe('solveWasDeferred', () => {
     expect(solveWasDeferred(new Error('boom'))).toBe(false);
   });
 });
+
+describe('unit completions in the stats (P2)', () => {
+  it('hydrates unitsCompleted safely from any save', () => {
+    expect(hydrateStats({}).unitsCompleted).toEqual({});
+    const saved = { unitsCompleted: { 's:a1': { completedAt: '2026-09-25T10:00:00.000Z', perfect: true, bonusXp: 25 }, broken: 'x' } };
+    expect(hydrateStats(saved).unitsCompleted).toEqual({ 's:a1': { completedAt: '2026-09-25T10:00:00.000Z', perfect: true, bonusXp: 25 } });
+  });
+
+  it('takes the server’s unit completions after a solve', () => {
+    const prev = { ...INITIAL_STATS, xp: 60, unitsCompleted: { local: { completedAt: '2026-09-25T10:00:00.000Z', perfect: true, bonusXp: 25 } } };
+    const server = { xp: 60, streak: 1, lastActiveDay: '2026-09-25', completedChallenges: [], unitsCompleted: {} };
+    expect(statsAfterSolve(prev, server, { rulesChanged: true, curve: { thresholds: [0, 100], overflowStep: 100 }, serverDay: '2026-09-25' }).unitsCompleted).toEqual({});
+  });
+});

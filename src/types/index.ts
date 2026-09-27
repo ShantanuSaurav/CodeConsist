@@ -236,10 +236,58 @@ export interface Stage {
    * belongs to is decided by `LanguageTrack.stageIds`, not by this field.
    */
   language: SupportedLanguage;
-  /** The lessons. Does NOT include the stage test. */
+  /** The lessons, in unit order when the stage has units. Does NOT include the stage test. */
   challenges: Challenge[];
   /** The mandatory coding test for this stage, if it has one. */
   test?: Challenge;
+  /**
+   * The lessons grouped into short units (src/platform/progress/units.ts).
+   * Set by the session from the server's grouping, the cached one, or the
+   * default; absent on a stage straight from the bundle. The stage test is
+   * never in a unit.
+   */
+  units?: Unit[];
+}
+
+/* ==========================================================================
+   Units
+   ========================================================================== */
+
+/** Where a unit's grouping came from: the default rule, an admin's, or the leftovers unit. */
+export type UnitSource = 'default' | 'custom' | 'auto';
+
+/** A unit as the server stores and sends it: ids and names only. */
+export interface UnitDef {
+  /** `${stageId}:a1` (default), `${stageId}:m3` (made in the admin), `${stageId}:auto`. */
+  id: string;
+  name: string;
+  description?: string;
+  challengeIds: string[];
+  source?: UnitSource;
+}
+
+/** A unit resolved against its stage's lessons. */
+export interface Unit extends UnitDef {
+  stageId: string;
+  /** 0-based position in the stage. */
+  index: number;
+  challenges: Challenge[];
+  /** Expected minutes, from `settings.units.minutesByType`. */
+  estMinutes: number;
+  /** XP its questions pay on a first, clean solve. */
+  xp: number;
+  source: UnitSource;
+}
+
+/**
+ * The record that a unit was first completed - and whether that paid the
+ * perfect-unit bonus. NOT what makes a unit "done": that is always derived
+ * from `completedChallenges`.
+ */
+export interface UnitCompletion {
+  completedAt: string;
+  perfect: boolean;
+  bonusXp: number;
 }
 
 /* ==========================================================================
@@ -394,7 +442,10 @@ export type ActivityContext = 'lesson' | 'test' | 'review' | 'library' | 'assess
  * time zone. Every counter defaults to 0 (see `normalizeDay`).
  */
 export interface DayRecord {
-  /** XP credited that day: only what was actually awarded, so a 0-XP re-solve adds nothing. */
+  /**
+   * XP credited that day: only what was actually awarded, so a 0-XP re-solve
+   * adds nothing. Solve XP plus any perfect-unit bonus.
+   */
   xp: number;
   /** First-time lesson solves. */
   lessons: number;
@@ -404,6 +455,10 @@ export interface DayRecord {
   reSolves: number;
   /** Wrong answers recorded that day. */
   mistakes: number;
+  /** Units first completed that day. */
+  units: number;
+  /** Perfect-unit bonus XP paid that day (already inside `xp`). */
+  perfectBonusXp: number;
   firstAt: string | null;
   lastAt: string | null;
   /** How the row came to exist: a live event, the one-time backfill, or a guest merge. */
@@ -487,6 +542,12 @@ export interface UserStats {
    */
   seenConcepts: string[];
   attempts: Record<string, ChallengeAttempt>;
+  /**
+   * Units whose first completion has been recorded, with the perfect-unit
+   * bonus that completion paid (0 when it was not perfect). Optional: an old
+   * save or an older server has none. Not what makes a unit "done".
+   */
+  unitsCompleted?: Record<string, UnitCompletion>;
   /** Lifetime licence (or the legacy Pro flag): every premium stage is open. Server-set, mirrored here. */
   isPremium?: boolean;
   /**
@@ -544,6 +605,8 @@ export interface UserProfile {
 /** Account-level preferences. Every field is nullable: null means "use the default". */
 export interface LearnerPreferences {
   timeZone?: string | null;
+  /** Sound effects on or off; null = the default (`celebrations.sound.defaultOn`). */
+  soundOn?: boolean | null;
 }
 
 /**

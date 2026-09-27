@@ -2,7 +2,7 @@
  * The settings store over HTTP.
  *
  *   GET /api/settings        - public, no auth: every learner-facing section,
- *                              with `ETag: "r<revision>"`. Learners refetch
+ *                              with `ETag: "r<revision>-<fingerprint>"`. Learners refetch
  *                              when `/api/health` (or a solve) reports a
  *                              different `settingsRevision`.
  *   GET /api/admin/settings  - the admin view: effective, overrides, defaults,
@@ -27,8 +27,10 @@ export function createSettingsRouter({ getService }) {
     if (!service) return res.status(503).json({ error: 'Settings are not available yet. Try again in a moment.' });
     const view = service.publicView();
     // Express answers a matching If-None-Match with a 304 on its own once the
-    // ETag is set; no-cache makes browsers ask every time.
-    res.set('ETag', `"r${view.revision}"`);
+    // ETag is set; no-cache makes browsers ask every time. The tag carries a
+    // fingerprint of the rules as well as the revision, so a default changed
+    // in code (same revision) is never answered with the browser's old copy.
+    res.set('ETag', service.publicTag());
     res.set('Cache-Control', 'no-cache');
     res.json(view);
   });

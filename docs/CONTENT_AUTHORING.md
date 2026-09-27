@@ -127,6 +127,41 @@ Judge0, so their stage tests are answer-graded (`fill_blank`, `quiz`, ...) and
 verified by the server like every other lesson - never a `code_runner` that
 would need a compiler nobody has configured.
 
+## Units
+
+Learners meet a stage's lessons in short **units** of about five questions,
+each a node on the path with its own end screen. Nothing in a challenge file
+declares a unit: the default grouping is derived from the ids
+(`src/platform/progress/units.ts`, settings section `units`):
+
+- The lessons are split, in authored order, into runs by batch letter -
+  `stage-3-a04` is in run `a`, `stage-3-b01` in run `b`. An id without a batch
+  letter (a question written in the admin console) is in run `x`.
+- Each run is cut into balanced chunks of about `targetSize` (5) and at most
+  `maxSize` (8): 10 lessons give 5/5, 11 give 6/5, 17 give 6/6/5. A last chunk
+  smaller than `minSize` (3) joins the unit before it when that stays within
+  `maxSize`.
+- Unit ids are `<stageId>:<letter><k>` (`stage-3:a1`, `stage-3:b2`); the stage
+  test is never in a unit and unlocks when every unit is done.
+
+So a **batch file is a unit boundary**: keep a batch at 5-7, 10-12 or 15-17
+lessons and it splits cleanly (8, 9, 13 and 14 produce 4-question units:
+4/4, 5/4, 5/4/4, 5/5/4), and put lessons that belong together in the same
+batch. The
+real bank gives 46 units - four per core stage, three for C and C++ - and
+`src/modules/challenges/__tests__/units-bank.test.ts` fails if a content change
+breaks that shape (a unit outside 5-8 questions, or a stage with a different
+number of units). Update the test's expectations when the change is
+deliberate.
+
+An administrator can regroup and rename a stage's units in the console
+(Stages > Units); that is stored in `contentOverrides.units` in
+`server/data/db.json` and wins over the default. Every lesson of the stage,
+hidden ones included, must be in exactly one unit. A lesson added to the `.ts`
+files after a stage was regrouped appears in a trailing "More lessons" unit
+until the admin places it. Whether a unit is *done* is always derived from the
+solved lessons, so regrouping never loses anyone's progress.
+
 ## Style
 
 - Prompts are direct and specific: "What does this print?" beats "Consider the following".

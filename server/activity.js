@@ -110,11 +110,23 @@ export function createActivityService({ lib, store, settings, getChallengeMerged
     return clean;
   }
 
-  /** A verified solve: the day row it lands on, after it. */
-  function recordSolve(user, { challengeId, isTest, firstSolve, awardedXp, day, at }) {
+  /**
+   * A verified solve: the day row it lands on, after it. A solve that
+   * completed a unit counts in the day's `units`, and its perfect-unit bonus
+   * in `perfectBonusXp` (and `xp`).
+   */
+  function recordSolve(user, { challengeId, isTest, firstSolve, awardedXp, unitCompleted = false, perfectBonusXp = 0, day, at }) {
     const log = lib.applyActivityEvent(
       load(user),
-      { type: 'solve', challengeId, isTest: Boolean(isTest), firstSolve: Boolean(firstSolve), awardedXp },
+      {
+        type: 'solve',
+        challengeId,
+        isTest: Boolean(isTest),
+        firstSolve: Boolean(firstSolve),
+        awardedXp,
+        unitCompleted: Boolean(unitCompleted),
+        perfectBonusXp: Number(perfectBonusXp) || 0
+      },
       { day, at, rules: rules() }
     );
     save(user, log);

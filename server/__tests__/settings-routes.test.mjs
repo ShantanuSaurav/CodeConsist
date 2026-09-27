@@ -86,8 +86,22 @@ describe('GET /api/settings (public)', () => {
     expect(res.json.settings.xp).toEqual(lib.DEFAULT_SETTINGS.xp);
     expect(res.json.settings.levels.ranks[0]).toEqual({ minLevel: 1, title: 'Apprentice' });
     expect(res.json.settings.retention).toBeUndefined();
-    expect(res.headers.get('etag')).toBe('"r0"');
+    expect(res.headers.get('etag')).toBe(`"r0-${lib.settingsFingerprint(res.json.settings)}"`);
     expect(res.headers.get('cache-control')).toBe('no-cache');
+  });
+
+  it('answers a matching If-None-Match with 304, and a tag from other rules at the same revision with the rules', async () => {
+    const first = await call('GET', '/settings');
+    const tag = first.headers.get('etag');
+    // A browser revalidating its HTTP cache. (The explicit Cache-Control
+    // stops Node's fetch adding `no-cache`, which Express treats as "never fresh".)
+    const revalidate = (etag) => fetch(`${base}/settings`, { headers: { 'if-none-match': etag, 'cache-control': 'max-age=0' } });
+    expect((await revalidate(tag)).status).toBe(304);
+    // What a browser holds from a build whose defaults differed (the Phase 1
+    // level curve): the revision matches, the rules do not.
+    const stale = await revalidate('"r0"');
+    expect(stale.status).toBe(200);
+    expect((await stale.json()).settings.levels).toEqual(lib.DEFAULT_SETTINGS.levels);
   });
 });
 
@@ -122,7 +136,8 @@ describe('the admin settings routes', () => {
     const pub = await call('GET', '/settings');
     expect(pub.json.revision).toBe(1);
     expect(pub.json.settings.xp.passScore).toBe(70);
-    expect(pub.headers.get('etag')).toBe('"r1"');
+    expect(pub.headers.get('etag')).toMatch(/^"r1-[0-9a-z]+"$/);
+    expect(pub.headers.get('etag')).toBe(`"r1-${lib.settingsFingerprint(pub.json.settings)}"`);
   });
 
   it('null puts a setting - or a whole section - back to its default', async () => {
@@ -176,27 +191,27 @@ describe('the admin settings routes', () => {
   it('a stored key this build does not know never blocks a save, and can be removed', async () => {
     // What a rollback leaves behind: keys a newer build wrote.
     store.setSettingsRecord({
-      overrides: { celebrations: { confetti: true }, xp: { passScore: 70, legacyBonus: 3 } },
+      overrides: { fireworks: { confetti: true }, xp: { passScore: 70, legacyBonus: 3 } },
       revision: 3,
       updatedAt: null,
       updatedBy: null
     });
     const view = await call('GET', '/admin/settings', { admin: true });
-    expect(view.json.issues.map((i) => i.path).sort()).toEqual(['celebrations', 'xp.legacyBonus']);
+    expect(view.json.issues.map((i) => i.path).sort()).toEqual(['fireworks', 'xp.legacyBonus']);
 
     // Any other change still saves - even one in the same section - and the unknown keys stay stored.
     const save = await put(3, { xp: { hintPenalty: 5 } });
     expect(save.status).toBe(200);
-    expect(save.json.overrides).toEqual({ celebrations: { confetti: true }, xp: { passScore: 70, legacyBonus: 3, hintPenalty: 5 } });
+    expect(save.json.overrides).toEqual({ fireworks: { confetti: true }, xp: { passScore: 70, legacyBonus: 3, hintPenalty: 5 } });
 
     // They can be removed, never set.
-    expect((await put(4, { celebrations: { confetti: false } })).status).toBe(400);
+    expect((await put(4, { fireworks: { confetti: false } })).status).toBe(400);
     expect((await put(4, { xp: { legacyBonus: 4 } })).status).toBe(400);
-    const removed = await put(4, { celebrations: null, xp: { legacyBonus: null } });
+    const removed = await put(4, { fireworks: null, xp: { legacyBonus: null } });
     expect(removed.status).toBe(200);
     expect(removed.json.overrides).toEqual({ xp: { passScore: 70, hintPenalty: 5 } });
     expect(removed.json.issues).toEqual([]);
-    expect(Object.keys(store.db().auditLog.at(-1).details.changes).sort()).toEqual(['celebrations', 'xp.legacyBonus']);
+    expect(Object.keys(store.db().auditLog.at(-1).details.changes).sort()).toEqual(['fireworks', 'xp.legacyBonus']);
   });
 
   it('a stored section that stopped validating only blocks saves to that section', async () => {

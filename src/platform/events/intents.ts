@@ -10,6 +10,8 @@ export const intents = {
   /** Open a stage's lessons (or wherever the player left off when both are omitted). */
   openPractice: (stageId?: string, challengeId?: string, mode?: LearningMode) =>
     eventBus.emit('practice:open', { stageId, challengeId, mode }),
+  /** Open one unit of a stage (the practice session checks premium, the stage lock and the unit lock). */
+  openUnit: (stageId: string, unitId: string) => eventBus.emit('practice:openUnit', { stageId, unitId }),
   /** Open a stage's mandatory coding test. */
   openStageTest: (stageId: string) => eventBus.emit('practice:openTest', { stageId }),
   openAuth: () => eventBus.emit('account:openAuth', {}),

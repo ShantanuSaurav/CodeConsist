@@ -9,6 +9,7 @@ import { ApiError } from '../api-client/api';
 import { learnerDay } from '../time/days';
 import { DEFAULT_LEVEL_CURVE, currentStreak, levelFromXp } from '../xp-leveling/leveling';
 import type { LevelCurve } from '../xp-leveling/leveling';
+import { normalizeUnitsCompleted } from '../xp-leveling/rewards';
 
 export const INITIAL_STATS: UserStats = {
   xp: 0,
@@ -20,6 +21,7 @@ export const INITIAL_STATS: UserStats = {
   completedStages: [],
   seenConcepts: [],
   attempts: {},
+  unitsCompleted: {},
   isPremium: false,
   unlockedStages: []
 };
@@ -45,6 +47,8 @@ export function hydrateStats(raw: unknown, curve: LevelCurve = DEFAULT_LEVEL_CUR
     completedStages: Array.isArray(saved.completedStages) ? saved.completedStages : [],
     seenConcepts: Array.isArray(saved.seenConcepts) ? saved.seenConcepts : [],
     attempts: saved.attempts && typeof saved.attempts === 'object' ? saved.attempts : {},
+    // A save from before units has none; a mangled one is made safe.
+    unitsCompleted: normalizeUnitsCompleted(saved.unitsCompleted),
     isPremium: Boolean(saved.isPremium),
     // A cached copy of what the server said last time; the next restore overwrites it.
     unlockedStages: Array.isArray(saved.unlockedStages) ? saved.unlockedStages.filter((id) => typeof id === 'string') : []

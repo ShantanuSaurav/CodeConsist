@@ -19,7 +19,8 @@ vi.mock('../../api-client/api', () => ({
   }
 }));
 
-import { groupIntoStages, loadFromApi, makeBundle } from '../content';
+import { groupIntoStages, loadFromApi, makeBundle, readUnitDefCache, withUnits } from '../content';
+import { DEFAULT_UNIT_SETTINGS } from '../../progress/units';
 import { contentStatsOf } from '../useContentStats';
 
 const stageMeta = (id: string, extra: { isPremium?: boolean } = {}) => ({
@@ -117,5 +118,51 @@ describe('contentStatsOf', () => {
       freeStages: 1,
       premiumStages: 1
     });
+  });
+});
+
+/* ------------------------------------------------------------ units (P2) */
+
+describe('units on the content', () => {
+  const withGrouping = {
+    ...RESPONSE,
+    stages: [
+      // The server's grouping for s1: b first, then a. Premium stubs are grouped too.
+      { ...stageMeta('s1'), units: [{ id: 's1:m1', name: 'Bees', challengeIds: ['b'], source: 'custom' as const }, { id: 's1:m2', name: 'Ays', challengeIds: ['a'], source: 'custom' as const }] },
+      { ...stageMeta('s2', { isPremium: true }), units: [{ id: 's2:x1', name: 'Unit 1', challengeIds: ['c', 'd'], source: 'default' as const }] }
+    ]
+  };
+
+  it('attaches the server units and puts the lessons in unit order, the test in none', () => {
+    const stages = groupIntoStages(withGrouping.stages, RESPONSE.challenges);
+    const s1 = stages.find((s) => s.id === 's1')!;
+    expect(s1.units?.map((u) => [u.id, u.challengeIds, u.source])).toEqual([
+      ['s1:m1', ['b'], 'custom'],
+      ['s1:m2', ['a'], 'custom']
+    ]);
+    expect(s1.challenges.map((c) => c.id)).toEqual(['b', 'a']);
+    expect(s1.test?.id).toBe('t1');
+    expect(stages.find((s) => s.id === 's2')!.units?.[0].challengeIds).toEqual(['c', 'd']);
+  });
+
+  it('caches the server grouping, and uses it for bundled content with the current settings', async () => {
+    content.response = withGrouping;
+    await loadFromApi();
+    const cache = readUnitDefCache();
+    expect(cache.s1.map((u) => u.id)).toEqual(['s1:m1', 's1:m2']);
+
+    // The bundled content has no units of its own: the cache wins over the default.
+    const bundled = groupIntoStages(RESPONSE.stages, RESPONSE.challenges);
+    expect(bundled[0].units).toBeUndefined();
+    const resolved = withUnits(bundled, DEFAULT_UNIT_SETTINGS, cache);
+    expect(resolved[0].units?.map((u) => u.name)).toEqual(['Bees', 'Ays']);
+    expect(resolved[0].challenges.map((c) => c.id)).toEqual(['b', 'a']);
+    // Without a cache: the default grouping.
+    expect(withUnits(bundled, DEFAULT_UNIT_SETTINGS, null)[0].units?.map((u) => u.challengeIds)).toEqual([['a', 'b']]);
+  });
+
+  it('falls back to the default grouping when an older server sends no units', () => {
+    const stages = withUnits(groupIntoStages(RESPONSE.stages, RESPONSE.challenges));
+    expect(stages[0].units?.[0]).toMatchObject({ source: 'default', challengeIds: ['a', 'b'] });
   });
 });

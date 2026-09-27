@@ -54,7 +54,8 @@ export const LevelsSection: React.FC<SectionProps> = (props) => {
         </div>
         <p className="text-xs text-fg-muted mb-3">
           Level L needs base × (L−1) × L XP, for the first N levels; after that every level costs the step. Base 50, 40 levels and a
-          4000 step is the curve learners have always had.
+          4000 step is the curve from before the retune. The default today keeps levels 1-10 as they were, then adds 900 XP per level
+          (level 20 at 13,500 XP) - it never puts anyone at a lower level than the old curve did.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-xs text-fg-secondary">
