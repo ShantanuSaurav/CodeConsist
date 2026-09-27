@@ -223,6 +223,9 @@ Removes the three tasks, stops what they started, restores the power settings. L
 
 ## 10. Still outstanding
 
-`APP_ORIGIN` in `.env` is `http://localhost:3000`. **In production that sends real users signing in with Google or GitHub back to localhost.** It needs your Vercel URL, and the same URL has to be registered as a redirect URI in Google Cloud Console and GitHub Developer Settings.
+`APP_ORIGIN` in `.env` is `https://devlingo-sand.vercel.app` (set 27 Sep 2026), so Google and GitHub now send users back to the Vercel site. Each provider has to accept that address too, character for character:
 
-Until that is done, OAuth works on your machine and nowhere else.
+- **Google Cloud Console** → your OAuth client → Authorized redirect URIs: add `https://devlingo-sand.vercel.app/api/auth/oauth/google/callback`
+- **GitHub Developer Settings** → your OAuth App → Authorization callback URL: `https://devlingo-sand.vercel.app/api/auth/oauth/github/callback`
+
+Until both are registered, those providers refuse the sign-in with a redirect-URI mismatch. Password sign-in is unaffected. A GitHub OAuth App accepts only one callback address, so signing in with GitHub on `localhost` needs a second OAuth App for development.
