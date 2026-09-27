@@ -2,6 +2,8 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { Sidebar } from './Sidebar';
+import { HabitChip } from './HabitChip';
+import { HabitBanner } from './HabitBanner';
 import { useSession } from '@/platform/session';
 import { useCopy } from '@/platform/settings';
 import { intents } from '@/platform/events';
@@ -43,8 +45,10 @@ export const DashboardLayout: React.FC = () => {
       </aside>
 
       {/* Mobile top bar + drawer */}
-      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between h-12 px-4 border-b border-border bg-surface">
+      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between gap-2 h-12 px-4 border-b border-border bg-surface">
         <DevlingoLogo size="sm" wordmark />
+        {/* The streak and today's goal, one tap from the goal card. */}
+        <HabitChip compact className="ml-auto" />
         <button
           type="button"
           onClick={() => setDrawerOpen(true)}
@@ -96,6 +100,8 @@ export const DashboardLayout: React.FC = () => {
             )}
           </div>
         )}
+        {/* One in-app reminder at a time: welcome back, a streak to repair, a freeze used, a streak at risk. */}
+        <HabitBanner />
         <main className="flex-1">
           {contentReady ? (
             <Suspense fallback={<PageSkeleton />}>

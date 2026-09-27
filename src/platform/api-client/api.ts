@@ -11,6 +11,7 @@ import {
   CodeDraft,
   DayRecord,
   ExecutionResult,
+  HabitState,
   LeaderboardEntry,
   LearnerPreferences,
   MissSummary,
@@ -22,6 +23,7 @@ import { STORAGE_KEYS, readString, remove, writeString } from '../storage/storag
 import { browserTimeZone } from '../time/days';
 import type { ActivityView } from '../activity/log';
 import type { PublicSettings } from '../settings/types';
+import type { HabitStatus } from '../habits/types';
 
 const BASE = '/api';
 
@@ -152,11 +154,14 @@ export interface AuthResponse {
   token: string;
   user: UserProfile;
   progress: ServerProgress;
+  /** The streak and goal as they stand today (freezes applied). Absent from an older server. */
+  habits?: HabitStatus;
 }
 
 export interface ServerProgress {
   xp: number;
   level: number;
+  /** The RAW stored streak (its missed days worked out on the learner's today); screens show `habits.streak`. */
   streak: number;
   bestStreak: number;
   lastActiveDay: string | null;
@@ -165,10 +170,27 @@ export interface ServerProgress {
   attempts: UserStats['attempts'];
   /** Units whose first completion was recorded, and the bonus it paid. Absent from an older server. */
   unitsCompleted?: UserStats['unitsCompleted'];
+  /** Freezes, repair and streak history. Absent from an older server (and from a row nothing has written yet). */
+  habit?: HabitState;
 }
 
 /** A bonus paid on top of a solve's own XP. `awardedXp` never includes it. */
-export type Bonus = { kind: 'perfect-unit'; unitId: string; xp: number };
+export type Bonus = { kind: 'perfect-unit'; unitId: string; xp: number } | { kind: 'daily-goal'; day: string; xp: number };
+
+/** What a solve did to the streak and the daily goal (server/habits.js). */
+export interface HabitEventsResponse {
+  /** The daily goal was met for the first time today with this solve. */
+  goalMet: boolean;
+  freezeEarned: boolean;
+  /** An open repair was completed: the lost streak is back. */
+  repaired: boolean;
+  /** The goal bonus this solve paid (0 when none). */
+  bonusXp: number;
+  streakDay?: boolean;
+  /** Days a freeze covered when the missed days were worked out. */
+  frozenDays?: string[];
+  broken?: { lostStreak: number; repairOffered: boolean } | null;
+}
 
 /**
  * Which third-party sign-ins this server has credentials for. Booleans only -
@@ -251,19 +273,24 @@ export interface SolveResponse {
   /** Absent from an older server. */
   settingsRevision?: number;
   today?: TodayRow;
-  /** Bonuses on top of `awardedXp` (a perfect unit). Absent from an older server. */
+  /** Bonuses on top of `awardedXp` (a perfect unit, the daily goal). Absent from an older server. */
   bonuses?: Bonus[];
+  /** Every bonus this solve paid: the perfect unit's and the daily goal's. */
   bonusXp?: number;
   /** The unit this solve completed for the first time, or null. */
   unitCompleted?: string | null;
   /** Whether that unit was cleared perfectly (first try throughout). */
   unitPerfect?: boolean;
+  /** The streak and goal after this solve. Absent from an older server. */
+  habits?: HabitStatus;
+  /** What this solve did to them; `bonusXp` is the goal bonus alone. Absent from an older server. */
+  habitEvents?: HabitEventsResponse;
 }
 
 export interface MergeResponse {
   progress: ServerProgress;
   mergedChallenges?: number;
-  /** Solve XP only; unit bonuses are in `bonusXp`. */
+  /** Solve XP only; unit and goal bonuses are in `bonusXp`. */
   awardedXp?: number;
   bonusXp?: number;
   bonuses?: Bonus[];
@@ -271,6 +298,8 @@ export interface MergeResponse {
   activity?: ActivityView;
   /** The account's preferences after a guest's were adopted. Absent from an older server. */
   preferences?: LearnerPreferences;
+  /** The streak and goal after the merge. Absent from an older server. */
+  habits?: HabitStatus;
   /**
    * Solved ids that were NOT credited because they are in a premium stage
    * this account has not unlocked. Absent when there were none.
@@ -278,10 +307,14 @@ export interface MergeResponse {
   skippedLocked?: string[];
 }
 
+/** What `PATCH /api/me/preferences` accepts (any subset); `null` puts a default back - not for the zone. */
+export type PreferencesPatch = Partial<Pick<LearnerPreferences, 'soundOn' | 'dailyGoalId'>> & { timeZone?: string };
+
 /** What `PATCH /api/me/preferences` returns. */
 export interface PreferencesResponse {
   user: UserProfile;
-  applied: { timeZone: boolean };
+  /** `timeZone` is present only when the request sent a zone. */
+  applied: { timeZone?: boolean };
 }
 
 /** What `GET /api/content` returns. */
@@ -469,7 +502,7 @@ export const api = {
     return res;
   },
 
-  async me(): Promise<{ user: UserProfile; progress: ServerProgress }> {
+  async me(): Promise<{ user: UserProfile; progress: ServerProgress; habits?: HabitStatus }> {
     return request('/auth/me');
   },
 
@@ -574,8 +607,9 @@ export const api = {
     activity?: Pick<ActivityLog, 'days' | 'misses' | 'missLog'>,
     preferences?: LearnerPreferences | null
   ): Promise<MergeResponse> {
-    // A guest's own choices (sound on or off) go along; the server adopts
-    // them only where the account has none.
+    // A guest's own choices (sound on or off, their daily goal) go along; the
+    // server adopts them only where the account has none. Their streak
+    // freezes and history ride in `progress.habit`.
     const extra = preferences ? { preferences } : {};
     try {
       return await request<MergeResponse>('/progress/merge', { method: 'POST', body: activity ? { progress, activity, ...extra } : { progress, ...extra } });
@@ -587,8 +621,13 @@ export const api = {
     }
   },
 
-  /** Change the learner's own preferences (Phase 2: `soundOn`); `null` puts a default back. */
-  async updatePreferences(patch: Pick<LearnerPreferences, 'soundOn'>): Promise<PreferencesResponse> {
+  /**
+   * Change the learner's own preferences: sound (Phase 2), the daily goal and
+   * the time zone (Phase 3); `null` puts a default back. A zone changed again
+   * within the cooldown is not applied (`applied.timeZone: false`) - that is
+   * not an error.
+   */
+  async updatePreferences(patch: PreferencesPatch): Promise<PreferencesResponse> {
     return request('/me/preferences', { method: 'PATCH', body: patch });
   },
 
@@ -607,7 +646,7 @@ export const api = {
     return request('/activity/misses', { method: 'POST', body: { misses }, keepalive: options.keepalive });
   },
 
-  async resetProgress(): Promise<{ progress: ServerProgress }> {
+  async resetProgress(): Promise<{ progress: ServerProgress; habits?: HabitStatus }> {
     return request('/progress/reset', { method: 'POST' });
   },
 

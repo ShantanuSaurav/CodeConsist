@@ -134,6 +134,19 @@ export function createActivityService({ lib, store, settings, getChallengeMerged
   }
 
   /**
+   * The daily goal was met on `day` (server/habits.js): its snapshot and bonus
+   * go on the day row - once; a day already met keeps its first snapshot.
+   * Returns whether it was recorded, and the day row after.
+   */
+  function recordGoal(user, { day, at, goal, bonusXp = 0 }) {
+    const before = load(user);
+    const log = lib.applyActivityEvent(before, { type: 'goal', goal, bonusXp: Number(bonusXp) || 0 }, { day, at, rules: rules() });
+    if (log === before) return { applied: false, row: lib.dayRow(before, day) };
+    save(user, log);
+    return { applied: true, row: lib.dayRow(log, day) };
+  }
+
+  /**
    * Wrong answers, already validated and reduced by the route
    * (`{ challengeId, answer, keys, context, final, at }`). A miss from the
    * current local day lands on `today`; an older one (queued offline) on its
@@ -276,5 +289,5 @@ export function createActivityService({ lib, store, settings, getChallengeMerged
     return filled;
   }
 
-  return { zoneFor, captureZone, todayFor, recordSolve, recordMisses, merge, view, reset, learning, backfillAll, load, rules };
+  return { zoneFor, captureZone, todayFor, recordSolve, recordGoal, recordMisses, merge, view, reset, learning, backfillAll, load, rules };
 }

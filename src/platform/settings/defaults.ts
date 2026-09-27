@@ -14,6 +14,8 @@
 import { DEFAULT_LEVEL_CURVE, DEFAULT_XP_RULES } from '../xp-leveling/leveling';
 import { DEFAULT_BADGES, DEFAULT_RANKS } from '../xp-leveling/insights';
 import { DEFAULT_UNIT_SETTINGS } from '../progress/units';
+import { DEFAULT_GOAL_SETTINGS } from '../habits/goals';
+import { DEFAULT_HABIT_SETTINGS } from '../habits/streak';
 import type { Settings } from './types';
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -33,7 +35,55 @@ export const DEFAULT_SETTINGS: Settings = {
     defaultTimeZone: null,
     timeZoneChangeCooldownHours: 20,
     // server/index.js's MAX_PLAUSIBLE_STREAK.
-    maxPlausibleMergedStreak: 400
+    maxPlausibleMergedStreak: 400,
+    // Phase 3: what counts as a streak day, freezes, repair and history
+    // (src/platform/habits/streak.ts, where the engine reads them).
+    dayRule: DEFAULT_HABIT_SETTINGS.dayRule,
+    freeze: { ...DEFAULT_HABIT_SETTINGS.freeze },
+    repair: { ...DEFAULT_HABIT_SETTINGS.repair },
+    milestones: [...DEFAULT_HABIT_SETTINGS.milestones],
+    runsKept: DEFAULT_HABIT_SETTINGS.runsKept,
+    mergeReplayDays: DEFAULT_HABIT_SETTINGS.mergeReplayDays
+  },
+  // XP goals; "Regular" (100 XP) is what the dashboard's "Earn 100 XP" was.
+  goals: {
+    ...DEFAULT_GOAL_SETTINGS,
+    options: DEFAULT_GOAL_SETTINGS.options.map((option) => ({ ...option }))
+  },
+  reminders: {
+    atRisk: {
+      enabled: true,
+      // An evening nudge: a morning "at risk" banner is nagging.
+      fromLocalHour: 18,
+      title: 'Your {streak}-day streak is at risk',
+      // Worded so any number reads right ('1h left' as well as '5h left').
+      body: 'Finish one lesson before midnight to keep it ({hoursLeft}h left).',
+      bodyWithFreeze: 'Miss today and a streak freeze covers it ({freezes} left).',
+      cta: 'Practise now'
+    },
+    goalMet: {
+      toast: 'Daily goal met: {goal}.',
+      cardTitle: 'Daily goal met',
+      cardBody: 'Day {streak} of your streak. One more lesson?',
+      moreLabel: 'One more',
+      doneLabel: 'Done for today'
+    },
+    freezeEarned: 'You earned a streak freeze ({freezes} of {maxFreezes}).',
+    freezeUsed: 'A streak freeze kept your {streak}-day streak alive on {days}.',
+    streakBroken: {
+      title: 'Your {lostStreak}-day streak ended',
+      body: 'Finish {remaining} more by {deadline} to repair it.',
+      cta: 'Repair my streak'
+    },
+    streakRepaired: 'Streak repaired: {streak} days.',
+    welcomeBack: {
+      enabled: true,
+      cta: 'Start a lesson',
+      tiers: [
+        { minDays: 3, title: 'Welcome back, {name}', body: 'Pick up where you left off - one lesson starts a new streak.' },
+        { minDays: 14, title: "It's been {days} days", body: 'Your best streak is {bestStreak} days. Start small: one lesson today.' }
+      ]
+    }
   },
   units: {
     ...DEFAULT_UNIT_SETTINGS,

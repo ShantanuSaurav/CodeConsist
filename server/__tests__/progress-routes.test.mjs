@@ -131,7 +131,10 @@ describe('characterization: what the routes did before the move', () => {
   it('reset starts the row over', async () => {
     await solve({ challengeId: 'q-quiz', answer: 1 });
     const res = await app.call('POST', '/progress/reset', { user: 'u1' });
-    expect(res.json.progress).toEqual({ xp: 0, level: 1, streak: 0, bestStreak: 0, lastActiveDay: null, completedChallenges: [], completedStages: [], attempts: {}, unitsCompleted: {} });
+    expect(res.json.progress).toMatchObject({ xp: 0, level: 1, streak: 0, bestStreak: 0, lastActiveDay: null, completedChallenges: [], completedStages: [], attempts: {}, unitsCompleted: {} });
+    // Phase 3: the streak history survives a reset - the run just closed is in it.
+    expect(res.json.progress.habit).toMatchObject({ freezes: 0, repair: null, runStart: null });
+    expect(res.json.progress.habit.runs).toEqual([expect.objectContaining({ length: 1, ended: 'reset' })]);
     expect(store.getProgress('u1').xp).toBe(0);
   });
 
@@ -295,7 +298,16 @@ describe('reset and activity', () => {
 
 /* --------------------------------------------------------------- phase 2 */
 
+/** Change the rules the way an admin's save does, on whatever revision is current. */
+const setRules = (patch) => app.learningDeps.settings.update({ revision: app.learningDeps.settings.revision(), patch });
+
+// The daily goal (Phase 3) pays its own bonus once a day's XP reaches it;
+// these blocks are about the unit bonus alone, so goals are off in them.
+const goalsOff = () => setRules({ goals: { enabled: false } });
+
 describe('units: the perfect-unit bonus on a solve', () => {
+  beforeEach(goalsOff);
+
   it('pays the bonus once, when a first solve completes a unit cleared first try', async () => {
     const first = await solve({ challengeId: 'q-quiz', answer: 1 }, { zone: 'UTC' });
     expect(first.json).toMatchObject({ bonuses: [], bonusXp: 0, unitCompleted: null });
@@ -334,14 +346,14 @@ describe('units: the perfect-unit bonus on a solve', () => {
   });
 
   it('pays what units.perfectBonusXp says, and counts hints only while perfectRequiresNoHints is on', async () => {
-    app.learningDeps.settings.update({ revision: 0, patch: { units: { perfectBonusXp: 40, perfectRequiresNoHints: false } } });
+    setRules({ units: { perfectBonusXp: 40, perfectRequiresNoHints: false } });
     await solve({ challengeId: 'q-quiz', answer: 1, hintsUsed: 1 });
     const done = await solve({ challengeId: 'q-multi', answer: [0, 2] });
     expect(done.json).toMatchObject({ bonusXp: 40, bonuses: [{ kind: 'perfect-unit', unitId: 'stage-1:m1', xp: 40 }] });
   });
 
   it('levels with the bonus included, on the curve from the store', async () => {
-    app.learningDeps.settings.update({ revision: 0, patch: { levels: { thresholds: [0, 50, 100, 110, 200], overflowStep: 100 } } });
+    setRules({ levels: { thresholds: [0, 50, 100, 110, 200], overflowStep: 100 } });
     await solve({ challengeId: 'q-quiz', answer: 1 });
     const done = await solve({ challengeId: 'q-multi', answer: [0, 2] });
     // 115 XP: past 110 (level 4) only because of the bonus.
@@ -363,6 +375,8 @@ describe('units: the perfect-unit bonus on a solve', () => {
 });
 
 describe('units: a merge pays only for units the new ids complete', () => {
+  beforeEach(goalsOff);
+
   const merge = (progress, extra = {}) => app.call('POST', '/progress/merge', { user: 'u1', zone: 'UTC', body: { progress, ...extra } });
   const clean = (ids) => Object.fromEntries(ids.map((id) => [id, { attempts: 1, hintsUsed: 0 }]));
 

@@ -100,10 +100,27 @@ export const SECTION_META: SectionMeta[] = [
   },
   {
     id: 'streak',
-    title: 'Streak & time zones',
-    description: "Which day a solve counts on. Days are counted in each learner's own time zone.",
+    title: 'Streak, freezes & repair',
+    description:
+      "What makes a streak day, the freezes that cover a missed day, the repair that wins a broken streak back, and which day a solve counts on. Days are counted in each learner's own time zone.",
     audience: 'public',
     phase: 'P1'
+  },
+  {
+    id: 'goals',
+    title: 'Daily goal',
+    description:
+      'The goals a learner can pick, which one applies until they choose, and the bonus XP meeting it pays (once a day). A met day stays met when a learner changes their goal.',
+    audience: 'public',
+    phase: 'P3'
+  },
+  {
+    id: 'reminders',
+    title: 'In-app reminders',
+    description:
+      'The banners and toasts about streaks and goals: at risk, goal met, freezes, a broken or repaired streak, and welcome back. In the app only - no email or push. Plain text; each message may use only the {tokens} listed under it.',
+    audience: 'public',
+    phase: 'P3'
   },
   {
     id: 'units',
@@ -380,6 +397,217 @@ const BADGES_META: Record<string, SettingMeta> = {
   }
 };
 
+/* ------------------------------------------------ streak, goals, reminders */
+
+/** What makes a streak day, for the admin's select. */
+export const DAY_RULES: Array<{ key: string; label: string }> = [
+  { key: 'any-solve', label: 'Any passing solve (re-solves too)' },
+  { key: 'xp-earned', label: 'A solve that paid XP' },
+  { key: 'goal-met', label: 'Meeting the daily goal' }
+];
+
+const STREAK_P3_META: Record<string, SettingMeta> = {
+  'streak.dayRule': {
+    label: 'What counts as a streak day',
+    help: 'any-solve: any passing solve, re-solves included. xp-earned: a solve that paid XP (a re-solve pays none). goal-met: only a day the daily goal was met (with daily goals switched off, any passing solve counts).',
+    kind: 'enum',
+    values: DAY_RULES.map((r) => r.key)
+  },
+  'streak.freeze.enabled': {
+    label: 'Streak freezes',
+    help: 'A freeze covers one missed day, so the streak survives it. Off: freezes held are kept but not used, and no more are earned.',
+    kind: 'bool'
+  },
+  'streak.freeze.earnEveryGoalDays': {
+    label: 'A freeze every',
+    help: 'Days the daily goal is met to earn one freeze. Nothing is counted while a learner holds the maximum.',
+    kind: 'int',
+    min: 1,
+    max: 60,
+    unit: 'goal days'
+  },
+  'streak.freeze.maxHeld': {
+    label: 'Most freezes held',
+    help: 'Lowering it takes no freeze away; learners holding more simply earn none until they are below it.',
+    kind: 'int',
+    min: 0,
+    max: 10,
+    unit: 'freezes'
+  },
+  'streak.freeze.startingCount': {
+    label: 'Freezes to start with',
+    help: 'What a new learner (or a progress reset) starts with. At most the most held.',
+    kind: 'int',
+    min: 0,
+    max: 10,
+    unit: 'freezes'
+  },
+  'streak.repair.enabled': {
+    label: 'Streak repair',
+    help: 'After a streak breaks, offer to win it back by finishing extra lessons within a few days.',
+    kind: 'bool'
+  },
+  'streak.repair.windowDays': {
+    label: 'Repair window',
+    help: 'How long the offer stays open, counted from the first missed day. A gap of more missed days than this cannot be repaired.',
+    kind: 'int',
+    min: 1,
+    max: 7,
+    unit: 'days'
+  },
+  'streak.repair.lessonsPerMissedDay': {
+    label: 'Lessons per missed day',
+    help: 'Lessons a repair asks for, for each missed day it covers.',
+    kind: 'int',
+    min: 1,
+    max: 20,
+    unit: 'lessons'
+  },
+  'streak.milestones': {
+    label: 'Milestones',
+    help: 'Streak lengths that are celebrated (a toast when a learner reaches one). Each larger than the one before.',
+    kind: 'intList',
+    min: 1,
+    max: 3650,
+    minItems: 0,
+    maxItems: 12,
+    unit: 'days'
+  },
+  'streak.runsKept': {
+    label: 'Past streaks kept',
+    help: "How many finished streaks each learner's streak history keeps.",
+    kind: 'int',
+    min: 5,
+    max: 200
+  },
+  'streak.mergeReplayDays': {
+    label: 'Offline days replayed',
+    help: "When lessons a learner finished offline (or as a guest) are merged into their account, the days they were finished on, up to this many back, count for their streak and goal (a goal bonus is paid only for these). Re-solves reported for a day count for neither.",
+    kind: 'int',
+    min: 0,
+    max: 30,
+    unit: 'days'
+  }
+};
+
+/** A daily goal's metrics, for the admin's select. */
+export const GOAL_METRIC_LABELS: Array<{ key: string; label: string }> = [
+  { key: 'xp', label: 'XP earned' },
+  { key: 'lessons', label: 'Lessons finished' },
+  { key: 'units', label: 'Units completed' }
+];
+
+const GOALS_META: Record<string, SettingMeta> = {
+  'goals.enabled': {
+    label: 'Daily goals',
+    help: 'Off hides the goal ring, the picker and the goal card, and pays no goal bonus.',
+    kind: 'bool'
+  },
+  'goals.options': {
+    label: 'Goal options',
+    help: 'What a learner can pick. Id: lower-case letters, digits and dashes (it is stored on accounts - renaming one sends its learners to the default). Target: XP 10-2000, lessons 1-50, units 1-20. The bonus is paid once a day, the first time the goal is met. A disabled option sends its learners to the default until it is enabled again.',
+    kind: 'rows',
+    minItems: 1,
+    maxItems: 8,
+    rowMeta: [
+      { key: 'id', label: 'Id', kind: 'string', minLength: 1, maxLength: 32 },
+      { key: 'label', label: 'Label', kind: 'string', minLength: 1, maxLength: 24 },
+      { key: 'blurb', label: 'Blurb', kind: 'string', minLength: 0, maxLength: 60 },
+      { key: 'metric', label: 'Counts', kind: 'enum', values: GOAL_METRIC_LABELS.map((m) => m.key) },
+      { key: 'target', label: 'Target', kind: 'int', min: 1, max: 2000 },
+      { key: 'bonusXp', label: 'Bonus XP', kind: 'int', min: 0, max: 100 },
+      { key: 'enabled', label: 'On', kind: 'bool' }
+    ]
+  },
+  'goals.defaultOptionId': {
+    label: 'Default goal',
+    help: 'The goal for guests and for learners who have not chosen one. Must be an enabled option.',
+    kind: 'string',
+    minLength: 1,
+    maxLength: 32
+  },
+  'goals.oneMorePrompt': {
+    label: '"One more?" card',
+    help: 'When a lesson meets the goal, offer one more lesson or "Done for today".',
+    kind: 'bool'
+  }
+};
+
+const REMINDER_TITLE_MAX = 80;
+const REMINDER_BODY_MAX = 200;
+
+/** Example values for every reminder token, for the live previews. */
+export const REMINDER_SAMPLE: Record<string, string | number> = {
+  streak: 12,
+  hoursLeft: 5,
+  freezes: 1,
+  maxFreezes: 2,
+  goal: '100 XP',
+  bonusXp: 10,
+  days: 'Tue 22 Sep',
+  lostStreak: 12,
+  remaining: 3,
+  deadline: 'Thursday',
+  name: 'Asha',
+  bestStreak: 21
+};
+
+/** The tokens a welcome-back tier may use. */
+export const WELCOME_BACK_TOKENS = ['name', 'days', 'bestStreak'];
+
+function reminderCopy(label: string, help: string, maxLength: number, tokens: string[] = []): SettingMeta {
+  return { label, help, kind: 'text', minLength: 1, maxLength, tokens, sample: REMINDER_SAMPLE };
+}
+
+const REMINDERS_META: Record<string, SettingMeta> = {
+  'reminders.atRisk.enabled': {
+    label: 'At-risk banner',
+    help: 'A banner when a learner has a streak and today does not count yet.',
+    kind: 'bool'
+  },
+  'reminders.atRisk.fromLocalHour': {
+    label: 'At risk from',
+    help: "Not shown before this hour of the learner's own day (0-23). 18 means from 6 pm.",
+    kind: 'int',
+    min: 0,
+    max: 23,
+    unit: 'h'
+  },
+  'reminders.atRisk.title': reminderCopy('At risk: title', 'The banner heading.', REMINDER_TITLE_MAX, ['streak']),
+  'reminders.atRisk.body': reminderCopy('At risk: text', 'Under the heading, when no freeze would cover today.', REMINDER_BODY_MAX, ['streak', 'hoursLeft']),
+  'reminders.atRisk.bodyWithFreeze': reminderCopy('At risk: text with a freeze', 'Under the heading, when a freeze would cover today.', REMINDER_BODY_MAX, ['freezes']),
+  'reminders.atRisk.cta': reminderCopy('At risk: button', 'Opens the next lesson.', REMINDER_TITLE_MAX),
+  'reminders.goalMet.toast': reminderCopy('Goal met: toast', 'The toast when the daily goal is met.', REMINDER_BODY_MAX, ['goal', 'bonusXp']),
+  'reminders.goalMet.cardTitle': reminderCopy('Goal met: card title', 'The card inside a lesson when the goal is met.', REMINDER_TITLE_MAX),
+  'reminders.goalMet.cardBody': reminderCopy('Goal met: card text', 'Under the card title.', REMINDER_BODY_MAX, ['streak', 'bonusXp']),
+  'reminders.goalMet.moreLabel': reminderCopy('Goal met: keep going', 'The button that carries on.', REMINDER_TITLE_MAX),
+  'reminders.goalMet.doneLabel': reminderCopy('Goal met: stop', 'The button that closes the lesson.', REMINDER_TITLE_MAX),
+  'reminders.freezeEarned': reminderCopy('Freeze earned', 'The toast when a freeze is earned.', REMINDER_BODY_MAX, ['freezes', 'maxFreezes']),
+  'reminders.freezeUsed': reminderCopy('Freeze used', 'The banner after a freeze covered a missed day.', REMINDER_BODY_MAX, ['streak', 'days']),
+  'reminders.streakBroken.title': reminderCopy('Streak ended: title', 'The banner heading while a repair is on offer.', REMINDER_TITLE_MAX, ['lostStreak']),
+  'reminders.streakBroken.body': reminderCopy('Streak ended: text', 'What the repair asks for, and by when.', REMINDER_BODY_MAX, ['remaining', 'deadline']),
+  'reminders.streakBroken.cta': reminderCopy('Streak ended: button', 'Opens the next lesson.', REMINDER_TITLE_MAX),
+  'reminders.streakRepaired': reminderCopy('Streak repaired', 'The toast when a repair is completed.', REMINDER_BODY_MAX, ['streak']),
+  'reminders.welcomeBack.enabled': {
+    label: 'Welcome-back banner',
+    help: 'A banner for a learner coming back after some days away.',
+    kind: 'bool'
+  },
+  'reminders.welcomeBack.cta': reminderCopy('Welcome back: button', 'Opens the next lesson.', REMINDER_TITLE_MAX),
+  'reminders.welcomeBack.tiers': {
+    label: 'Welcome-back messages',
+    help: 'The message for learners away at least this many days; the longest absence that applies wins. Days climb strictly. Title and text may use {name}, {days} and {bestStreak}. A guest has no name: for them {name} is left out, with the comma before it.',
+    kind: 'rows',
+    minItems: 1,
+    maxItems: 5,
+    rowMeta: [
+      { key: 'minDays', label: 'Away at least (days)', kind: 'int', min: 1, max: 365 },
+      { key: 'title', label: 'Title', kind: 'string', minLength: 1, maxLength: REMINDER_TITLE_MAX, tokens: WELCOME_BACK_TOKENS },
+      { key: 'body', label: 'Text', kind: 'string', minLength: 1, maxLength: REMINDER_BODY_MAX, tokens: WELCOME_BACK_TOKENS }
+    ]
+  }
+};
+
 /* ------------------------------------------------------------ site copy */
 
 /** The longest any piece of site copy may be. */
@@ -649,6 +877,11 @@ export const SETTING_META: Record<string, SettingMeta> = {
     max: 3650,
     unit: 'days'
   },
+  ...STREAK_P3_META,
+
+  /* ---------------------------------------------------- goals, reminders */
+  ...GOALS_META,
+  ...REMINDERS_META,
 
   /* ------------------------------------------- units, celebrations, badges */
   ...UNITS_META,

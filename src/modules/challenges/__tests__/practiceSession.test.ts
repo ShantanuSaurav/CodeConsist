@@ -54,7 +54,7 @@ describe('resolveOpenTarget', () => {
 });
 
 describe('a unit run', () => {
-  const outcome = (overrides = {}) => ({ solveXp: 10, perfectBonusXp: 0, totalXp: 10, unitCompleted: null, perfect: false, verifiedByServer: true, ...overrides });
+  const outcome = (overrides = {}) => ({ solveXp: 10, perfectBonusXp: 0, goalBonusXp: 0, totalXp: 10, unitCompleted: null, perfect: false, verifiedByServer: true, ...overrides });
 
   it('counts first-try answers, hints, XP and a completion', () => {
     let counts = countSolve(EMPTY_COUNTS, { attempts: 1, hints: 0, outcome: outcome() });
@@ -62,6 +62,14 @@ describe('a unit run', () => {
     counts = countSolve(counts, { attempts: 1, hints: 0, outcome: outcome({ perfectBonusXp: 25, totalXp: 35, unitCompleted: 's:a1', perfect: false }) });
     expect(counts).toMatchObject({ questions: 3, firstTry: 2, hints: 1, xp: 55, perfectBonusXp: 25, unitCompleted: 's:a1', unverified: 0 });
     expect(runSummary(counts)).toEqual({ accuracy: 67, flawless: false });
+  });
+
+  it('counts the daily-goal bonus a solve in the run paid (Phase 3)', () => {
+    let counts = countSolve(EMPTY_COUNTS, { attempts: 1, hints: 0, outcome: outcome() });
+    expect(counts).toMatchObject({ goalMet: false, goalBonusXp: 0 });
+    counts = countSolve(counts, { attempts: 1, hints: 0, outcome: outcome({ goalBonusXp: 10, goalMet: true, totalXp: 20 }) });
+    counts = countSolve(counts, { attempts: 1, hints: 0, outcome: outcome() });
+    expect(counts).toMatchObject({ goalMet: true, goalBonusXp: 10, xp: 40 });
   });
 
   it('is flawless only with every answer first try and no hint; empty has no accuracy', () => {

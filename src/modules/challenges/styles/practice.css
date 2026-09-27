@@ -680,6 +680,14 @@
 }
 .unit-complete-sync { font-size: var(--text-xs); color: var(--text-muted) !important; }
 .celebration-stat-box .streak-flame { font-size: var(--text-xl); }
+/* With today's daily goal as a fourth box: two by two on a phone. */
+.celebration-stats.has-goal { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 480px) {
+  .celebration-stats.has-goal { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .celebration-stats.has-goal .celebration-stat-box:nth-child(3) { border-left: none; }
+  .celebration-stats.has-goal .celebration-stat-box:nth-child(n + 3) { border-top: 1px solid var(--border-subtle); }
+}
+.unit-complete-perfect.is-goal { background: var(--success-soft); color: var(--success) !important; }
 
 /* Sound and close, top right of the lesson. */
 .modal-header-actions { display: flex; align-items: center; gap: 2px; flex: none; }

@@ -11,7 +11,8 @@ import { z } from 'zod';
 import { isValidTimeZone } from '../time/days';
 import { tokensIn } from './copy';
 import { DEFAULT_SETTINGS } from './defaults';
-import { SECTION_META, SETTING_META, metaFor, sectionOfPath } from './meta';
+import { SECTION_META, SETTING_META, WELCOME_BACK_TOKENS, metaFor, sectionOfPath } from './meta';
+import { GOAL_ID_RE, GOAL_TARGET_BOUNDS } from '../habits/goals';
 import type { RowFieldMeta, SettingMeta } from './meta';
 import { defaultsWithEnv, getPath, isPlainObject, mergeSettings, normalizeOrigin, overrideLeaves } from './merge';
 import type { Settings, SettingsIssue } from './types';
@@ -194,6 +195,59 @@ const REFINEMENTS: Partial<Record<string, Refiner>> = {
       const at = strictlyAscending(ranks.map((r: any) => Number(r?.minLevel)));
       if (at !== -1) add(`ranks.${at}.minLevel`, 'Each rank must start at a higher level than the one before.');
     }
+  },
+  streak: (streak, add) => {
+    const { startingCount, maxHeld } = streak?.freeze ?? {};
+    if (typeof startingCount === 'number' && typeof maxHeld === 'number' && startingCount > maxHeld) {
+      add('freeze.startingCount', `Must be at most the most freezes held (${maxHeld}).`);
+    }
+    if (Array.isArray(streak?.milestones)) {
+      const at = strictlyAscending(streak.milestones.map(Number));
+      if (at !== -1) add(`milestones.${at}`, 'Each milestone must be larger than the one before.');
+    }
+  },
+  goals: (goals, add) => {
+    const options: unknown = goals?.options;
+    if (!Array.isArray(options)) return;
+    const seen = new Set<string>();
+    options.forEach((option: any, i: number) => {
+      const id = option?.id;
+      if (typeof id === 'string') {
+        if (!GOAL_ID_RE.test(id)) add(`options.${i}.id`, 'Use lower-case letters, digits and dashes (at most 32).');
+        else if (seen.has(id)) add(`options.${i}.id`, `"${id}" is used by two options.`);
+        seen.add(id);
+      }
+      const bounds = GOAL_TARGET_BOUNDS[option?.metric as keyof typeof GOAL_TARGET_BOUNDS];
+      if (bounds && typeof option?.target === 'number' && (option.target < bounds.min || option.target > bounds.max)) {
+        add(`options.${i}.target`, `A ${option.metric} goal's target must be ${bounds.min}-${bounds.max}.`);
+      }
+      for (const key of ['label', 'blurb'] as const) {
+        const bad = typeof option?.[key] === 'string' ? tokensIn(option[key]) : [];
+        if (bad.length) add(`options.${i}.${key}`, `Plain text only (not ${bad.map((t) => `{${t}}`).join(', ')}).`);
+      }
+    });
+    const fallback = options.find((option: any) => option?.id === goals?.defaultOptionId);
+    if (typeof goals?.defaultOptionId === 'string') {
+      if (!fallback) add('defaultOptionId', 'Must be the id of one of the options.');
+      else if (fallback.enabled !== true) add('defaultOptionId', 'The default goal must be switched on.');
+    }
+  },
+  reminders: (reminders, add) => {
+    const tiers: unknown = reminders?.welcomeBack?.tiers;
+    if (!Array.isArray(tiers)) return;
+    const at = strictlyAscending(tiers.map((t: any) => Number(t?.minDays)));
+    if (at !== -1) add(`welcomeBack.tiers.${at}.minDays`, 'Each message must be for more days away than the one before.');
+    tiers.forEach((tier: any, i: number) => {
+      for (const key of ['title', 'body'] as const) {
+        const bad = typeof tier?.[key] === 'string' ? tokensIn(tier[key]).filter((t) => !WELCOME_BACK_TOKENS.includes(t)) : [];
+        if (bad.length) {
+          add(
+            `welcomeBack.tiers.${i}.${key}`,
+            `Unknown ${bad.length === 1 ? 'token' : 'tokens'} ${bad.map((t) => `{${t}}`).join(', ')} - allowed: ${WELCOME_BACK_TOKENS.map((t) => `{${t}}`).join(', ')}.`
+          );
+        }
+      }
+    });
   },
   units: (units, add) => {
     const { minSize, targetSize, maxSize } = units ?? {};

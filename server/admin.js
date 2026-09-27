@@ -86,6 +86,20 @@ function adminUserRow(user, deps = {}) {
   // services (a test, or before boot) the stored value is shown.
   const learning = deps.learning;
   const level = learning?.lib && learning.settings ? learning.lib.levelFromXp(progress.xp, learning.settings.current().levels) : progress.level;
+  // The streak as the learner sees it today (their zone, freezes applied)
+  // and the goal that applies to them. Without the habits service (a test
+  // that mocks the store, or before boot) the stored streak is shown.
+  let streak = progress.streak;
+  let goal = null;
+  if (learning?.habits) {
+    try {
+      streak = learning.habits.streakFor(user, progress);
+      const option = learning.habits.goalFor(user);
+      goal = option ? { id: option.id, label: option.label, chosen: Boolean(store.normalizePreferences(user.preferences).dailyGoalId) } : null;
+    } catch {
+      /* keep the stored streak */
+    }
+  }
   return {
     id: user.id,
     email: user.email,
@@ -98,7 +112,10 @@ function adminUserRow(user, deps = {}) {
     createdAt: user.createdAt ?? null,
     xp: progress.xp,
     level,
-    streak: progress.streak,
+    streak,
+    // The daily goal that applies (null when goals are off, or without the
+    // habits service); `chosen` is false for a learner on the default.
+    goal,
     completedChallenges: progress.completedChallenges.length,
     completedStages: progress.completedStages.length,
     lastActiveDay: progress.lastActiveDay,
@@ -229,7 +246,10 @@ function settingsContext(deps) {
       maxPerfectBonusXp: unitCount === null ? null : unitCount * perfectBonusXp
     },
     runtime: deps.learning?.runtimeInfo?.() ?? { pythonVerifiable: false, judge0Languages: [] },
-    levels: { learnerXp: store.allUsers().map((u) => Number(allProgress[u.id]?.xp) || 0) }
+    levels: { learnerXp: store.allUsers().map((u) => Number(allProgress[u.id]?.xp) || 0) },
+    // How many learners chose each daily goal ("N learners chose this"), and
+    // how many follow the default. Null without the habits service.
+    goals: deps.learning?.habits ? deps.learning.habits.goalChoices() : null
   };
 }
 
@@ -240,9 +260,10 @@ function settingsContext(deps) {
  *   runSolution(challenge, code) -> { status, testResults, stderr, reason };
  *   ai -> the Gemini client from server/ai.js ({ configured, model, generateJson });
  *   billing -> { provider } from server/payments.js, the same instance the learner routes use;
- *   learning -> { lib, settings, activity, runtimeInfo } (server/index.js's learningDeps):
- *     the rules store, each learner's activity, and the shared rule code. Read
- *     per request; routes that need it answer 503 while it is missing.
+ *   learning -> { lib, settings, activity, units, habits, runtimeInfo } (server/index.js's learningDeps):
+ *     the rules store, each learner's activity, streaks and goals, and the
+ *     shared rule code. Read per request; routes that need it answer 503
+ *     while it is missing.
  *   access -> { limiter, slots, cors, hops, bootedAt } (server/index.js's adminDeps.access):
  *     the live rate-limit counters, code-runner slots and CORS policy behind
  *     the Limits & access page.
@@ -545,15 +566,18 @@ export function createAdminRouter(deps = {}) {
     });
   });
 
-  /** One learner's time zone, recent days and most-missed questions, for the Users page drawer. */
-  router.get('/users/:id/learning', (req, res) => {
-    const target = store.findUserById(req.params.id);
-    if (!target) return res.status(404).json({ error: 'No such user.' });
+  /**
+   * One learner's time zone, recent days and most-missed questions, and -
+   * with the habits service - their preferences, streak, freezes, repair
+   * offer and goal (`{ preferences, habit, summary, strip }`), for the Users
+   * page drawer.
+   */
+  function learningView(target) {
     const learning = deps.learning;
-    if (!learning?.activity || !learning.lib) return res.status(503).json({ error: 'Activity is not available yet.' });
     const view = learning.activity.learning(target);
-    res.json({
+    return {
       ...view,
+      ...(learning.habits ? learning.habits.userLearning(target) : {}),
       misses: view.misses.map((m) => {
         const challenge = getChallenge(m.challengeId);
         const topKey = Object.entries(m.keys ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
@@ -564,7 +588,44 @@ export function createAdminRouter(deps = {}) {
           topWrong: challenge && topKey ? learning.lib.missKeyLabel(challenge, topKey) : null
         };
       })
-    });
+    };
+  }
+
+  router.get('/users/:id/learning', (req, res) => {
+    const target = store.findUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'No such user.' });
+    const learning = deps.learning;
+    if (!learning?.activity || !learning.lib) return res.status(503).json({ error: 'Activity is not available yet.' });
+    res.json(learningView(target));
+  });
+
+  /**
+   * Support edits to one learner's streak and goal: freezes held, the streak
+   * (a value and its last day), the daily goal, and forgetting the time zone.
+   * Range-checked by server/habits.js (`adminUpdate`), audited with every
+   * value's before and after. Answers with the drawer's view.
+   */
+  router.patch('/users/:id/learning', (req, res) => {
+    const target = store.findUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'No such user.' });
+    const learning = deps.learning;
+    if (!learning?.habits || !learning.activity || !learning.lib) return res.status(503).json({ error: 'Streaks are not available yet.' });
+    const result = learning.habits.adminUpdate(target, req.body);
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    if (Object.keys(result.changes).length > 0) audit(req, 'learning.user.update', target.id, { username: target.username, changes: result.changes });
+    res.json({ ...learningView(store.findUserById(target.id) ?? target), changed: Object.keys(result.changes) });
+  });
+
+  /**
+   * Goals and streaks across every learner: goal choices, goals met today,
+   * streaks at risk now, the average streak, freezes held and used this
+   * week, repairs open and done. The "who this affects" lines on the goal,
+   * streak and reminder settings, and the dashboard's Engagement card.
+   */
+  router.get('/analytics/engagement', (_req, res) => {
+    const habits = deps.learning?.habits;
+    if (!habits) return res.status(503).json({ error: 'Streaks are not available yet.' });
+    res.json(habits.engagement());
   });
 
   /* ------------------------------------------------------------- audit log */

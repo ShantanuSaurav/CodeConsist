@@ -3,11 +3,19 @@
  * up to date, and how the server's answers are folded in. Lives outside
  * SessionProvider.tsx because a non-component export from that file breaks
  * React Fast Refresh - and so these rules can be tested without React.
+ *
+ * The streak is kept RAW everywhere here: `streak`, `bestStreak`,
+ * `lastActiveDay` and `habit` exactly as they were stored (by the server, or
+ * by this browser's own `learnerSolve`). What a screen shows - the streak
+ * with freezes applied, a break, a repair offer - is derived from them by the
+ * habits engine (src/platform/habits, the session's `habits`), which never
+ * writes. Judging the stored number against a day here, as this file used
+ * to, would hide the very missed days the freeze and repair rules work on.
  */
 import type { UserStats } from '@/types';
 import { ApiError } from '../api-client/api';
 import { learnerDay } from '../time/days';
-import { DEFAULT_LEVEL_CURVE, currentStreak, levelFromXp } from '../xp-leveling/leveling';
+import { DEFAULT_LEVEL_CURVE, levelFromXp } from '../xp-leveling/leveling';
 import type { LevelCurve } from '../xp-leveling/leveling';
 import { normalizeUnitsCompleted } from '../xp-leveling/rewards';
 
@@ -26,23 +34,33 @@ export const INITIAL_STATS: UserStats = {
   unlockedStages: []
 };
 
+function plainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** A raw stored streak: a whole number, 0 or more. */
+function rawStreak(value: unknown): number {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
 /**
  * Old saves are missing fields added later; fill them in rather than
  * crashing. The level is re-derived from XP with the current curve, so a
- * curve change never leaves a stale level on screen. `today` should be the
- * learner's day from `sessionToday`, so the streak is judged as the server
- * judges it.
+ * curve change never leaves a stale level on screen. The streak stays as it
+ * was stored (see the top of this file).
  */
-export function hydrateStats(raw: unknown, curve: LevelCurve = DEFAULT_LEVEL_CURVE, today?: string): UserStats {
+export function hydrateStats(raw: unknown, curve: LevelCurve = DEFAULT_LEVEL_CURVE): UserStats {
   const saved = (raw && typeof raw === 'object' ? raw : {}) as Partial<UserStats>;
   const xp = Number(saved.xp) || 0;
-  return {
+  const streak = rawStreak(saved.streak);
+  const stats: UserStats = {
     ...INITIAL_STATS,
     ...saved,
     xp,
     level: levelFromXp(xp, curve),
-    streak: currentStreak(Number(saved.streak) || 0, saved.lastActiveDay ?? null, today),
-    bestStreak: Number(saved.bestStreak) || Number(saved.streak) || 0,
+    streak,
+    bestStreak: Math.max(rawStreak(saved.bestStreak), streak),
+    lastActiveDay: typeof saved.lastActiveDay === 'string' ? saved.lastActiveDay : null,
     completedChallenges: Array.isArray(saved.completedChallenges) ? saved.completedChallenges : [],
     completedStages: Array.isArray(saved.completedStages) ? saved.completedStages : [],
     seenConcepts: Array.isArray(saved.seenConcepts) ? saved.seenConcepts : [],
@@ -53,6 +71,10 @@ export function hydrateStats(raw: unknown, curve: LevelCurve = DEFAULT_LEVEL_CUR
     // A cached copy of what the server said last time; the next restore overwrites it.
     unlockedStages: Array.isArray(saved.unlockedStages) ? saved.unlockedStages.filter((id) => typeof id === 'string') : []
   };
+  // Freezes, repair and streak history: normalized by the habits engine
+  // wherever it is read. A save from before them has none.
+  if (!plainObject(saved.habit)) delete stats.habit;
+  return stats;
 }
 
 /**
@@ -81,15 +103,19 @@ export type ServerProgressRow = Partial<Omit<UserStats, 'isPremium' | 'unlockedS
 
 /**
  * Adopt the account's progress as a route handed it over (`/auth/me`,
- * login, a merge). Those routes already worked the streak out on the
- * learner's own day, so it is taken as it is - judging it again against this
- * browser's day could only disagree with the server. The level follows the
- * current curve.
+ * login, a merge). Those routes already worked out the missed days on the
+ * learner's own day (the settled row), so the streak fields are taken as they
+ * are - judging them again against this browser's day could only disagree
+ * with the server. The level follows the current curve.
  */
 export function adoptAccountProgress(prev: UserStats, progress: ServerProgressRow | null | undefined, curve: LevelCurve = DEFAULT_LEVEL_CURVE): UserStats {
   const row = progress ?? {};
   const xp = Number(row.xp) || 0;
-  return { ...prev, ...row, xp, level: levelFromXp(xp, curve), streak: Math.max(0, Number(row.streak) || 0) };
+  const next: UserStats = { ...prev, ...row, xp, level: levelFromXp(xp, curve), streak: rawStreak(row.streak) };
+  // An older server sends no `habit`: none is better than the previous
+  // account's (or a guest's) left behind in this browser.
+  if (!plainObject(row.habit)) delete next.habit;
+  return next;
 }
 
 /**
@@ -99,14 +125,9 @@ export function adoptAccountProgress(prev: UserStats, progress: ServerProgressRo
  * this tab priced the solve (`rulesChanged`: the response's settings
  * revision is not the one the tab played by). Then the server's XP is taken
  * as it is (build plan §7), so a lowered reward never lingers in an old tab
- * with too high a level. The streak is the server's, judged on the day the
- * server counted the solve on (`serverDay`).
+ * with too high a level. The streak fields are the server's, raw.
  */
-export function statsAfterSolve(
-  prev: UserStats,
-  progress: ServerProgressRow,
-  options: { rulesChanged: boolean; curve: LevelCurve; serverDay: string }
-): UserStats {
+export function statsAfterSolve(prev: UserStats, progress: ServerProgressRow, options: { rulesChanged: boolean; curve: LevelCurve }): UserStats {
   const serverXp = Number(progress.xp) || 0;
   const xp = options.rulesChanged ? serverXp : Math.max(prev.xp, serverXp);
   return {
@@ -115,7 +136,9 @@ export function statsAfterSolve(
     xp,
     completedChallenges: [...new Set([...prev.completedChallenges, ...(progress.completedChallenges ?? [])])],
     level: levelFromXp(xp, options.curve),
-    streak: currentStreak(Number(progress.streak) || 0, progress.lastActiveDay ?? null, options.serverDay),
+    streak: rawStreak(progress.streak),
+    // An older server sends no `habit`: keep the one this tab worked out.
+    habit: plainObject(progress.habit) ? progress.habit : prev.habit,
     // Progress carries no entitlements; keep the ones the profile gave us.
     isPremium: prev.isPremium,
     unlockedStages: prev.unlockedStages

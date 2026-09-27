@@ -29,6 +29,12 @@ export { Switch } from './primitives/Switch';
 export { Segmented } from './primitives/Segmented';
 export { ProgressRing } from './primitives/ProgressRing';
 export { StreakFlame } from './primitives/StreakFlame';
+export type { StreakFlameState } from './primitives/StreakFlame';
+export { ChoiceCards } from './primitives/ChoiceCards';
+export type { ChoiceCardOption, ChoiceCardVia } from './primitives/ChoiceCards';
+export { StreakStrip } from './primitives/StreakStrip';
+export type { StreakStripDay, StreakStripState } from './primitives/StreakStrip';
+export { GoalMetCard } from './primitives/GoalMetCard';
 export type { SegmentedOption } from './primitives/Segmented';
 export {
   CodeConsistLogo,

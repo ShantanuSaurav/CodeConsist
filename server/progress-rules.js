@@ -54,8 +54,12 @@ export function parseSolveBody(body, xp) {
  * Record one verified, passing solve. Re-solving is allowed and keeps the
  * best score, but pays XP only once. `solvedAt` is the FIRST solve and is
  * never overwritten; `lastSolvedAt` and `solves` track the rest.
+ *
+ * The streak is not touched here: the habits engine counts the day
+ * (server/habits.js recordSolveHabits, pipeline step 11), after the day row
+ * it reads has been written.
  */
-export function applySolveCore({ progress, challenge, attempts, hintsUsed, today, now, lib, xp, levels, completedStagesFor }) {
+export function applySolveCore({ progress, challenge, attempts, hintsUsed, now, lib, xp, levels, completedStagesFor }) {
   const challengeId = challenge.id;
   const previous = ownEntry(progress.attempts, challengeId);
   const score = lib.scoreSolve(attempts, hintsUsed, xp);
@@ -79,11 +83,8 @@ export function applySolveCore({ progress, challenge, attempts, hintsUsed, today
         // A row from before `solves` existed was solved at least once.
         solves: (Number.isInteger(previous?.solves) ? previous.solves : previous ? 1 : 0) + 1
       }
-    },
-    streak: lib.nextStreak(progress.streak, progress.lastActiveDay, today),
-    lastActiveDay: today
+    }
   };
-  next.bestStreak = Math.max(progress.bestStreak ?? 0, next.streak);
   next.level = lib.levelFromXp(next.xp, levels);
   next.completedStages = completedStagesFor(next.completedChallenges);
   return { next, awarded, score, firstSolve };
@@ -198,19 +199,12 @@ export function mergeCore({
   }
 
   const completedChallenges = [...known, ...newIds];
-  const clampStreak = (v) => Math.max(0, Math.min(settings.streak.maxPlausibleMergedStreak, Number(v) || 0));
 
+  // The streak fields stay the account's here: the habits engine decides
+  // what a merge does to them (server/habits.js mergeHabitsFor, step 6).
   const merged = {
     ...current,
     xp: current.xp + awarded,
-    bestStreak: Math.max(current.bestStreak ?? 0, clampStreak(incoming.bestStreak)),
-    streak: Math.max(current.streak ?? 0, clampStreak(incoming.streak)),
-    // A day after the account's today would stick: the day never moves back.
-    lastActiveDay:
-      [current.lastActiveDay, incoming.lastActiveDay]
-        .filter((d) => lib.isDayKey(d) && d <= today)
-        .sort()
-        .pop() ?? (lib.isDayKey(current.lastActiveDay) ? current.lastActiveDay : null),
     completedChallenges,
     completedStages: completedStagesFor(completedChallenges),
     attempts
@@ -251,11 +245,16 @@ export function resetProgress(emptyProgress) {
   return { ...emptyProgress, attempts: {}, completedChallenges: [], completedStages: [], unitsCompleted: {} };
 }
 
-/** Level and streak as they stand on the learner's `today` (a streak goes stale after a missed day). */
-export function recalcProgress(progress, { lib, levels, today }) {
-  return {
-    ...progress,
-    level: lib.levelFromXp(progress.xp, levels),
-    streak: lib.currentStreak(progress.streak, progress.lastActiveDay, today)
-  };
+/**
+ * Level and streak as they stand on the learner's `today`: the level from
+ * the current curve, and the missed days since the last streak day worked
+ * out by the habits engine - freezes used, a broken run saved and its repair
+ * offered (`habits.settledRow`). Nothing is written; the browser adopts the
+ * row as it is, and its own settle of it changes nothing.
+ */
+export function recalcProgress(progress, { lib, levels, today, habits }) {
+  const level = lib.levelFromXp(progress.xp, levels);
+  if (habits) return { ...habits.settledRow(progress, today), level };
+  // Without the habits service (before boot): the old stale-or-alive rule.
+  return { ...progress, level, streak: lib.currentStreak(progress.streak, progress.lastActiveDay, today) };
 }

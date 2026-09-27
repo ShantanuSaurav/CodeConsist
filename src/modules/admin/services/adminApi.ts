@@ -13,6 +13,8 @@
  */
 import { STORAGE_KEYS, readString, remove, writeString } from '@/platform/storage/storage';
 import type { Settings, SettingsIssue } from '@/platform/settings';
+import type { DayGoal, HabitState } from '@/types';
+import type { HabitStatus, StreakStripCell } from '@/platform/habits';
 
 const BASE = '/api';
 
@@ -102,7 +104,10 @@ export interface AdminUserRow {
   createdAt: string | null;
   xp: number;
   level: number;
+  /** The streak as the learner sees it today (their zone, freezes applied). */
   streak: number;
+  /** The daily goal that applies to them; `chosen` is false on the default. Null when goals are off (or from an older server). */
+  goal?: { id: string; label: string; chosen: boolean } | null;
   completedChallenges: number;
   completedStages: number;
   lastActiveDay: string | null;
@@ -494,6 +499,10 @@ export interface AdminDayRecord {
   units: number;
   /** Perfect-unit bonus XP paid that day (already inside `xp`). */
   perfectBonusXp: number;
+  /** The daily goal met that day, as it stood then (Phase 3; null until met). */
+  goal: DayGoal | null;
+  /** The daily-goal bonus paid that day (NOT inside `xp`). */
+  goalBonusXp: number;
   firstAt: string | null;
   lastAt: string | null;
   source: 'live' | 'backfill' | 'merge';
@@ -505,6 +514,19 @@ export interface UserLearning {
   today: string;
   from: string;
   days: Record<string, AdminDayRecord>;
+  /** Streak and goal (Phase 3; absent from an older server). */
+  preferences?: { timeZone: string | null; timeZoneSetAt: string | null; dailyGoalId: string | null; soundOn: boolean | null };
+  effectiveGoal?: { id: string; label: string; metric: string; target: number } | null;
+  /** The stored streak fields (raw) and habit record. */
+  habit?: { streak: number; bestStreak: number; lastActiveDay: string | null; habit: HabitState };
+  /** The streak and goal as the learner sees them today. */
+  summary?: HabitStatus;
+  /** The last 30 days: active, frozen, repaired, missed. */
+  strip?: StreakStripCell[];
+  /** The most freezes the support edit may set. */
+  maxFreezes?: number;
+  /** The goals the support edit may set (the enabled options). */
+  goalOptions?: { id: string; label: string }[];
   misses: {
     challengeId: string;
     title: string;
@@ -514,6 +536,33 @@ export interface UserLearning {
     revealed: number;
     topWrong: string | null;
   }[];
+}
+
+/** PATCH /admin/users/:id/learning: any of these; audited with before and after. */
+export interface UserLearningPatch {
+  freezes?: number;
+  /** 0 ends the current run; a value needs the last day it counted (not after the learner's today). */
+  streak?: { value: number; lastActiveDay?: string | null };
+  dailyGoalId?: string | null;
+  clearTimeZone?: true;
+}
+
+/** GET /admin/analytics/engagement: goals and streaks across every learner. */
+export interface EngagementSummary {
+  goalChoice: Record<string, number>;
+  /** Learners on the default goal (no choice, or one no longer offered). */
+  goalUnset: number;
+  metGoalToday: number;
+  atRiskNow: number;
+  /** Average streak among learners with one going. */
+  avgStreak: number;
+  learnersWithStreak: number;
+  freezesHeld: number;
+  freezesUsed7d: number;
+  repairsOpen: number;
+  repairsDone7d: number;
+  learnersWithTimeZone: number;
+  learners: number;
 }
 
 /* ------------------------------------------------------- rules & rewards */
@@ -553,6 +602,8 @@ export interface SettingsContext {
   } | null;
   runtime: { pythonVerifiable: boolean; judge0Languages: string[] } | null;
   levels: { learnerXp: number[] };
+  /** How many learners chose each daily goal, and how many follow the default (Phase 3; null without it). */
+  goals?: { choiceCounts: Record<string, number>; unset: number } | null;
 }
 
 export interface CredentialsChangeResult {
@@ -672,9 +723,19 @@ export const adminApi = {
     return request(`/admin/analytics/challenges/${encodeURIComponent(id)}/misses`);
   },
 
-  /** One learner's time zone, last 14 weeks of days and most-missed questions. */
+  /** One learner's time zone, last 14 weeks of days, most-missed questions, streak and goal. */
   async userLearning(id: string): Promise<UserLearning> {
     return request(`/admin/users/${encodeURIComponent(id)}/learning`);
+  },
+
+  /** Support edits to one learner's streak, freezes, goal and time zone (range-checked and audited). */
+  async updateUserLearning(id: string, patch: UserLearningPatch): Promise<UserLearning & { changed: string[] }> {
+    return request(`/admin/users/${encodeURIComponent(id)}/learning`, { method: 'PATCH', body: patch });
+  },
+
+  /** Goals and streaks across every learner. */
+  async engagement(): Promise<EngagementSummary> {
+    return request('/admin/analytics/engagement');
   },
 
   /* Rules & rewards: the settings store. Every learner picks a change up within one health probe. */

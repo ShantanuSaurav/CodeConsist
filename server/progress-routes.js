@@ -11,19 +11,21 @@
  *           code runs -> verify the submission (the only await; code runs in
  *           an execution slot, 503 when they are all busy) -> pass mark? 422
  *           -> capture the zone, pick the learner's day -> score, pay, record
- *           -> a unit completed? its perfect bonus -> the day row -> streak
- *           -> level -> persist, drop the draft, Excel
+ *           -> a unit completed? its perfect bonus -> the day row -> streak,
+ *           freezes, repair and the daily goal (server/habits.js; the goal
+ *           bonus once a day) -> level -> persist, drop the draft, Excel
  *   merge:  premium filter on the new ids (-> skippedLocked) -> capture the
  *           zone -> re-price the new ids -> bonuses for units the new ids
- *           complete -> merge the activity log -> clamp the streak -> adopt
- *           the guest's preferences where the account has none -> level ->
- *           persist
+ *           complete -> merge the activity log -> adopt the guest's
+ *           preferences where the account has none -> the streak (a new
+ *           account adopts the guest's; an existing one replays the merged
+ *           days, paying their goal bonuses) -> level -> persist
  *
  * Everything after the last `await` is synchronous, so progress and the
  * activity log are written in the same tick and two requests cannot
  * interleave between a read and its write.
  *
- * `learningDeps` ({ lib, settings, activity, units }) is read per request:
+ * `learningDeps` ({ lib, settings, activity, units, habits }) is read per request:
  * it is filled in by server/index.js's bootstrap, after this router is mounted.
  */
 import express from 'express';
@@ -47,12 +49,22 @@ function copyOr(learningDeps, key, vars, fallback) {
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-/** A learner's progress with level and streak as they stand on their own today. */
+/**
+ * A learner's progress with level and streak as they stand on their own
+ * today: the missed days since their last streak day worked out (freezes
+ * used, a broken run and its repair offer), nothing written.
+ */
 export function recalcForUser({ store, learningDeps }, user, now = new Date()) {
-  const { lib, settings, activity } = learningDeps;
+  const { lib, settings, activity, habits } = learningDeps;
   const progress = store.getProgress(user.id);
   const today = activity.todayFor(user, progress, now);
-  return recalcProgress(progress, { lib, levels: settings.current().levels, today });
+  return recalcProgress(progress, { lib, levels: settings.current().levels, today, habits });
+}
+
+/** The derived streak and goal status for a response, or undefined before the habits service exists. */
+export function habitsForUser({ store, learningDeps }, user, now = new Date()) {
+  const habits = learningDeps.habits;
+  return habits ? habits.habitSummary(user, store.getProgress(user.id), now) : undefined;
 }
 
 /**
@@ -89,7 +101,7 @@ export function createProgressRouter({
   const router = express.Router();
 
   router.get('/progress', requireAuth, (req, res) => {
-    res.json({ progress: recalcForUser({ store, learningDeps }, req.user) });
+    res.json({ progress: recalcForUser({ store, learningDeps }, req.user), habits: habitsForUser({ store, learningDeps }, req.user) });
   });
 
   /**
@@ -102,7 +114,7 @@ export function createProgressRouter({
     requireAuth,
     solveLimit,
     asyncRoute(async (req, res) => {
-      const { lib, settings, activity } = learningDeps;
+      const { lib, settings, activity, habits } = learningDeps;
       const input = parseSolveBody(req.body, settings.current().xp);
 
       const challenge = getChallengeMerged(input.challengeId);
@@ -155,7 +167,6 @@ export function createProgressRouter({
         challenge,
         attempts: input.attempts,
         hintsUsed: input.hintsUsed,
-        today,
         now,
         lib,
         xp: rules.xp,
@@ -178,7 +189,7 @@ export function createProgressRouter({
         unitFor: unitLookup(learningDeps)
       });
 
-      const todayRow = activity.recordSolve(req.user, {
+      const dayRow = activity.recordSolve(req.user, {
         challengeId: challenge.id,
         isTest: Boolean(challenge.isStageTest),
         firstSolve,
@@ -189,26 +200,37 @@ export function createProgressRouter({
         at: now.toISOString()
       });
 
-      store.setProgress(req.user.id, next);
+      // The streak and the daily goal (step 11): settle the missed days,
+      // count towards a repair, count today, and pay the goal bonus the
+      // first time today's goal is met.
+      const habitsResult = habits.recordSolveHabits({ user: req.user, progress: next, today, dayRow, now });
+      const stored = habitsResult.next;
+      const todayRow = habitsResult.today;
+
+      store.setProgress(req.user.id, stored);
 
       // The lesson is solved, so the half-finished attempt is no longer work in
       // progress - see server/drafts-routes.js, which owns that rule.
       clearDraftForSolve(req.user.id, challenge.id);
-      onProgress(req.user, next);
+      onProgress(req.user, stored);
 
+      const goalBonuses = habitsResult.bonusXp > 0 ? [{ kind: 'daily-goal', day: today, xp: habitsResult.bonusXp }] : [];
       res.json({
-        progress: next,
-        // Solve XP only, as always; a bonus is reported beside it.
+        progress: stored,
+        // Solve XP only, as always; bonuses are reported beside it.
         awardedXp: awarded,
         score,
         firstSolve,
         verified: verdict.verified,
         settingsRevision: settings.revision(),
         today: todayRow,
-        bonuses: bonusesOf(reward ? [reward] : []),
-        bonusXp: reward?.bonusXp ?? 0,
+        bonuses: [...bonusesOf(reward ? [reward] : []), ...goalBonuses],
+        // Every bonus this solve paid: the perfect unit's and the daily goal's.
+        bonusXp: (reward?.bonusXp ?? 0) + habitsResult.bonusXp,
         unitCompleted: reward?.unitId ?? null,
-        unitPerfect: Boolean(reward?.perfect)
+        unitPerfect: Boolean(reward?.perfect),
+        habits: habits.habitSummary(req.user, stored, now),
+        habitEvents: habitsResult.habitEvents
       });
     })
   );
@@ -221,7 +243,7 @@ export function createProgressRouter({
    * unlocked is not credited; its id comes back in `skippedLocked`.
    */
   router.post('/progress/merge', requireAuth, (req, res) => {
-    const { lib, settings, activity } = learningDeps;
+    const { lib, settings, activity, habits } = learningDeps;
     const rules = settings.current();
     const now = new Date();
 
@@ -247,29 +269,49 @@ export function createProgressRouter({
     });
 
     activity.merge(req.user, req.body?.activity, { credits, today, now });
-    store.setProgress(req.user.id, merged);
 
-    // A guest's own choices (sound on or off) come along - but never over
-    // one the account already made.
+    // A guest's own choices (sound on or off, their daily goal) come along -
+    // but never over one the account already made. Adopted before the
+    // streak step, so the days it replays are judged against that goal.
     let user = req.user;
-    const adopt = adoptGuestPreferences(store.normalizePreferences?.(user.preferences) ?? user.preferences, req.body?.preferences);
+    const adopt = adoptGuestPreferences(store.normalizePreferences?.(user.preferences) ?? user.preferences, req.body?.preferences, {
+      goals: rules.goals,
+      isGoalOptionAvailable: lib.isGoalOptionAvailable
+    });
     if (adopt) {
       const prefs = store.normalizePreferences(user.preferences);
       user = store.updateUser(user.id, { preferences: { ...prefs, ...adopt, updatedAt: now.toISOString() } }) ?? user;
     }
 
+    // The streak (step 6): a new account adopts the guest's habit; an
+    // existing one keeps its own and replays the merged days. Goal bonuses
+    // come only from here.
+    const withHabits = habits.mergeHabitsFor({
+      user,
+      current,
+      merged,
+      incoming: req.body?.progress,
+      incomingHabit: req.body?.habit,
+      credits,
+      today,
+      now
+    });
+    store.setProgress(req.user.id, withHabits.next);
+
+    const goalBonuses = withHabits.goals.filter((g) => g.xp > 0).map((g) => ({ kind: 'daily-goal', day: g.day, xp: g.xp }));
     res.json({
       // Level and streak as they stand on the learner's today, like GET
       // /progress: the browser adopts this streak as it is, rather than
       // judging it against a day of its own.
       progress: recalcForUser({ store, learningDeps }, user, now),
       mergedChallenges: newIds.length,
-      // Solve XP only; unit bonuses are reported beside it.
+      // Solve XP only; unit and goal bonuses are reported beside it.
       awardedXp: awarded,
-      bonusXp,
-      bonuses: bonusesOf(unitRewards),
+      bonusXp: bonusXp + withHabits.bonusXp,
+      bonuses: [...bonusesOf(unitRewards), ...goalBonuses],
       activity: activity.view(user, { now }),
       preferences: publicPreferences(store.normalizePreferences?.(user.preferences) ?? user.preferences),
+      habits: habitsForUser({ store, learningDeps }, user, now),
       ...(skippedLocked.length ? { skippedLocked } : {})
     });
   });
@@ -277,13 +319,17 @@ export function createProgressRouter({
   /**
    * Start over. XP, solves and attempts go; so do the recorded wrong answers.
    * The days stay - they are history, and keeping them stops a reset from
-   * being a way to farm a day twice.
+   * being a way to farm a day twice. The streak history stays too: the
+   * current run is closed into it as `ended: 'reset'`, and freezes go back
+   * to the starting number.
    */
   router.post('/progress/reset', requireAuth, (req, res) => {
-    const fresh = resetProgress(store.EMPTY_PROGRESS);
+    const before = store.getProgress(req.user.id);
+    const streak = learningDeps.habits.resetFields(req.user, before);
+    const fresh = { ...resetProgress(store.EMPTY_PROGRESS), ...streak };
     store.setProgress(req.user.id, fresh);
     learningDeps.activity.reset(req.user);
-    res.json({ progress: fresh });
+    res.json({ progress: fresh, habits: habitsForUser({ store, learningDeps }, req.user) });
   });
 
   return router;

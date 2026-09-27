@@ -6,7 +6,7 @@
    it - there are no placeholder keys - and every key has admin metadata in
    meta.ts (a unit test fails otherwise), so it is editable the day it lands.
    ========================================================================== */
-import type { ChallengeType } from '@/types';
+import type { ChallengeType, DailyGoalOption } from '@/types';
 import type { LevelCurve, XpRules } from '../xp-leveling/leveling';
 import type { RankRow } from '../xp-leveling/insights';
 
@@ -23,7 +23,13 @@ export interface LevelSettings extends LevelCurve {
   ranks: RankRow[];
 }
 
-/** Streaks, time zones and the guest merge. */
+/**
+ * What makes a day a streak day: any passing solve, a solve that paid XP
+ * (a re-solve pays none), or meeting the daily goal.
+ */
+export type DayRule = 'any-solve' | 'xp-earned' | 'goal-met';
+
+/** Streaks, freezes and repair, time zones and the guest merge. */
 export interface StreakSettings {
   /** The zone a learner's days are counted in until their browser reports one. null = the server's own zone. */
   defaultTimeZone: string | null;
@@ -31,6 +37,90 @@ export interface StreakSettings {
   timeZoneChangeCooldownHours: number;
   /** A guest streak longer than this is not believed when it is merged into an account. */
   maxPlausibleMergedStreak: number;
+  dayRule: DayRule;
+  /** A freeze covers one missed day; one is earned every N days the goal is met. */
+  freeze: {
+    enabled: boolean;
+    earnEveryGoalDays: number;
+    maxHeld: number;
+    /** Freezes a learner starts with (at most `maxHeld`). */
+    startingCount: number;
+  };
+  /** After a break, the streak can be won back by doing extra lessons within a few days. */
+  repair: {
+    enabled: boolean;
+    windowDays: number;
+    lessonsPerMissedDay: number;
+  };
+  /** Streak lengths that are celebrated. */
+  milestones: number[];
+  /** Past runs kept in each learner's streak history. */
+  runsKept: number;
+  /** How many recent days of a signed-in learner's offline activity a merge replays for their streak and goal. */
+  mergeReplayDays: number;
+}
+
+/** The daily goal a learner picks, and what meeting it pays. */
+export interface GoalSettings {
+  /** Off hides the goal ring, the picker and the goal card (and pays no goal bonus). */
+  enabled: boolean;
+  options: DailyGoalOption[];
+  /** For guests and learners who have not chosen; must be an enabled option. */
+  defaultOptionId: string;
+  /** Show the "goal met - one more?" card in a lesson. */
+  oneMorePrompt: boolean;
+}
+
+/** One "welcome back" message, for learners away at least `minDays`. */
+export interface WelcomeBackTier {
+  minDays: number;
+  /** `{name}`, `{days}`, `{bestStreak}` */
+  title: string;
+  /** `{name}`, `{days}`, `{bestStreak}` */
+  body: string;
+}
+
+/** In-app reminders: the banners and toasts about streaks and goals. Plain text with `{tokens}`. */
+export interface ReminderSettings {
+  atRisk: {
+    enabled: boolean;
+    /** Not shown before this local hour (0-23). */
+    fromLocalHour: number;
+    /** `{streak}` */
+    title: string;
+    /** `{streak}`, `{hoursLeft}` */
+    body: string;
+    /** `{freezes}` - instead of `body` when a freeze would cover today. */
+    bodyWithFreeze: string;
+    cta: string;
+  };
+  goalMet: {
+    /** `{goal}`, `{bonusXp}` */
+    toast: string;
+    cardTitle: string;
+    /** `{streak}`, `{bonusXp}` */
+    cardBody: string;
+    moreLabel: string;
+    doneLabel: string;
+  };
+  /** `{freezes}`, `{maxFreezes}` */
+  freezeEarned: string;
+  /** `{streak}`, `{days}` */
+  freezeUsed: string;
+  streakBroken: {
+    /** `{lostStreak}` */
+    title: string;
+    /** `{remaining}`, `{deadline}` */
+    body: string;
+    cta: string;
+  };
+  /** `{streak}` */
+  streakRepaired: string;
+  welcomeBack: {
+    enabled: boolean;
+    cta: string;
+    tiers: WelcomeBackTier[];
+  };
 }
 
 /**
@@ -247,6 +337,8 @@ export interface Settings {
   xp: XpSettings;
   levels: LevelSettings;
   streak: StreakSettings;
+  goals: GoalSettings;
+  reminders: ReminderSettings;
   units: UnitSettings;
   celebrations: CelebrationSettings;
   badges: BadgeSettings;

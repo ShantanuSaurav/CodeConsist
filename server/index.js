@@ -55,8 +55,9 @@ import { createSettingsService } from './settings.js';
 import { createSettingsRouter } from './settings-routes.js';
 import { createActivityService } from './activity.js';
 import { createActivityRouter } from './activity-routes.js';
-import { createProgressRouter, recalcForUser } from './progress-routes.js';
+import { createProgressRouter, habitsForUser, recalcForUser } from './progress-routes.js';
 import { createUnitsService } from './units.js';
+import { createHabitsService } from './habits.js';
 import { createPreferencesRouter, publicPreferences } from './preferences-routes.js';
 import {
   JUDGE0_LANGUAGE_IDS,
@@ -134,10 +135,13 @@ const adminDeps = { validateChallenge: null, runSolution: null, ai: null, billin
  *   units    - server/units.js: each stage's lessons grouped into units (the
  *              admin's grouping or the default), for the bank, the
  *              perfect-unit bonus and the admin units editor;
+ *   habits   - server/habits.js: streaks, freezes, repair and the daily goal
+ *              (the same engine the browser runs), for the solve and merge
+ *              pipelines, the leaderboard and the admin's user drawer;
  *   runtimeInfo - which engines this server has, for the admin's rules page.
  * Routers read it per request, so mounting them before bootstrap is fine.
  */
-const learningDeps = { lib: null, settings: null, activity: null, units: null, runtimeInfo: null };
+const learningDeps = { lib: null, settings: null, activity: null, units: null, habits: null, runtimeInfo: null };
 adminDeps.learning = learningDeps;
 
 /**
@@ -242,6 +246,12 @@ async function bootstrap() {
   });
   // Resolved lazily against the content snapshot (loaded below), cached per state.
   learningDeps.units = createUnitsService({ store, lib: learningDeps.lib, settings: learningDeps.settings });
+  learningDeps.habits = createHabitsService({
+    lib: learningDeps.lib,
+    store,
+    settings: learningDeps.settings,
+    activity: learningDeps.activity
+  });
   learningDeps.runtimeInfo = () => ({
     pythonVerifiable: Boolean(findPython()),
     judge0Languages: JUDGE0_CONFIGURED ? Object.keys(JUDGE0_LANGUAGE_IDS) : []
@@ -576,8 +586,14 @@ app.post(
     console.log(`\x1b[32m[AUTH]\x1b[0m Learner "${user.username}" logged in.`);
 
     // Level and streak as they stand today in the learner's own zone, like
-    // /auth/me: the browser adopts this streak as it is.
-    res.json({ token: signLearnerToken(user), user: publicUser(user), progress: recalcForUser({ store, learningDeps }, user) });
+    // /auth/me: the browser adopts this streak as it is - with the derived
+    // streak and goal status (freezes applied) beside it.
+    res.json({
+      token: signLearnerToken(user),
+      user: publicUser(user),
+      progress: recalcForUser({ store, learningDeps }, user),
+      habits: habitsForUser({ store, learningDeps }, user)
+    });
   })
 );
 
@@ -586,8 +602,13 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   // polls this route does not rewrite db.json each time.
   store.touchLastSeen(req.user.id);
   // Level and streak as they stand today in the learner's own zone, like
-  // GET /api/progress - a stale streak is not shown as alive.
-  res.json({ user: publicUser(req.user), progress: recalcForUser({ store, learningDeps }, req.user) });
+  // GET /api/progress - a stale streak is not shown as alive - and the
+  // derived streak and goal status (freezes applied) beside it.
+  res.json({
+    user: publicUser(req.user),
+    progress: recalcForUser({ store, learningDeps }, req.user),
+    habits: habitsForUser({ store, learningDeps }, req.user)
+  });
 });
 
 /**
@@ -898,7 +919,8 @@ app.use(
 
 // PATCH /api/me/preferences: the learner's own choices, stored on the
 // account so they survive a progress reset (server/preferences-routes.js).
-app.use('/api', createPreferencesRouter({ requireAuth, publicUser, store, writeLimit: limitBy('write.account', byAccount) }));
+// The goal options and the zone cooldown come from the settings, per request.
+app.use('/api', createPreferencesRouter({ requireAuth, publicUser, store, writeLimit: limitBy('write.account', byAccount), learningDeps }));
 
 /* ----------------------------------------------------------------- billing */
 
@@ -915,7 +937,7 @@ app.get('/api/leaderboard', (_req, res) => {
   // separate `admin` field - so the leaderboard is learner-only by
   // construction, not by filtering something out here.
   const all = store.allProgress();
-  const { lib, settings, activity } = learningDeps;
+  const { lib, settings, habits } = learningDeps;
   const levels = settings.current().levels;
   const now = new Date();
   const rows = store
@@ -926,8 +948,9 @@ app.get('/api/leaderboard', (_req, res) => {
         username: u.username,
         xp: p.xp ?? 0,
         level: lib.levelFromXp(p.xp ?? 0, levels),
-        // Stale or alive as of THIS learner's today, in their own zone.
-        streak: lib.currentStreak(p.streak ?? 0, p.lastActiveDay ?? null, activity.todayFor(u, p, now)),
+        // As of THIS learner's today, in their own zone, with their freezes
+        // applied (server/habits.js) - the number their own screens show.
+        streak: habits.streakFor(u, p, now),
         solved: (p.completedChallenges ?? []).length
       };
     })

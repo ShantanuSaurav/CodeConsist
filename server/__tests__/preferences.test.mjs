@@ -68,7 +68,8 @@ describe('PATCH /api/me/preferences', () => {
     const res = await patch({ soundOn: false });
     expect(res.status).toBe(200);
     expect(res.json.user.preferences).toMatchObject({ soundOn: false, timeZone: null });
-    expect(res.json.applied).toEqual({ timeZone: false });
+    // No zone was sent, so there is no zone verdict either.
+    expect(res.json.applied).toEqual({});
     expect(store.normalizePreferences(store.findUserById('u1').preferences).soundOn).toBe(false);
     // When the zone was set never leaves the server.
     expect(res.json.user.preferences).not.toHaveProperty('timeZoneSetAt');
@@ -123,5 +124,90 @@ describe('a guest merge carries the sound choice', () => {
 
     const second = await learner.call('POST', '/progress/merge', { user: 'u1', body: { progress: {}, preferences: { soundOn: true } } });
     expect(second.json.preferences.soundOn).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------ Phase 3 */
+
+describe('PATCH /api/me/preferences: the daily goal and the time zone', () => {
+  const prefs = () => store.normalizePreferences(store.findUserById('u1').preferences);
+  const setPrefs = (patch) => store.updateUser('u1', { preferences: { ...prefs(), ...patch } });
+  const send = (body) => learner.call('PATCH', '/me/preferences', { user: 'u1', body });
+
+  it('takes an enabled goal option, and null puts the default back', async () => {
+    const res = await send({ dailyGoalId: 'serious' });
+    expect(res.status).toBe(200);
+    expect(res.json.user.preferences.dailyGoalId).toBe('serious');
+    expect(prefs().dailyGoalId).toBe('serious');
+    const back = await send({ dailyGoalId: null });
+    expect(back.json.user.preferences.dailyGoalId).toBeNull();
+  });
+
+  it('refuses a goal that is unknown or switched off', async () => {
+    const unknown = await send({ dailyGoalId: 'marathon' });
+    expect(unknown.status).toBe(400);
+    expect(unknown.json.error).toBe('That goal is not available.');
+    const service = learner.learningDeps.settings;
+    const options = service.current().goals.options.map((o) => (o.id === 'intense' ? { ...o, enabled: false } : o));
+    expect(service.update({ revision: service.revision(), patch: { goals: { options } } }).ok).toBe(true);
+    expect((await send({ dailyGoalId: 'intense' })).status).toBe(400);
+    expect((await send({ dailyGoalId: 42 })).status).toBe(400);
+    expect(prefs().dailyGoalId).toBeNull();
+  });
+
+  it('takes a valid zone and refuses one that is not', async () => {
+    const res = await send({ timeZone: 'Asia/Kolkata' });
+    expect(res.status).toBe(200);
+    expect(res.json.applied).toEqual({ timeZone: true });
+    expect(prefs()).toMatchObject({ timeZone: 'Asia/Kolkata' });
+    expect(prefs().timeZoneSetAt).toBeTruthy();
+    for (const bad of ['Mars/Olympus', 'Asia Kolkata', '', null, 5]) {
+      const refused = await send({ timeZone: bad });
+      expect(refused.status, String(bad)).toBe(400);
+      expect(refused.json.error).toContain('timeZone');
+    }
+    expect(prefs().timeZone).toBe('Asia/Kolkata');
+  });
+
+  it('a change inside the cooldown is not applied - and is not an error', async () => {
+    setPrefs({ timeZone: 'Asia/Kolkata', timeZoneSetAt: new Date(Date.now() - 2 * 3600_000).toISOString() });
+    const soon = await send({ timeZone: 'America/Los_Angeles', soundOn: false });
+    expect(soon.status).toBe(200);
+    expect(soon.json.applied).toEqual({ timeZone: false });
+    // The rest of the patch still lands.
+    expect(prefs()).toMatchObject({ timeZone: 'Asia/Kolkata', soundOn: false });
+
+    // Past the cooldown (20 hours by default), it is taken.
+    setPrefs({ timeZoneSetAt: new Date(Date.now() - 21 * 3600_000).toISOString() });
+    const later = await send({ timeZone: 'America/Los_Angeles' });
+    expect(later.json.applied).toEqual({ timeZone: true });
+    expect(prefs().timeZone).toBe('America/Los_Angeles');
+
+    // Sending the zone already stored is applied (nothing to wait for).
+    expect((await send({ timeZone: 'America/Los_Angeles' })).json.applied).toEqual({ timeZone: true });
+  });
+
+  it('follows the admin’s cooldown', async () => {
+    const service = learner.learningDeps.settings;
+    expect(service.update({ revision: service.revision(), patch: { streak: { timeZoneChangeCooldownHours: 0 } } }).ok).toBe(true);
+    setPrefs({ timeZone: 'Asia/Kolkata', timeZoneSetAt: new Date().toISOString() });
+    expect((await send({ timeZone: 'Europe/London' })).json.applied).toEqual({ timeZone: true });
+  });
+
+  it('a guest merge brings their goal only where the account has none', async () => {
+    const first = await learner.call('POST', '/progress/merge', { user: 'u1', body: { progress: {}, preferences: { dailyGoalId: 'casual' } } });
+    expect(first.json.preferences.dailyGoalId).toBe('casual');
+    const second = await learner.call('POST', '/progress/merge', { user: 'u1', body: { progress: {}, preferences: { dailyGoalId: 'intense' } } });
+    expect(second.json.preferences.dailyGoalId).toBe('casual');
+    // A goal this server does not offer is never adopted.
+    resetStore(store);
+    const odd = await learner.call('POST', '/progress/merge', { user: 'u1', body: { progress: {}, preferences: { dailyGoalId: 'marathon' } } });
+    expect(odd.json.preferences.dailyGoalId).toBeNull();
+  });
+
+  it('without the rules (an older caller) the new fields are refused', () => {
+    expect(parsePreferencesPatch({ dailyGoalId: 'regular' }).error).toBe('That goal is not available.');
+    expect(parsePreferencesPatch({ timeZone: 'UTC' }).error).toContain('timeZone');
+    expect(adoptGuestPreferences({}, { dailyGoalId: 'regular' })).toBeNull();
   });
 });

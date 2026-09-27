@@ -32,9 +32,13 @@ export interface RunCounts {
   /** Of those, solved on their first check with no hint. */
   firstTry: number;
   hints: number;
-  /** XP paid during the run: solve XP plus any perfect-unit bonus. */
+  /** XP paid during the run: solve XP plus any perfect-unit and daily-goal bonus. */
   xp: number;
   perfectBonusXp: number;
+  /** The daily-goal bonus a solve in this run paid (the goal met during it). */
+  goalBonusXp: number;
+  /** A solve in this run met today's daily goal. */
+  goalMet: boolean;
   /** The unit a solve in this run completed for the first time, if any. */
   unitCompleted: string | null;
   perfect: boolean;
@@ -49,6 +53,8 @@ export const EMPTY_COUNTS: RunCounts = {
   hints: 0,
   xp: 0,
   perfectBonusXp: 0,
+  goalBonusXp: 0,
+  goalMet: false,
   unitCompleted: null,
   perfect: false,
   unverified: 0
@@ -64,6 +70,8 @@ export function countSolve(counts: RunCounts, solve: { attempts: number; hints: 
     hints: counts.hints + Math.max(0, solve.hints),
     xp: counts.xp + outcome.totalXp,
     perfectBonusXp: counts.perfectBonusXp + outcome.perfectBonusXp,
+    goalBonusXp: counts.goalBonusXp + (outcome.goalBonusXp ?? 0),
+    goalMet: counts.goalMet || Boolean(outcome.goalMet),
     unitCompleted: outcome.unitCompleted ?? counts.unitCompleted,
     perfect: outcome.unitCompleted ? outcome.perfect : counts.perfect,
     unverified: counts.unverified + (outcome.verifiedByServer ? 0 : 1)

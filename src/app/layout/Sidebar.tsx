@@ -22,6 +22,7 @@ import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
 import { DevlingoLogo, Dropdown, ProgressBar } from '@/ui';
+import { HabitChip } from './HabitChip';
 
 const ICON = 16;
 
@@ -194,7 +195,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
             </div>
           </div>
         </div>
-        <ProgressBar value={level.percent} size="sm" className="mt-2.5" label={`${level.into} of ${level.needed} XP into level ${level.level}`} />
+        {/* The streak and today's goal - the dashboard's goal card is one click away. */}
+        <HabitChip onNavigate={onNavigate} className="mt-2 -ml-2" />
+        <ProgressBar value={level.percent} size="sm" className="mt-1.5" label={`${level.into} of ${level.needed} XP into level ${level.level}`} />
       </div>
     </div>
   );

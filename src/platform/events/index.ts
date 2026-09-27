@@ -29,6 +29,20 @@ export type AppEvents = {
    * time. `xpEarned` is the perfect-unit bonus it paid (0 when not perfect).
    */
   'unit:completed': { stageId: string; unitId: string; perfect: boolean; xpEarned: number };
+  /**
+   * Today's daily goal was met (announced once per day in this browser).
+   * `source: 'solve'` - a lesson on screen just met it; `'sync'` - it was met
+   * elsewhere (offline, another device) and this browser learned it later.
+   */
+  'habit:goalMet': { day: string; source: 'solve' | 'sync'; label: string; bonusXp: number; streak: number };
+  /** A streak freeze was earned (`freezes` held now, of `maxFreezes`). */
+  'habit:freezeEarned': { freezes: number; maxFreezes: number };
+  /** A streak freeze covered missed days: the streak lives on. */
+  'habit:freezeUsed': { days: string[]; streak: number };
+  /** An open repair was completed: the lost streak is back. */
+  'habit:streakRepaired': { streak: number };
+  /** The streak reached one of the admin's milestones (`streak.milestones`). */
+  'habit:milestone': { streak: number };
   'auth:signedIn': { user: UserProfile };
   'auth:signedOut': Record<string, never>;
   'progress:reset': Record<string, never>;

@@ -120,5 +120,14 @@ export const STORAGE_KEYS = {
    * (`{ [stageId]: UnitDef[] }`). Used for the bundled content while offline;
    * without it the default grouping is used.
    */
-  unitDefs: 'cq-unit-defs-v1'
+  unitDefs: 'cq-unit-defs-v1',
+  /**
+   * What this browser has already announced about the streak and the daily
+   * goal (goal met, freeze earned or used, repair, milestone) and which
+   * reminder banners were dismissed today, per learner -
+   * `{ v: 2, owners: { [accountId | 'guest']: { [key]: day } } }` - so a
+   * refresh never announces the same thing twice and one learner's never
+   * hides another's. Pruned to recent days (useHabitState).
+   */
+  habitSeen: 'cq-habit-seen-v1'
 } as const;

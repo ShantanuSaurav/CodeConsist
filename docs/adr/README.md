@@ -15,3 +15,4 @@ numbered file rather than editing history; supersede with a note.
 | [0007](0007-tracks-learning-modes-admin.md) | Language tracks, Learn/Practice modes, server-side Judge0 and the admin console |
 | [0008](0008-settings-store-and-activity-log.md) | One settings store for every learning rule; a daily activity log in the learner's own time zone |
 | [0009](0009-units-and-celebrations.md) | Units over lessons, a server-paid perfect-unit bonus, CSS celebrations, tiered badges and a level curve that never lowers a level |
+| [0010](0010-habits-and-time-zones.md) | A chosen daily goal, a raw-stored streak with freezes and repair derived by one shared engine, days in the learner's own time zone, in-app reminders |

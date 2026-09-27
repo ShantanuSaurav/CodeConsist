@@ -11,7 +11,7 @@
    new log and never mutates its input. Maps are written with defineProperty
    so a challenge id of '__proto__' is an ordinary key.
    ========================================================================== */
-import type { ActivityContext, ActivityLog, ChallengeAttempt, DayRecord, MissAnswer, MissEntry, MissSummary } from '@/types';
+import type { ActivityContext, ActivityLog, ChallengeAttempt, DayGoal, DayRecord, MissAnswer, MissEntry, MissSummary } from '@/types';
 import { addDays, dayKeyIn, daysBetween, isDayKey, weekStartFor } from '../time/days';
 import { DEFAULT_XP_RULES, xpForSolve } from '../xp-leveling/leveling';
 import type { XpRules } from '../xp-leveling/leveling';
@@ -99,7 +99,19 @@ export function emptyActivityLog(): ActivityLog {
 }
 
 export function emptyDay(source: DayRecord['source'] = 'live'): DayRecord {
-  return { xp: 0, lessons: 0, tests: 0, reSolves: 0, mistakes: 0, units: 0, perfectBonusXp: 0, firstAt: null, lastAt: null, source };
+  return { xp: 0, lessons: 0, tests: 0, reSolves: 0, mistakes: 0, units: 0, perfectBonusXp: 0, goal: null, goalBonusXp: 0, firstAt: null, lastAt: null, source };
+}
+
+const GOAL_METRICS: readonly string[] = ['xp', 'lessons', 'units'];
+
+/** A met-goal snapshot, or null when it is not one. */
+export function normalizeDayGoal(raw: unknown): DayGoal | null {
+  const src = plainObject(raw);
+  const optionId = typeof src.optionId === 'string' ? src.optionId.slice(0, 64) : '';
+  const metAt = isoOrNull(src.metAt);
+  const target = count(src.target);
+  if (!optionId || !metAt || target === 0 || !GOAL_METRICS.includes(src.metric as string)) return null;
+  return { optionId, metric: src.metric as DayGoal['metric'], target, metAt };
 }
 
 /** A day row with every counter present (0 when missing or nonsense). */
@@ -114,6 +126,8 @@ export function normalizeDay(raw: unknown): DayRecord {
     mistakes: count(src.mistakes),
     units: count(src.units),
     perfectBonusXp: count(src.perfectBonusXp),
+    goal: normalizeDayGoal(src.goal),
+    goalBonusXp: count(src.goalBonusXp),
     firstAt: isoOrNull(src.firstAt),
     lastAt: isoOrNull(src.lastAt),
     source
@@ -258,6 +272,17 @@ export type ActivityEvent =
       keys?: string[];
       /** A signed-in learner's miss the server has not taken yet. */
       synced?: false;
+    }
+  | {
+      /**
+       * The daily goal was met (src/platform/habits): its snapshot goes on the
+       * day - once; a day already met keeps its first snapshot - and the goal
+       * bonus is counted in `goalBonusXp`, never in `xp` (which the goal's own
+       * XP metric reads).
+       */
+      type: 'goal';
+      goal: DayGoal;
+      bonusXp: number;
     };
 
 export interface EventContext {
@@ -287,8 +312,11 @@ export function applyActivityEvent(log: ActivityLog, event: ActivityEvent, ctx: 
   const rules = ctx.rules ?? DEFAULT_ACTIVITY_RULES;
   const next = cloneLog(normalizeActivityLog(log));
   if (log.ownerId) next.ownerId = log.ownerId;
-  const row: DayRecord = { ...normalizeDay(hasOwn(next.days, ctx.day) ? next.days[ctx.day] : {}), source: 'live' };
-  touch(row, ctx.at);
+  const existing = normalizeDay(hasOwn(next.days, ctx.day) ? next.days[ctx.day] : {});
+  // A goal snapshot is bookkeeping about the day, not activity on it: the
+  // day keeps its times and where it came from (a merged day stays 'merge').
+  const row: DayRecord = event.type === 'goal' ? existing : { ...existing, source: 'live' };
+  if (event.type !== 'goal') touch(row, ctx.at);
 
   if (event.type === 'solve') {
     if (!event.firstSolve) row.reSolves += 1;
@@ -310,6 +338,12 @@ export function applyActivityEvent(log: ActivityLog, event: ActivityEvent, ctx: 
     };
     if (event.synced === false) entry.synced = false;
     next.missLog = capLog([...next.missLog, entry].sort(byTime), rules.missLogCap);
+  } else if (event.type === 'goal') {
+    // Once per day: a day that is already met keeps its first snapshot and bonus.
+    const goal = normalizeDayGoal(event.goal);
+    if (row.goal || !goal) return log;
+    row.goal = goal;
+    row.goalBonusXp += count(event.bonusXp);
   }
 
   define(next.days, ctx.day, row);
@@ -655,7 +689,8 @@ function countLevel(n: number): HeatCell['level'] {
 
 /**
  * GitHub-style grid of `weeks` columns of seven days ending on `today`,
- * Monday first, oldest week first. Intensity is the XP credited that day.
+ * Monday first, oldest week first. Intensity is the XP credited that day,
+ * the daily-goal bonus included.
  * Days before the log started can be filled from `fallback` (solve counts
  * derived from `attempts`), so an old account's history still shows.
  */
@@ -677,7 +712,9 @@ export function activityGridFromLog(
       } else if (hasOwn(map, key)) {
         const row = normalizeDay(map[key]);
         const solves = row.lessons + row.tests + row.reSolves;
-        column.push({ day: key, count: solves, xp: row.xp, level: heatLevel(row.xp, solves, row.mistakes) });
+        // The day's XP with the daily-goal bonus, which `xp` leaves out.
+        const xp = row.xp + row.goalBonusXp;
+        column.push({ day: key, count: solves, xp, level: heatLevel(xp, solves, row.mistakes) });
       } else {
         const n = fallback ? Math.max(0, fallback(key) || 0) : 0;
         column.push({ day: key, count: n, level: countLevel(n) });

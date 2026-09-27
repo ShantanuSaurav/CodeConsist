@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
 import { Award, Code2, Flame, Layers, Sparkles, Star, Swords } from 'lucide-react';
-import { PageHeader, ProgressBar, SectionHeader, Stat } from '@/ui';
+import { PageHeader, ProgressBar, SectionHeader, Stat, StreakFlame, StreakStrip } from '@/ui';
+import type { HabitStatus } from '@/platform/habits';
+import { addDays, daysBetween, formatDayLabel } from '@/platform/time/days';
 import { BadgeTierChip } from '@/ui/celebrations';
 import { useLeveling, useSession } from '@/platform/session';
 import { achievements, badgeProgress, relativeDay } from '@/platform/xp-leveling/insights';
@@ -36,6 +38,69 @@ const KIND_OF_METRIC: Record<string, AchievementKind> = {
   perfectUnits: 'perfect',
   xp: 'xp',
   testsPassed: 'test'
+};
+
+const ENDED: Record<string, string> = { missed: 'ended by a missed day', reset: 'ended by a progress reset', admin: 'ended by support' };
+
+const days = (n: number) => `${n} ${n === 1 ? 'day' : 'days'}`;
+
+/**
+ * The streak's history: the run going on now, the best one, the runs that
+ * ended (when, how long, how) and the last 30 days. Runs are recorded from
+ * the day streak history was added, so older streaks show only in the best.
+ */
+const StreakHistory: React.FC<{ habits: HabitStatus; strip: ReturnType<ReturnType<typeof useSession>['streakStrip']> }> = ({ habits, strip }) => {
+  const runs = [...habits.runs].reverse();
+  const best = Math.max(habits.bestStreak, habits.streak, ...habits.runs.map((r) => r.length));
+  const currentStart = habits.streak > 0 ? habits.runStart ?? (habits.lastActiveDay ? addDays(habits.lastActiveDay, -(habits.streak - 1)) : null) : null;
+  return (
+    <section className="pb-8 mb-8 border-b border-border-subtle" aria-labelledby="streak-history-heading">
+      <SectionHeader title={<span id="streak-history-heading">Streak history</span>} />
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,20rem)_1fr]">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <StreakFlame streak={habits.streak} size={22} label={days(habits.streak)} className="text-xl" />
+          </div>
+          <p className="text-sm text-fg-secondary">
+            {habits.streak > 0 && currentStart
+              ? `Current streak since ${formatDayLabel(currentStart, { year: true })}.`
+              : 'No streak going right now - one lesson today starts one.'}
+            {best > 0 ? ` Your best is ${days(best)}.` : ''}
+          </p>
+          {habits.freezesEnabled && (
+            <p className="text-sm text-fg-secondary">
+              {habits.freezes} of {habits.maxFreezes} streak {habits.maxFreezes === 1 ? 'freeze' : 'freezes'} held.
+            </p>
+          )}
+          <div>
+            <div className="text-xs text-fg-muted mb-2">Last 30 days</div>
+            <StreakStrip days={strip} formatDay={(d) => formatDayLabel(d)} legend />
+          </div>
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-sm font-medium text-fg mb-2">Past streaks</h3>
+          {runs.length === 0 ? (
+            <p className="text-sm text-fg-muted">None yet. A streak that ends is listed here, with how long it ran.</p>
+          ) : (
+            <ul className="row-list">
+              {runs.slice(0, 12).map((run) => (
+                <li key={`${run.start}:${run.end}:${run.ended}`} className="row py-2.5">
+                  <div className="min-w-0">
+                    <div className="text-sm text-fg">{days(run.length)}</div>
+                    <div className="text-xs text-fg-muted">
+                      {formatDayLabel(run.start, { year: true })} - {formatDayLabel(run.end, { year: true })} · {ENDED[run.ended] ?? 'ended'}
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono text-fg-muted shrink-0">{daysBetween(run.end, habits.day)}d ago</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-fg-muted mt-3">Past streaks are recorded from when streak history was added to CodeConsist.</p>
+        </div>
+      </div>
+    </section>
+  );
 };
 
 /** One tiered badge family: the tier reached, a pip per tier, and how far to the next. */
@@ -83,7 +148,8 @@ const FamilyCard: React.FC<{ family: BadgeFamilyProgress }> = ({ family: f }) =>
  * this page is derived from stats and content - none of it is decorative.
  */
 export const AchievementsPage: React.FC = () => {
-  const { stats, stages, allChallenges, settings } = useSession();
+  const { stats, stages, allChallenges, settings, habits, streakStrip } = useSession();
+  const strip = useMemo(() => streakStrip(30), [streakStrip]);
   const { levelProgress, xpForLevel, rankTitle } = useLeveling();
   const level = levelProgress(stats.xp);
   const solved = useMemo(() => new Set(stats.completedChallenges), [stats.completedChallenges]);
@@ -147,11 +213,14 @@ export const AchievementsPage: React.FC = () => {
             <Stat label="Solved" value={solved.size} hint={`of ${allChallenges.length}`} />
             <Stat label="Stages cleared" value={stagesCleared} hint={`of ${stages.length}`} />
             <Stat label="Tests passed" value={testsPassed} hint={`of ${stages.filter((s) => s.test).length}`} />
-            <Stat label="Streak" value={`${stats.streak}d`} hint={stats.bestStreak > stats.streak ? `best ${stats.bestStreak}d` : undefined} />
+            <Stat label="Streak" value={`${habits.streak}d`} hint={habits.bestStreak > habits.streak ? `best ${habits.bestStreak}d` : undefined} />
             <Stat label="Avg. score" value={accuracy === null ? '—' : `${accuracy}%`} />
           </div>
         </div>
       </section>
+
+      {/* ---------------------------------------------------- streak history */}
+      <StreakHistory habits={habits} strip={strip} />
 
       {/* ---------------------------------------------------------- coverage */}
       <section className="pb-8 mb-8 border-b border-border-subtle" aria-labelledby="coverage-heading">

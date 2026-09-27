@@ -179,6 +179,16 @@ export function msUntilLocalMidnight(now: Date = new Date(), zone?: string | nul
 }
 
 /**
+ * The local hour (0-23) of `now` in `zone` - the process's own when the zone
+ * is missing or invalid. For "not before 18:00" rules such as the at-risk
+ * reminder.
+ */
+export function localHourIn(zone: string | null | undefined, now: Date = new Date()): number {
+  const at = Number.isNaN(now.getTime()) ? new Date() : now;
+  return isValidTimeZone(zone) ? partsIn(zone, at).hour : at.getHours();
+}
+
+/**
  * The browser's (or process's) own zone name, or null when the runtime will
  * not say or says something unusable. Never throws: a broken Intl must never
  * break a request.
@@ -217,4 +227,24 @@ export function learnerDay(zone: string | null | undefined, known: readonly unkn
     if (isDayKey(candidate) && candidate > day && candidate <= ceiling) day = candidate;
   }
   return day;
+}
+
+/**
+ * A day key as people read it: "Thu 24 Sep" (the viewer's language), or the
+ * key itself when it is not one. The calendar day, whatever the viewer's own
+ * zone - a learner's day is already in their zone.
+ */
+export function formatDayLabel(day: string, options: { year?: boolean } = {}): string {
+  if (!isDayKey(day)) return String(day ?? '');
+  try {
+    return new Date(`${day}T12:00:00.000Z`).toLocaleDateString(undefined, {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      ...(options.year ? { year: 'numeric' } : {}),
+      timeZone: 'UTC'
+    });
+  } catch {
+    return day;
+  }
 }

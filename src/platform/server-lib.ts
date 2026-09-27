@@ -23,3 +23,6 @@ export { DEFAULT_RANKS, rankTitle, nextRankLevel } from './xp-leveling/insights'
 // lessons and pays for a completed unit with the same code the browser runs.
 export * from './progress/units';
 export * from './xp-leveling/rewards';
+// Daily goal, streak, freezes and repair (Phase 3): the server settles and
+// counts a learner's streak with the same engine the browser runs.
+export * from './habits';

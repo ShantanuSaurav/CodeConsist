@@ -13,6 +13,9 @@ import { LevelsSection } from './LevelsSection';
 import { CopySection } from './CopySection';
 import { AccessSection } from './AccessSection';
 import { UnitsSection } from './UnitsSection';
+import { GoalsSection } from './GoalsSection';
+import { StreakSection } from './StreakSection';
+import { RemindersSection } from './RemindersSection';
 
 export interface SectionEntry extends Pick<SectionMeta, 'id' | 'title' | 'description' | 'audience'> {
   Component?: React.FC<SectionProps>;
@@ -20,6 +23,12 @@ export interface SectionEntry extends Pick<SectionMeta, 'id' | 'title' | 'descri
 
 const CUSTOM: Partial<Record<string, React.FC<SectionProps>>> = {
   levels: LevelsSection,
+  // Streak, freezes & repair, with a worked example that follows the values being edited.
+  streak: StreakSection,
+  // Daily goal, with how many learners chose each option.
+  goals: GoalsSection,
+  // In-app reminders, every message previewed together (the welcome-back tiers too).
+  reminders: RemindersSection,
   // Units, with how many there are and the most the perfect bonus can pay.
   units: UnitsSection,
   // Site copy, grouped by where it appears, with previews in the real counts.

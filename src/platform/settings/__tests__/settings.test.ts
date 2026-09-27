@@ -42,7 +42,32 @@ describe('defaults', () => {
     // Phase 2: the retuned curve (owner decision 2) - 900 XP per level past level 10.
     expect(DEFAULT_SETTINGS.levels.overflowStep).toBe(900);
     expect(DEFAULT_SETTINGS.levels.ranks).toEqual(DEFAULT_RANKS);
-    expect(DEFAULT_SETTINGS.streak).toEqual({ defaultTimeZone: null, timeZoneChangeCooldownHours: 20, maxPlausibleMergedStreak: 400 });
+    expect(DEFAULT_SETTINGS.streak).toMatchObject({ defaultTimeZone: null, timeZoneChangeCooldownHours: 20, maxPlausibleMergedStreak: 400 });
+  });
+
+  it('carry the Phase 3 streak, goal and reminder rules from the habits engine', () => {
+    expect(DEFAULT_SETTINGS.streak).toEqual({
+      defaultTimeZone: null,
+      timeZoneChangeCooldownHours: 20,
+      maxPlausibleMergedStreak: 400,
+      dayRule: 'any-solve',
+      freeze: { enabled: true, earnEveryGoalDays: 7, maxHeld: 2, startingCount: 0 },
+      repair: { enabled: true, windowDays: 2, lessonsPerMissedDay: 3 },
+      milestones: [3, 7, 14, 30, 50, 100, 365],
+      runsKept: 50,
+      mergeReplayDays: 7
+    });
+    // XP goals 50/100/250/500 with bonuses 5/10/25/50; "Regular" (100 XP, the old dashboard goal) by default.
+    expect(DEFAULT_SETTINGS.goals.options.map((o) => [o.id, o.metric, o.target, o.bonusXp, o.enabled])).toEqual([
+      ['casual', 'xp', 50, 5, true],
+      ['regular', 'xp', 100, 10, true],
+      ['serious', 'xp', 250, 25, true],
+      ['intense', 'xp', 500, 50, true]
+    ]);
+    expect(DEFAULT_SETTINGS.goals.defaultOptionId).toBe('regular');
+    // An evening nudge, never a morning one.
+    expect(DEFAULT_SETTINGS.reminders.atRisk.fromLocalHour).toBe(18);
+    expect(Object.keys(publicSettings(DEFAULT_SETTINGS))).toEqual(expect.arrayContaining(['goals', 'reminders', 'streak']));
   });
 
   it('carry the Phase 2 units, celebrations and badges from the code that uses them', () => {

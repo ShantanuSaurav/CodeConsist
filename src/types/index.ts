@@ -459,10 +459,95 @@ export interface DayRecord {
   units: number;
   /** Perfect-unit bonus XP paid that day (already inside `xp`). */
   perfectBonusXp: number;
+  /**
+   * The daily goal as it stood when it was met that day - a snapshot, so
+   * choosing another goal later never un-meets a day. Null until met.
+   */
+  goal: DayGoal | null;
+  /** The daily-goal bonus paid that day. NOT inside `xp` (the goal's own XP metric reads `xp`). */
+  goalBonusXp: number;
   firstAt: string | null;
   lastAt: string | null;
   /** How the row came to exist: a live event, the one-time backfill, or a guest merge. */
   source: 'live' | 'backfill' | 'merge';
+}
+
+/* ==========================================================================
+   Daily goal and streak (src/platform/habits)
+   ========================================================================== */
+
+/** What a daily goal counts: XP credited that day, lessons finished, or units completed. */
+export type DailyGoalMetric = 'xp' | 'lessons' | 'units';
+
+/** One goal a learner can pick (`settings.goals.options`). */
+export interface DailyGoalOption {
+  /** A slug, `^[a-z0-9-]{1,32}$`. What a learner's `dailyGoalId` stores. */
+  id: string;
+  label: string;
+  blurb: string;
+  metric: DailyGoalMetric;
+  target: number;
+  /** Paid once per day, the first time the goal is met. */
+  bonusXp: number;
+  enabled: boolean;
+}
+
+/** A met goal, as recorded on the day it was met. */
+export interface DayGoal {
+  optionId: string;
+  metric: DailyGoalMetric;
+  target: number;
+  metAt: string;
+}
+
+/** A finished run of streak days, kept for the learner's streak history. */
+export interface StreakRun {
+  start: string;
+  end: string;
+  length: number;
+  /** How it ended: a day missed with no freeze, a progress reset, or an administrator. */
+  ended: 'missed' | 'reset' | 'admin';
+}
+
+/** An offer to win back a streak that just broke, by doing extra lessons in time. */
+export interface StreakRepair {
+  lostStreak: number;
+  lostRunStart: string | null;
+  /** The missed days the repair covers (they bridge the gap, they do not count). */
+  missedDays: string[];
+  /** The last day the repair can be completed on. */
+  expiresDay: string;
+  /** Lessons needed: `repair.lessonsPerMissedDay` for each missed day. */
+  required: number;
+  done: number;
+}
+
+/**
+ * Everything about a learner's streak besides the three numbers every
+ * progress row already has (`streak`, `bestStreak`, `lastActiveDay`):
+ * freezes, what has been settled, the open repair offer and past runs.
+ * Kept on the progress row (`progress.habit`), created lazily by
+ * `normalizeHabit`.
+ */
+export interface HabitState {
+  v: 1;
+  /** Streak freezes held. Each covers one missed day. */
+  freezes: number;
+  /** Goal days counted towards the next freeze. */
+  freezeProgress: number;
+  /** The last day whose outcome (active, frozen, missed) has been worked out. */
+  settledThrough: string | null;
+  /** Days a freeze covered. */
+  frozenDays: string[];
+  /** Days a completed repair covered. */
+  repairedDays: string[];
+  /** Days a repair was completed on (one per repair). */
+  repairedOn: string[];
+  repair: StreakRepair | null;
+  /** The first day of the current run (null with no run). */
+  runStart: string | null;
+  /** Past runs, newest last. */
+  runs: StreakRun[];
 }
 
 /**
@@ -548,6 +633,13 @@ export interface UserStats {
    * save or an older server has none. Not what makes a unit "done".
    */
   unitsCompleted?: Record<string, UnitCompletion>;
+  /**
+   * Freezes, repair and streak history (src/platform/habits). `streak`,
+   * `bestStreak` and `lastActiveDay` above are the RAW stored values; what a
+   * screen shows is derived from them and this by `habitStatus` (the
+   * session's `habits`). Optional: an old save or an older server has none.
+   */
+  habit?: HabitState;
   /** Lifetime licence (or the legacy Pro flag): every premium stage is open. Server-set, mirrored here. */
   isPremium?: boolean;
   /**
@@ -605,6 +697,8 @@ export interface UserProfile {
 /** Account-level preferences. Every field is nullable: null means "use the default". */
 export interface LearnerPreferences {
   timeZone?: string | null;
+  /** The chosen daily goal (`settings.goals.options[].id`); null = the default option. */
+  dailyGoalId?: string | null;
   /** Sound effects on or off; null = the default (`celebrations.sound.defaultOn`). */
   soundOn?: boolean | null;
 }

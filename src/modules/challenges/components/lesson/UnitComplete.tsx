@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Award, Check, ChevronsUp, ClipboardList, Star, Trophy } from 'lucide-react';
-import { StreakFlame } from '@/ui';
+import { Award, Check, ChevronsUp, ClipboardList, Star, Target, Trophy } from 'lucide-react';
+import { ProgressRing, StreakFlame } from '@/ui';
 import { BadgeTierChip, LevelUpOverlay, XpCountUp } from '@/ui/celebrations';
 
 /**
@@ -29,6 +29,10 @@ export interface UnitCompleteProps {
   perfectLine: string | null;
   /** "Flawless run" on a replay answered first try throughout. */
   flawlessLine: string | null;
+  /** Today's daily goal as it stands (a ring beside the streak), or null when goals are off. */
+  goal?: { done: number; target: number; met: boolean; percent: number; label: string } | null;
+  /** "Daily goal met +10 XP" when a solve in this run met it (`reminders.goalMet.cardTitle`). */
+  goalLine?: string | null;
   newBadges: Array<{ id: string; title: string; tierName?: string; tier?: number }>;
   /** Signed in but not confirmed by the server: say it is kept here. */
   pendingSync: boolean;
@@ -80,6 +84,8 @@ const UnitComplete: React.FC<UnitCompleteProps> = ({
   streakLine,
   perfectLine,
   flawlessLine,
+  goal = null,
+  goalLine = null,
   newBadges,
   pendingSync,
   levelUp,
@@ -139,6 +145,7 @@ const UnitComplete: React.FC<UnitCompleteProps> = ({
     `Time ${spokenTime(timeMs)}.`,
     streakUp ? sentence(streakLine) : '',
     perfectLine ? sentence(perfectLine) : flawlessLine ? sentence(flawlessLine) : '',
+    goalLine ? sentence(goalLine) : goal ? `Daily goal ${goal.percent}% done.` : '',
     // The level-up dialog announces itself; the line does not.
     levelLine ? sentence(levelLine.title) : '',
     levelLine?.newRankLine ? sentence(levelLine.newRankLine) : '',
@@ -172,6 +179,12 @@ const UnitComplete: React.FC<UnitCompleteProps> = ({
         </p>
       ) : null}
 
+      {goalLine ? (
+        <p className="unit-complete-perfect is-goal">
+          <Target size={14} aria-hidden="true" /> {goalLine}
+        </p>
+      ) : null}
+
       {levelLine ? (
         <p className="unit-complete-level" aria-hidden="true">
           <ChevronsUp size={14} /> {levelLine.title}
@@ -179,7 +192,7 @@ const UnitComplete: React.FC<UnitCompleteProps> = ({
         </p>
       ) : null}
 
-      <div className="celebration-stats" aria-hidden="true">
+      <div className={`celebration-stats ${goal ? 'has-goal' : ''}`.trim()} aria-hidden="true">
         <div className="celebration-stat-box">
           <strong>{accuracy === null ? '—' : `${accuracy}%`}</strong>
           <span>Accuracy</span>
@@ -194,6 +207,16 @@ const UnitComplete: React.FC<UnitCompleteProps> = ({
           </strong>
           <span>{streakUp ? streakLine : 'Day streak'}</span>
         </div>
+        {goal && (
+          <div className="celebration-stat-box">
+            <strong>
+              <ProgressRing value={goal.done} max={goal.target} size={30} stroke={3} tone={goal.met ? 'success' : 'accent'} label={goal.label}>
+                {goal.met ? <Check size={12} strokeWidth={3} /> : null}
+              </ProgressRing>
+            </strong>
+            <span>{goal.met ? 'Goal met' : `Goal ${goal.percent}%`}</span>
+          </div>
+        )}
       </div>
 
       {newBadges.length > 0 && (

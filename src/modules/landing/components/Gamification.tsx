@@ -1,20 +1,18 @@
 import React from 'react';
 import { Check, Lock } from 'lucide-react';
 import { useLeveling, useSession } from '@/platform/session';
-import { dayTotals } from '@/platform/xp-leveling/insights';
+import { describeGoalProgress } from '@/platform/habits';
 import { ProgressBar, Stat } from '@/ui';
 import { Reveal, useInView } from './Reveal';
 
-const DAILY_GOAL = 3;
-
 /** "Progress you can see" - every figure here is the visitor's real number. */
 export const Gamification: React.FC = () => {
-  const { stats, stages, activity, todayKey } = useSession();
+  const { stats, stages, habits } = useSession();
   const { levelProgress, nextRankLevel, rankTitle } = useLeveling();
   const level = levelProgress(stats.xp);
-  // Every solve today, re-solves included - from the day log, in the learner's own zone.
-  const today = dayTotals(activity, todayKey).solves;
-  const goalPercent = Math.min(100, Math.round((today / DAILY_GOAL) * 100));
+  // Today's daily goal - the visitor's own choice, else the default option -
+  // counted from the day log in their own zone (the habits engine).
+  const goal = habits.goal;
   const nextRank = nextRankLevel(level.level);
   const shown = stages.slice(0, 5);
 
@@ -40,7 +38,7 @@ export const Gamification: React.FC = () => {
           <Reveal delay={80}>
             <div ref={barsRef} className="progress-card landing-progress h-full">
               <div className="grid grid-cols-3 gap-6 pb-6 mb-6 border-b border-border-subtle">
-                <Stat label="Streak" value={`${stats.streak} ${stats.streak === 1 ? 'day' : 'days'}`} />
+                <Stat label="Streak" value={`${habits.streak} ${habits.streak === 1 ? 'day' : 'days'}`} />
                 <Stat label="Level" value={String(level.level).padStart(2, '0')} hint={rankTitle(level.level)} />
                 <Stat label="XP" value={stats.xp.toLocaleString()} hint={nextRank ? `next rank at level ${nextRank}` : 'top rank'} />
               </div>
@@ -55,15 +53,19 @@ export const Gamification: React.FC = () => {
                 <ProgressBar value={barsIn ? level.percent : 0} label={`${level.into} of ${level.needed} XP into this level`} />
               </div>
 
-              <div>
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-fg">Daily goal · solve {DAILY_GOAL} challenges</span>
-                  <span className="font-mono text-xs text-fg-muted">
-                    {today} / {DAILY_GOAL}
-                  </span>
+              {goal && (
+                <div>
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <span className="text-fg">Daily goal · {goal.label}</span>
+                    <span className="font-mono text-xs text-fg-muted">{describeGoalProgress(goal.metric, goal.done, goal.target)}</span>
+                  </div>
+                  <ProgressBar
+                    value={barsIn ? goal.percent : 0}
+                    tone="success"
+                    label={`Daily goal: ${describeGoalProgress(goal.metric, goal.done, goal.target).replace(' / ', ' of ')} today`}
+                  />
                 </div>
-                <ProgressBar value={barsIn ? goalPercent : 0} tone="success" label={`${today} of ${DAILY_GOAL} solved today`} />
-              </div>
+              )}
             </div>
           </Reveal>
 

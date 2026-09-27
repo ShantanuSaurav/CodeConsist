@@ -258,3 +258,42 @@ describe('units and preferences (Phase 2)', () => {
     expect(source).toContain('preferences: publicPreferences(store.normalizePreferences(user.preferences))');
   });
 });
+
+describe('streaks, freezes and the daily goal (Phase 3)', () => {
+  const read = async (file) => (await readFile(path.resolve(path.dirname(INDEX), file), 'utf8')).replace(/\r\n/g, '\n');
+
+  it('builds the habits service at boot and hands it to the routes', () => {
+    expect(source).toContain('learningDeps.habits = createHabitsService(');
+    expect(source).toMatch(/createPreferencesRouter\(\{[^}]*learningDeps/);
+  });
+
+  it('counts the streak in the solve through recordSolveHabits, never on the server’s own day', async () => {
+    const routes = await read('progress-routes.js');
+    const solve = routes.slice(routes.indexOf("'/progress/solve'"), routes.indexOf("'/progress/merge'"));
+    expect(solve).toContain('recordSolveHabits(');
+    expect(solve).toContain('activity.todayFor(');
+    expect(solve).not.toMatch(/leveling\.dayKey\(|lib\.dayKey\(|nextStreak\(/);
+    // The merge replays days through the habits engine instead of clamping the streak itself.
+    expect(routes).toContain('mergeHabitsFor(');
+    const rules = await read('progress-rules.js');
+    expect(rules).not.toContain('nextStreak(');
+  });
+
+  it('shows the derived streak (freezes applied, the learner’s own zone) on /auth/me, login and the leaderboard', () => {
+    expect(handlerSource('/api/auth/me')).toContain('habitsForUser(');
+    expect(handlerSource('/api/auth/login')).toContain('habitsForUser(');
+    const board = handlerSource('/api/leaderboard');
+    expect(board).toContain('habits.streakFor(');
+    expect(board).not.toContain('currentStreak(');
+  });
+
+  it('keeps the support edit and engagement numbers behind the admin gate', async () => {
+    const admin = await read('admin.js');
+    const gate = admin.indexOf('router.use(requireAdminAuth)');
+    expect(gate).toBeGreaterThan(-1);
+    for (const route of ["router.patch('/users/:id/learning'", "router.get('/analytics/engagement'"]) {
+      expect(admin.indexOf(route), route).toBeGreaterThan(gate);
+    }
+    expect(admin).toContain("audit(req, 'learning.user.update'");
+  });
+});

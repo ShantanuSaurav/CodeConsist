@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { INITIAL_STATS, adoptAccountProgress, hydrateStats, sessionToday, solveWasDeferred, statsAfterSolve } from '../stats';
 import { ApiError, OfflineError } from '../../api-client/api';
-import { nextStreak } from '../../xp-leveling/leveling';
+import { learnerHabitStatus } from '../../habits';
+import { DEFAULT_SETTINGS } from '../../settings/defaults';
 
 describe('hydrateStats', () => {
   it('backfills an old v2 save with every field added since', () => {
@@ -14,13 +15,14 @@ describe('hydrateStats', () => {
       completedChallenges: ['c1'],
       attempts: { c1: { challengeId: 'c1', score: 100, attempts: 1, hintsUsed: 0, solvedAt: '2020-01-01T10:00:00.000Z' } }
     };
-    const stats = hydrateStats(old, undefined, '2026-09-25');
+    const stats = hydrateStats(old);
     expect(stats).toEqual({
       ...INITIAL_STATS,
       ...old,
       // Derived, never trusted from the save.
       level: 5,
-      streak: 0,
+      // The streak stays RAW: the habits engine works out that it ended long ago.
+      streak: 4,
       bestStreak: 4,
       completedStages: [],
       seenConcepts: [],
@@ -30,7 +32,7 @@ describe('hydrateStats', () => {
   });
 
   it('keeps a live streak, and levels with the curve it is given', () => {
-    const stats = hydrateStats({ xp: 25, streak: 3, bestStreak: 9, lastActiveDay: '2026-09-24' }, { thresholds: [0, 10, 20], overflowStep: 100 }, '2026-09-25');
+    const stats = hydrateStats({ xp: 25, streak: 3, bestStreak: 9, lastActiveDay: '2026-09-24' }, { thresholds: [0, 10, 20], overflowStep: 100 });
     expect(stats).toMatchObject({ level: 3, streak: 3, bestStreak: 9 });
   });
 
@@ -59,17 +61,18 @@ describe('a zone flip westward', () => {
     expect(sessionToday('America/Los_Angeles', INITIAL_STATS, { lastDay: null }, inLosAngeles)).toBe('2026-09-26');
   });
 
-  it('keeps the streak on reload, and the next solve neither restarts it nor lands on the 26th', () => {
+  it('keeps the streak on reload, and never breaks it on a day before the last one counted', () => {
     const today = sessionToday('America/Los_Angeles', saved, null, inLosAngeles);
-    expect(hydrateStats(saved, undefined, today).streak).toBe(4);
-    expect(nextStreak(4, saved.lastActiveDay, today)).toBe(4);
-    // What judging it on the browser's own day did.
-    expect(hydrateStats(saved, undefined, '2026-09-26').streak).toBe(0);
-    expect(nextStreak(4, saved.lastActiveDay, '2026-09-26')).toBe(1);
+    const status = (day: string) =>
+      learnerHabitStatus(hydrateStats(saved), { settings: DEFAULT_SETTINGS, dailyGoalId: null, today: day, day: null, now: inLosAngeles, zone: 'America/Los_Angeles' });
+    expect(hydrateStats(saved).streak).toBe(4);
+    expect(status(today)).toMatchObject({ streak: 4, activeToday: true });
+    // Even judged on the browser's own (earlier) day, nothing is missed.
+    expect(status('2026-09-26').streak).toBe(4);
   });
 
   it('adopts the streak the server worked out, whatever this browser thinks the day is', () => {
-    const cached = hydrateStats(saved, undefined, '2026-09-26');
+    const cached = hydrateStats(saved);
     const adopted = adoptAccountProgress(cached, { xp: 500, streak: 4, bestStreak: 4, lastActiveDay: '2026-09-27', completedChallenges: ['c1'] });
     expect(adopted).toMatchObject({ xp: 500, streak: 4, lastActiveDay: '2026-09-27', completedChallenges: ['c1'] });
   });
@@ -82,18 +85,22 @@ describe('statsAfterSolve', () => {
   const curve = { thresholds: [0, 100, 130], overflowStep: 100 };
 
   it('keeps what this tab did while the request was in flight when the rules are the same', () => {
-    const next = statsAfterSolve(prev, server, { rulesChanged: false, curve, serverDay: '2026-09-25' });
+    const next = statsAfterSolve(prev, server, { rulesChanged: false, curve });
     expect(next).toMatchObject({ xp: 140, level: 3, completedChallenges: ['a', 'b'], streak: 2, isPremium: true, unlockedStages: ['s9'] });
   });
 
   it('takes the server’s XP - and the level it gives - when the rules changed', () => {
-    const next = statsAfterSolve(prev, server, { rulesChanged: true, curve, serverDay: '2026-09-25' });
+    const next = statsAfterSolve(prev, server, { rulesChanged: true, curve });
     expect(next).toMatchObject({ xp: 120, level: 2, completedChallenges: ['a', 'b'] });
   });
 
-  it('judges the streak on the server’s day', () => {
+  it('takes the server’s raw streak fields, habit included', () => {
     const afterFlip = { ...server, streak: 5, lastActiveDay: '2026-09-27' };
-    expect(statsAfterSolve(prev, afterFlip, { rulesChanged: false, curve, serverDay: '2026-09-27' }).streak).toBe(5);
+    expect(statsAfterSolve(prev, afterFlip, { rulesChanged: false, curve }).streak).toBe(5);
+    const habit = { v: 1 as const, freezes: 1, freezeProgress: 3, settledThrough: null, frozenDays: [], repairedDays: [], repairedOn: [], repair: null, runStart: '2026-09-23', runs: [] };
+    expect(statsAfterSolve(prev, { ...afterFlip, habit }, { rulesChanged: false, curve }).habit).toEqual(habit);
+    // An older server without habits leaves this tab's own.
+    expect(statsAfterSolve({ ...prev, habit }, afterFlip, { rulesChanged: false, curve }).habit).toEqual(habit);
   });
 });
 
@@ -124,6 +131,6 @@ describe('unit completions in the stats (P2)', () => {
   it('takes the server’s unit completions after a solve', () => {
     const prev = { ...INITIAL_STATS, xp: 60, unitsCompleted: { local: { completedAt: '2026-09-25T10:00:00.000Z', perfect: true, bonusXp: 25 } } };
     const server = { xp: 60, streak: 1, lastActiveDay: '2026-09-25', completedChallenges: [], unitsCompleted: {} };
-    expect(statsAfterSolve(prev, server, { rulesChanged: true, curve: { thresholds: [0, 100], overflowStep: 100 }, serverDay: '2026-09-25' }).unitsCompleted).toEqual({});
+    expect(statsAfterSolve(prev, server, { rulesChanged: true, curve: { thresholds: [0, 100], overflowStep: 100 } }).unitsCompleted).toEqual({});
   });
 });

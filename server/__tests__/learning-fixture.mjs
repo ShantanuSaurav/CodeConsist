@@ -16,6 +16,8 @@ import { createSettingsRouter } from '../settings-routes.js';
 import { createActivityService } from '../activity.js';
 import { createActivityRouter } from '../activity-routes.js';
 import { createProgressRouter } from '../progress-routes.js';
+import { createHabitsService } from '../habits.js';
+import { createPreferencesRouter, publicPreferences } from '../preferences-routes.js';
 
 export { lib };
 
@@ -83,10 +85,12 @@ export function createFixtureUnits(settings, defs = UNIT_DEFS) {
 export function createLearningDeps(store, { env = {}, serverZone = () => 'UTC', units = false } = {}) {
   const settings = createSettingsService({ store, lib, env });
   const activity = createActivityService({ lib, store, settings, getChallengeMerged: getChallenge, gradeAnswer: lib.gradeAnswer, serverZone });
+  const habits = createHabitsService({ lib, store, settings, activity });
   return {
     lib,
     settings,
     activity,
+    habits,
     units: units ? createFixtureUnits(settings) : null,
     runtimeInfo: () => ({ pythonVerifiable: false, judge0Languages: [] })
   };
@@ -140,6 +144,9 @@ export async function startLearnerApp(store, options = {}) {
     '/api',
     createActivityRouter({ requireAuth, learningDeps, gradeAnswer: lib.gradeAnswer, getChallengeMerged: getChallenge, ...(options.activity ?? {}) })
   );
+  // PATCH /api/me/preferences, with the goal options and the zone cooldown from the settings.
+  const publicUser = (user) => ({ id: user.id, username: user.username, preferences: publicPreferences(store.normalizePreferences(user.preferences)) });
+  app.use('/api', createPreferencesRouter({ requireAuth, publicUser, store, learningDeps }));
   app.use((err, _req, res, _next) => res.status(500).json({ error: err.message }));
 
   const server = await new Promise((resolve) => {

@@ -23,6 +23,7 @@ import { PracticeHost } from '@/modules/challenges';
 import { AccountModals } from '@/modules/account';
 import { BadgeToaster } from '@/modules/achievements';
 import { DashboardLayout } from './layout/DashboardLayout';
+import { HabitToaster } from './HabitToaster';
 import { useContentBundle } from './content';
 import { lazyPage } from './lazy';
 import { NotFoundRoute } from './routes/NotFoundRoute';
@@ -188,6 +189,8 @@ const Shell: React.FC = () => {
             order, so the modal is listening before this asks it to open. */}
         <AuthErrorWatcher />
         <BadgeToaster />
+        {/* Freezes earned, repairs, milestones and a goal met elsewhere. */}
+        <HabitToaster />
         <Toasts />
       </BrowserRouter>
     </SessionProvider>

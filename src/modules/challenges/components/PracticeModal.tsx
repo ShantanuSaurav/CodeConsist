@@ -6,9 +6,11 @@ import { Answer, optionOrder } from '@/platform/grading-engine/answers';
 import { isRefusedRun } from '@/platform/execution/compilerService';
 import { stageStatus, unitStates } from '@/platform/progress';
 import { fillCopy } from '@/platform/settings';
+import { useAppEvent } from '@/platform/events';
+import type { AppEvents } from '@/platform/events';
 import { isPassingSolve, rawScore, scoreSolve } from '@/platform/xp-leveling/leveling';
 import { achievements } from '@/platform/xp-leveling/insights';
-import { CodeBlock, LearningModeSwitch, useBodyScrollLock, useFocusTrap, useToast } from '@/ui';
+import { CodeBlock, GoalMetCard, LearningModeSwitch, useBodyScrollLock, useFocusTrap, useToast } from '@/ui';
 import { checkAnswer, definitionFor, emptyAnswer, isAnswerComplete, isCodeChallenge, typeLabel } from '../challenge-types';
 import { usePracticeSession } from '../session/PracticeSessionProvider';
 import { canRevealSolution, contextForMode, revealsAnswers } from '../session/rules';
@@ -54,7 +56,8 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     playSound,
     celebrate,
     holdCelebrations,
-    releaseCelebrations
+    releaseCelebrations,
+    habits
   } = useSession();
   const { notify } = useToast();
   const {
@@ -146,6 +149,21 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const bodyRef = useRef<HTMLDivElement>(null);
 
   /**
+   * "Daily goal met - one more?": shown under the answer the moment a solve
+   * in this lesson meets today's goal (the session announces it once a day).
+   * "One more" puts it away; "Done for today" closes the lesson.
+   */
+  const [goalCard, setGoalCard] = useState<AppEvents['habit:goalMet'] | null>(null);
+  const goalCardAllowed = useRef(false);
+  goalCardAllowed.current = Boolean(activeStage) && settings.goals.oneMorePrompt;
+  useAppEvent(
+    'habit:goalMet',
+    useCallback((met: AppEvents['habit:goalMet']) => {
+      if (met.source === 'solve' && goalCardAllowed.current) setGoalCard(met);
+    }, [])
+  );
+
+  /**
    * Which challenge the in-flight code run belongs to, or null when there is
    * none. A run can take seconds (the first Python run downloads a runtime),
    * and the learner is free to move to another challenge meanwhile. Its
@@ -181,6 +199,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     setProgressMessage('');
     setReviewingConcept(false);
     setLastAwarded(null);
+    setGoalCard(null);
     // Saved code wins over the starter: the learner picks up exactly where
     // they stopped, whether that was a minute or a month ago.
     const saved = next && isCodeType(next) ? draftForRef.current(next.id) : null;
@@ -262,7 +281,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     () => ({
       xp: stats.xp,
       level: stats.level,
-      streak: stats.streak,
+      streak: habits.streak,
       earnedBadgeIds: achievements(stats, stages, settings.badges, badgeOptions).filter((a) => a.earnedAt).map((a) => a.id),
       unitsCompleted: Object.keys(stats.unitsCompleted ?? {})
     }),
@@ -868,10 +887,16 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                 countUpMs={celebrationRules.countUpMs}
                 accuracy={endScreen.accuracy}
                 timeMs={run.elapsedMs()}
-                streak={{ before: run.snapshot?.streak ?? stats.streak, after: stats.streak }}
-                streakLine={fillCopy(celebrationRules.copy.streakUp, { n: stats.streak })}
+                streak={{ before: run.snapshot?.streak ?? habits.streak, after: habits.streak }}
+                streakLine={fillCopy(celebrationRules.copy.streakUp, { n: habits.streak })}
                 perfectLine={endScreen.perfectLine}
                 flawlessLine={endScreen.flawlessLine}
+                goal={habits.goal ? { done: habits.goal.done, target: habits.goal.target, met: habits.goal.met, percent: habits.goal.percent, label: habits.goal.label } : null}
+                goalLine={
+                  run.counts.goalMet
+                    ? `${settings.reminders.goalMet.cardTitle}${run.counts.goalBonusXp > 0 ? ` +${run.counts.goalBonusXp} XP` : ''}`
+                    : null
+                }
                 newBadges={endScreen.newBadges}
                 pendingSync={endScreen.pendingSync}
                 levelUp={endScreen.levelUp}
@@ -1107,6 +1132,21 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                     )}
                   </div>
                 </div>
+              )}
+
+              {goalCard && (
+                <GoalMetCard
+                  title={settings.reminders.goalMet.cardTitle}
+                  body={fillCopy(settings.reminders.goalMet.cardBody, { streak: goalCard.streak, bonusXp: goalCard.bonusXp })}
+                  bonusXp={goalCard.bonusXp}
+                  moreLabel={settings.reminders.goalMet.moreLabel}
+                  doneLabel={settings.reminders.goalMet.doneLabel}
+                  onMore={() => setGoalCard(null)}
+                  onDone={() => {
+                    setGoalCard(null);
+                    closePractice();
+                  }}
+                />
               )}
 
               {/* Only offered once they have genuinely tried - and never on a stage test. */}

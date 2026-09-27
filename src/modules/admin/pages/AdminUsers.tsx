@@ -4,6 +4,7 @@ import { activityGridFromLog } from '@/platform/activity/log';
 import { AdminUserRow, UserLearning, adminApi } from '../services/adminApi';
 import { AdminPageHeader, Badge, Button, Card, ConfirmDialog, Drawer, EmptyState, ErrorText, Spinner, Table, Toggle } from '../components/ui';
 import { PasswordResetDialog } from '../components/PasswordResetDialog';
+import { UserHabitsPanel } from '../components/UserHabitsPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { google: 'Google', github: 'GitHub' };
 /* The same heat scale as the learner dashboard. */
@@ -16,14 +17,16 @@ function shortDate(iso: string | null | undefined): string {
   return Number.isNaN(at.getTime()) ? '—' : at.toISOString().slice(0, 10);
 }
 
-/** One learner's time zone, their last 14 weeks and the questions they miss most. */
-const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void }> = ({ user, onClose }) => {
+/** One learner's time zone, their last 14 weeks, the questions they miss most, and their streak and goal. */
+const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void; onChanged: () => void }> = ({ user, onClose, onChanged }) => {
   const [data, setData] = useState<UserLearning | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'activity' | 'habits'>('activity');
 
   useEffect(() => {
     setData(null);
     setError(null);
+    setTab('activity');
     if (!user) return;
     adminApi
       .userLearning(user.id)
@@ -45,7 +48,38 @@ const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void 
     <Drawer open={Boolean(user)} title={user ? `Learning: ${user.username}` : ''} onClose={onClose} size="lg">
       {error && <ErrorText>{error}</ErrorText>}
       {!data && !error && <Spinner label="Loading activity…" />}
-      {data && (
+      {data && data.summary && (
+        <div className="flex gap-1 mb-4 border-b border-border" role="tablist" aria-label="Learner details">
+          {(
+            [
+              ['activity', 'Activity'],
+              ['habits', 'Streak & goal']
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={`px-3 py-2 -mb-px text-sm border-b-2 ${tab === id ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {data && user && tab === 'habits' && data.summary && data.habit && (
+        <UserHabitsPanel
+          user={user}
+          data={data}
+          onSaved={(next) => {
+            setData(next);
+            onChanged();
+          }}
+        />
+      )}
+      {data && tab === 'activity' && (
         <div className="space-y-6">
           <div className="flex flex-wrap gap-2 text-sm">
             <Badge>Time zone: {data.timeZone ?? 'server'}</Badge>
@@ -217,6 +251,8 @@ export const AdminUsers: React.FC = () => {
                 <th>Premium</th>
                 <th>XP</th>
                 <th>Level</th>
+                <th title="As the learner sees it today, freezes applied">Streak</th>
+                <th>Goal</th>
                 <th>Solved</th>
                 <th>Stages</th>
                 <th>Last login</th>
@@ -255,6 +291,17 @@ export const AdminUsers: React.FC = () => {
                   </td>
                   <td className="cell-num">{u.xp.toLocaleString()}</td>
                   <td className="cell-num">{u.level}</td>
+                  <td className="cell-num">{u.streak}</td>
+                  <td className="text-fg-secondary whitespace-nowrap">
+                    {u.goal ? (
+                      <span title={u.goal.chosen ? 'Chosen by the learner' : 'The default - the learner has not chosen'}>
+                        {u.goal.label}
+                        {u.goal.chosen ? '' : <span className="text-fg-muted"> (default)</span>}
+                      </span>
+                    ) : (
+                      <span className="text-fg-muted">—</span>
+                    )}
+                  </td>
                   <td className="cell-num">{u.completedChallenges}</td>
                   <td className="cell-num">{u.completedStages}</td>
                   <td className="cell-mono text-fg-muted">{shortDate(u.lastLoginAt)}</td>
@@ -299,7 +346,7 @@ export const AdminUsers: React.FC = () => {
         )}
       </Card>
 
-      <LearningDrawer user={learningFor} onClose={() => setLearningFor(null)} />
+      <LearningDrawer user={learningFor} onClose={() => setLearningFor(null)} onChanged={() => load(query)} />
       {/* Refresh the list when a link is issued or revoked, for the "Active reset link" badge. */}
       <PasswordResetDialog user={resetFor} onClose={() => setResetFor(null)} onChanged={() => load(query)} />
 

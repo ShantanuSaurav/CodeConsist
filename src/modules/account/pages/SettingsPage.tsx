@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLeveling, useSession } from '@/platform/session';
 import { useCopy } from '@/platform/settings';
-import { Badge, Button, DevHint, Dropdown, LearningModeSwitch, PageHeader, Switch } from '@/ui';
+import { Badge, Button, DevHint, Dropdown, LearningModeSwitch, PageHeader, Switch, useToast } from '@/ui';
+import { describeGoalTarget } from '@/platform/habits';
+import type { HabitStatus } from '@/platform/habits';
+import { browserTimeZone } from '@/platform/time/days';
 import type { BadgeTone } from '@/ui';
 import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
@@ -59,6 +62,23 @@ function shortDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+/**
+ * What the daily goal does, under the rules in effect: it keeps the streak
+ * only when a day counts by meeting it (`dayRule: goal-met`), it pays a
+ * bonus only when the option has one, and it earns freezes only while
+ * freezes are on and can be held.
+ */
+function goalRowDescription(habits: HabitStatus, bonusXp: number, chosen: boolean): string {
+  const does = [habits.dayRule === 'goal-met' ? 'keeps your streak going' : null, bonusXp > 0 ? `pays ${bonusXp} bonus XP` : null].filter(Boolean);
+  const parts = ['How much counts as a good day.'];
+  if (does.length > 0) parts.push(`Meeting it ${does.join(' and ')}.`);
+  if (habits.freezesEnabled && habits.maxFreezes > 0) {
+    parts.push(habits.freezeEvery === 1 ? 'Every goal day earns a streak freeze.' : `Every ${habits.freezeEvery} goal days earn a streak freeze.`);
+  }
+  if (!chosen) parts.push('You are on the default.');
+  return parts.join(' ');
+}
+
 export const SettingsPage: React.FC = () => {
   const {
     user,
@@ -75,8 +95,30 @@ export const SettingsPage: React.FC = () => {
     oauthProviders,
     refreshAccount,
     soundOn,
-    setSoundOn
+    setSoundOn,
+    settings,
+    goalOptions,
+    dailyGoal,
+    dailyGoalId,
+    setDailyGoal,
+    habits,
+    timeZone,
+    adoptDeviceTimeZone
   } = useSession();
+  const { notify } = useToast();
+  const deviceZone = browserTimeZone();
+  // The zone the account's days are counted in (null until this browser first reports one).
+  const accountZone = user && user.provider !== 'guest' ? user.preferences?.timeZone ?? null : null;
+  const [zoneBusy, setZoneBusy] = useState(false);
+  const switchToDeviceZone = async () => {
+    setZoneBusy(true);
+    const result = await adoptDeviceTimeZone();
+    setZoneBusy(false);
+    if (result === 'applied') notify(`Days now end at midnight in ${deviceZone}.`, 'success');
+    else if (result === 'cooldown')
+      notify(`Your time zone was changed recently. It can change again ${settings.streak.timeZoneChangeCooldownHours} hours after the last change.`, 'info');
+    else notify('Could not reach the server. Try again in a moment.', 'error');
+  };
   const { theme, toggleTheme } = useTheme();
   const copy = useCopy();
   const openAuthModal = intents.openAuth;
@@ -471,6 +513,34 @@ export const SettingsPage: React.FC = () => {
           description="Learn walks through theory, an example and a try-it before each new idea; Practice goes straight to the challenges. Same grading, XP and unlocking either way."
         >
           <LearningModeSwitch value={learningMode} onChange={setLearningMode} />
+        </Row>
+        {dailyGoal && goalOptions.length > 0 && (
+          <Row
+            title="Daily goal"
+            description={goalRowDescription(habits, dailyGoal.bonusXp, dailyGoalId !== null)}
+          >
+            <Dropdown
+              value={dailyGoal.id}
+              onChange={(id) => setDailyGoal(id)}
+              options={goalOptions.map((o) => ({ value: o.id, label: o.label, hint: describeGoalTarget(o.metric, o.target) }))}
+              ariaLabel="Daily goal"
+            />
+          </Row>
+        )}
+        <Row
+          title="Time zone"
+          description={
+            signedIn
+              ? `Your days end at midnight in ${timeZone ?? 'the server’s time zone'}. That is when a day counts for your streak and goal.`
+              : `Your days end at midnight in ${deviceZone ?? 'this device’s time zone'} (this device's time zone).`
+          }
+        >
+          {signedIn && deviceZone && deviceZone !== accountZone && (
+            <Button onClick={switchToDeviceZone} disabled={zoneBusy || serverStatus !== 'online'}>
+              Use this device's time zone
+            </Button>
+          )}
+          {signedIn && deviceZone && deviceZone === accountZone && <span className="text-sm text-fg-muted">This device's time zone</span>}
         </Row>
         {tracks.length > 1 && (
           <Row title="Current track" description='Which path the Learn page, the skill map and "Continue learning" follow.'>
