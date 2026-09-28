@@ -16,14 +16,17 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { AppSplash, ErrorBoundary, ToastProvider, Toasts } from '@/ui';
 import { ThemeProvider } from '@/platform/theme';
 import { SessionProvider } from '@/platform/session';
+import { getCopy } from '@/platform/settings';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
 import { PracticeHost } from '@/modules/challenges';
 import { AccountModals } from '@/modules/account';
 import { BadgeToaster } from '@/modules/achievements';
 import { DashboardLayout } from './layout/DashboardLayout';
+import { HabitToaster } from './HabitToaster';
 import { useContentBundle } from './content';
 import { lazyPage } from './lazy';
+import { NotFoundRoute } from './routes/NotFoundRoute';
 
 /* Screens - one chunk each; screens that compose two modules live in ./routes. */
 const Landing = lazyPage(() => import('@/modules/landing'), 'Landing');
@@ -42,6 +45,8 @@ const CertificatePage = lazyPage(() => import('@/modules/account'), 'Certificate
 const VerifyPage = lazyPage(() => import('@/modules/account'), 'VerifyPage');
 /* Where a Google / GitHub sign-in comes back to, before the dashboard takes over. */
 const OAuthCallbackPage = lazyPage(() => import('@/modules/account'), 'OAuthCallbackPage');
+/* Where an admin-issued password reset link lands (the token is in the URL fragment). */
+const ResetPasswordPage = lazyPage(() => import('@/modules/account'), 'ResetPasswordPage');
 /* The administrator console - a separate session and its own chunk, fetched only on /admin. */
 const AdminApp = lazyPage(() => import('@/modules/admin'), 'AdminApp');
 
@@ -103,6 +108,8 @@ const AppRoutes: React.FC = () => (
       <Route path="leaderboard" element={<LeaderboardPage />} />
       <Route path="achievements" element={<AchievementsPage />} />
       <Route path="settings" element={<SettingsPage />} />
+      {/* A dead link under /dashboard keeps the sidebar. */}
+      <Route path="*" element={<NotFoundRoute inFrame />} />
     </Route>
 
     <Route
@@ -110,6 +117,14 @@ const AppRoutes: React.FC = () => (
       element={
         <Suspense fallback={<AppSplash />}>
           <OAuthCallbackPage />
+        </Suspense>
+      }
+    />
+    <Route
+      path={ROUTES.resetPassword}
+      element={
+        <Suspense fallback={<AppSplash />}>
+          <ResetPasswordPage />
         </Suspense>
       }
     />
@@ -146,7 +161,9 @@ const AppRoutes: React.FC = () => (
       }
     />
 
-    <Route path="*" element={<Navigate to={ROUTES.landing} replace />} />
+    {/* A real "not found" page rather than a silent redirect home, which made
+        a mistyped or outdated link look like the site had lost its place. */}
+    <Route path="*" element={<NotFoundRoute />} />
   </Routes>
 );
 
@@ -159,9 +176,9 @@ const Shell: React.FC = () => {
         <ScrollToTop />
         {/* The practice modal and its session wrap the routes so every page can open it. */}
         <PracticeHost
-          readingSlot={(challenge, close) => (
+          readingSlot={(challenge, close, { defaultOpen }) => (
             <Suspense fallback={null}>
-              <ReadingPanel challenge={challenge} onNavigate={close} />
+              <ReadingPanel challenge={challenge} onNavigate={close} defaultOpen={defaultOpen} />
             </Suspense>
           )}
         >
@@ -172,14 +189,23 @@ const Shell: React.FC = () => {
             order, so the modal is listening before this asks it to open. */}
         <AuthErrorWatcher />
         <BadgeToaster />
+        {/* Freezes earned, repairs, milestones and a goal met elsewhere. */}
+        <HabitToaster />
         <Toasts />
       </BrowserRouter>
     </SessionProvider>
   );
 };
 
+/**
+ * The crash screen's words: the admin-editable copy (`copy.error.*`), read
+ * only when something has crashed. The ui layer cannot import platform, so
+ * it is handed in; the boundary falls back to its own text if this throws.
+ */
+const crashMessages = () => ({ title: getCopy('copy.error.title'), body: getCopy('copy.error.body') });
+
 export const App: React.FC = () => (
-  <ErrorBoundary>
+  <ErrorBoundary messages={crashMessages}>
     <ThemeProvider>
       <ToastProvider>
         <Shell />

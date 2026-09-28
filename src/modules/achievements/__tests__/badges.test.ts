@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Stage, UserStats } from '@/types';
 import { eventBus } from '@/platform/events';
-import { newlyEarned } from '../services/badgeWatcher';
+import { DEFAULT_SETTINGS } from '@/platform/settings';
+import { newlyEarned, seedSeen } from '../services/badgeWatcher';
 
 const stats = (solved: string[]): UserStats => ({
   xp: solved.length * 40,
@@ -54,5 +55,36 @@ describe('challenge:completed over the event bus', () => {
     expect(leaderboardRefresh).toHaveBeenCalledWith('stage-1-a01');
     off();
     expect(eventBus.listenerCount('challenge:completed')).toBe(0);
+  });
+});
+
+/* ------------------------------------------------------------ Phase 2 */
+
+describe('tiered badges', () => {
+  const withStreak = (best: number): UserStats => ({ ...stats(['a']), bestStreak: best, lastActiveDay: '2026-09-20' });
+
+  it('reports each tier with its name, family and progress, under the old ids', () => {
+    const earned = newlyEarned(new Set(['first-solve']), withStreak(8), []);
+    expect(earned.map((b) => [b.id, b.tierName, b.family])).toEqual([
+      ['streak-3', 'Bronze', 'streak'],
+      ['streak-7', 'Silver', 'streak']
+    ]);
+    expect(earned[1].progress).toEqual({ value: 8, next: 7, previous: 3 });
+  });
+
+  it('bursts nothing after the badge rules change: the watcher reseeds from what is earned', () => {
+    // An admin lowers the first streak tier from 3 to 1 days: under the new
+    // rules `streak-1` is earned at once, but it is not news.
+    const lowered = { ...DEFAULT_SETTINGS.badges, families: DEFAULT_SETTINGS.badges.families.map((f) => (f.id === 'streak' ? { ...f, tiers: [1, 3, 7] } : f)) };
+    const learner = withStreak(2);
+    const before = seedSeen(learner, [], DEFAULT_SETTINGS.badges);
+    expect(newlyEarned(before, learner, [], lowered).map((b) => b.id)).toEqual(['streak-1']);
+    const reseeded = seedSeen(learner, [], lowered);
+    expect(newlyEarned(reseeded, learner, [], lowered)).toEqual([]);
+  });
+
+  it('leaves a switched-off family out', () => {
+    const off = { ...DEFAULT_SETTINGS.badges, families: DEFAULT_SETTINGS.badges.families.map((f) => (f.id === 'streak' ? { ...f, enabled: false } : f)) };
+    expect(newlyEarned(new Set(), withStreak(30), [], off).some((b) => b.family === 'streak')).toBe(false);
   });
 });

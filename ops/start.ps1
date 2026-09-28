@@ -7,9 +7,12 @@
   down once. So: look first, and only start what is actually stopped.
 
      powershell -ExecutionPolicy Bypass -File ops\start.ps1
+
+  -SkipAdminCheck leaves out the admin sign-in report; up.ps1 prints it
+  itself once the API answers.
 #>
 [CmdletBinding()]
-param()
+param([switch]$SkipAdminCheck)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib.ps1')
@@ -50,5 +53,7 @@ for ($i = 1; $i -le 40; $i++) {
 if (-not $up) {
     Write-Host '  the API has not answered yet. It may still be building (first start takes ~40s).'
     Write-Host '  Look at ops\logs\server-supervisor.log, then run ops\status.ps1.'
+} elseif (-not $SkipAdminCheck) {
+    Show-AdminBootstrapStatus
 }
 Write-Host ''

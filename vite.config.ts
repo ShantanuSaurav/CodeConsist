@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { contentStatsPlugin } from './scripts/vite-content-stats.mjs';
 
 export default defineConfig(({ mode }) => {
   // Vite exposes .env values to the APP as import.meta.env, but it does not put
@@ -14,7 +15,8 @@ export default defineConfig(({ mode }) => {
   const apiTarget = env.VITE_API_PROXY || `http://localhost:${apiPort}`;
 
   return {
-    plugins: [react(), tailwindcss()],
+    // contentStatsPlugin fills %CC_LESSONS% and friends in index.html from the bank.
+    plugins: [react(), tailwindcss(), contentStatsPlugin()],
     resolve: {
       // One alias for the whole tree: "@/modules/x", "@/platform/y". The
       // dependency rules (scripts/check-boundaries.mjs) decide which of those
@@ -41,7 +43,11 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: 'es2020',
-      sourcemap: true,
+      // Off for a production build: a .map file hands every visitor the
+      // original source, comments and all. `vite build --mode development`, or
+      // SOURCEMAP=true for a one-off debugging build, turns them back on.
+      // scripts/check-dist.mjs fails CI if one ships anyway.
+      sourcemap: mode === 'development' || env.SOURCEMAP === 'true',
       rollupOptions: {
         output: {
           // Vendor chunks that change on a dependency bump, not on ours. The

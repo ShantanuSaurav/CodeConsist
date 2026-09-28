@@ -245,6 +245,24 @@ export function judge0SetupHint(language) {
   );
 }
 
+const LANGUAGE_NAMES = { java: 'Java', c: 'C', cpp: 'C++', go: 'Go' };
+
+/**
+ * The same situation in words for a learner, who can do nothing about a
+ * missing Judge0 and should not be told about .env files. /api/execute sends
+ * this as `stderr` and the setup hint above as `devHint`, which the client
+ * shows in development builds only.
+ *
+ * `render(name)` is the admin-editable wording (`copy.runtime.unavailable`
+ * in the settings store); these built-in words are the fallback when it is
+ * missing or empty.
+ */
+export function runtimeUnavailableMessage(language, render) {
+  const name = LANGUAGE_NAMES[language] ?? language;
+  const custom = typeof render === 'function' ? render(name) : '';
+  return custom || `${name} can't run here right now - this server has no compiler for it yet. JavaScript and Python work as usual.`;
+}
+
 /* ------------------------------------------------------------------ Java */
 
 /**

@@ -4,17 +4,59 @@
  * Every call degrades gracefully: if the server is not running the app keeps
  * working against localStorage, it just says so instead of silently pretending.
  */
-import { Challenge, CodeDraft, ExecutionResult, LeaderboardEntry, TestCase, UserProfile, UserStats } from '@/types';
+import {
+  ActivityContext,
+  ActivityLog,
+  Challenge,
+  CodeDraft,
+  DayRecord,
+  ExecutionResult,
+  HabitState,
+  LeaderboardEntry,
+  LearnerPreferences,
+  LearningMode,
+  MissSummary,
+  ReviewEvent,
+  ReviewItem,
+  ReviewItemState,
+  ReviewOutcome,
+  TestCase,
+  UserProfile,
+  UserStats
+} from '@/types';
 import { STORAGE_KEYS, readString, remove, writeString } from '../storage/storage';
+import { browserTimeZone } from '../time/days';
+import type { ActivityView } from '../activity/log';
+import type { PublicSettings } from '../settings/types';
+import type { HabitStatus } from '../habits/types';
 
 const BASE = '/api';
 
+/** What the server can say about WHY it refused, beyond the status. */
+export interface ApiErrorDetails {
+  /**
+   * A machine-readable reason: 'rate-limited' (429), 'busy' (503, every
+   * code-runner slot taken), 'premium-locked' (403), 'stage-test', ...
+   */
+  reason?: string;
+  /** With a 429: how long until a retry can succeed. */
+  retryAfterSeconds?: number;
+  /** The whole response body, for callers that need more (a 503's run result, say). */
+  payload?: unknown;
+}
+
 export class ApiError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  reason?: string;
+  retryAfterSeconds?: number;
+  payload?: unknown;
+  constructor(message: string, status: number, details: ApiErrorDetails = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.reason = details.reason;
+    this.retryAfterSeconds = details.retryAfterSeconds;
+    this.payload = details.payload;
   }
 }
 
@@ -50,6 +92,15 @@ async function request<T>(
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const token = auth ? getToken() : null;
   if (token) headers.Authorization = `Bearer ${token}`;
+  // The learner's own zone, so the server counts their days in it (the write
+  // routes store it on the account). A browser whose Intl will not say, or
+  // throws, simply sends nothing - it must never break the request.
+  try {
+    const zone = browserTimeZone();
+    if (zone) headers['X-Time-Zone'] = zone;
+  } catch {
+    /* no zone header */
+  }
 
   // The timer covers headers AND body. Clearing it as soon as headers arrived
   // left the body read unbounded, and a connection dropped mid-body surfaced
@@ -89,7 +140,15 @@ async function request<T>(
   if (!response.ok) {
     // A 501 from /api/execute carries a usable result body, not a failure.
     if (response.status === 501 && payload) return payload as T;
-    throw new ApiError(payload?.error || `Request failed (${response.status})`, response.status);
+    // The server's own sentence: `error`, or a run result's `stderr` (the
+    // 503 "busy" answer from /api/execute has no `error`).
+    const message = (typeof payload?.error === 'string' && payload.error) || (typeof payload?.stderr === 'string' && payload.stderr) || `Request failed (${response.status})`;
+    const retryAfter = Number(payload?.retryAfterSeconds ?? response.headers?.get?.('Retry-After'));
+    throw new ApiError(message, response.status, {
+      reason: typeof payload?.reason === 'string' ? payload.reason : undefined,
+      retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+      payload
+    });
   }
   return payload as T;
 }
@@ -100,17 +159,44 @@ export interface AuthResponse {
   token: string;
   user: UserProfile;
   progress: ServerProgress;
+  /** The streak and goal as they stand today (freezes applied). Absent from an older server. */
+  habits?: HabitStatus;
 }
 
 export interface ServerProgress {
   xp: number;
   level: number;
+  /** The RAW stored streak (its missed days worked out on the learner's today); screens show `habits.streak`. */
   streak: number;
   bestStreak: number;
   lastActiveDay: string | null;
   completedChallenges: string[];
   completedStages: string[];
   attempts: UserStats['attempts'];
+  /** Units whose first completion was recorded, and the bonus it paid. Absent from an older server. */
+  unitsCompleted?: UserStats['unitsCompleted'];
+  /** Freezes, repair and streak history. Absent from an older server (and from a row nothing has written yet). */
+  habit?: HabitState;
+  /** The Practice schedule (entries only for questions reviewed or revealed). Absent from an older server. */
+  review?: Record<string, ReviewItemState>;
+}
+
+/** A bonus paid on top of a solve's own XP. `awardedXp` never includes it. */
+export type Bonus = { kind: 'perfect-unit'; unitId: string; xp: number } | { kind: 'daily-goal'; day: string; xp: number };
+
+/** What a solve did to the streak and the daily goal (server/habits.js). */
+export interface HabitEventsResponse {
+  /** The daily goal was met for the first time today with this solve. */
+  goalMet: boolean;
+  freezeEarned: boolean;
+  /** An open repair was completed: the lost streak is back. */
+  repaired: boolean;
+  /** The goal bonus this solve paid (0 when none). */
+  bonusXp: number;
+  streakDay?: boolean;
+  /** Days a freeze covered when the missed days were worked out. */
+  frozenDays?: string[];
+  broken?: { lostStreak: number; repairOffered: boolean } | null;
 }
 
 /**
@@ -168,6 +254,146 @@ export interface HealthResponse {
    * keep working against one - `judge0` above stays the fallback.
    */
   runtimes?: Record<string, RuntimeInfo>;
+  /**
+   * The revision of the admin's learning rules. When it differs from the
+   * cached one the client refetches `GET /api/settings`. Absent from an older
+   * server, which means "use the defaults".
+   */
+  settingsRevision?: number;
+}
+
+/** What `GET /api/settings` returns: the learner-facing rules and their revision. */
+export interface SettingsResponse {
+  revision: number;
+  settings: PublicSettings;
+}
+
+/** The day a solve or a miss landed on, as the server recorded it. */
+export type TodayRow = DayRecord & { day: string };
+
+export interface SolveResponse {
+  progress: ServerProgress;
+  awardedXp: number;
+  score: number;
+  firstSolve: boolean;
+  verified: boolean;
+  /** Absent from an older server. */
+  settingsRevision?: number;
+  today?: TodayRow;
+  /** Bonuses on top of `awardedXp` (a perfect unit, the daily goal). Absent from an older server. */
+  bonuses?: Bonus[];
+  /** Every bonus this solve paid: the perfect unit's and the daily goal's. */
+  bonusXp?: number;
+  /** The unit this solve completed for the first time, or null. */
+  unitCompleted?: string | null;
+  /** Whether that unit was cleared perfectly (first try throughout). */
+  unitPerfect?: boolean;
+  /** The streak and goal after this solve. Absent from an older server. */
+  habits?: HabitStatus;
+  /** What this solve did to them; `bonusXp` is the goal bonus alone. Absent from an older server. */
+  habitEvents?: HabitEventsResponse;
+}
+
+export interface MergeResponse {
+  progress: ServerProgress;
+  mergedChallenges?: number;
+  /** Solve XP only; unit and goal bonuses are in `bonusXp`. */
+  awardedXp?: number;
+  bonusXp?: number;
+  bonuses?: Bonus[];
+  /** The account's activity after the merge. Absent from an older server. */
+  activity?: ActivityView;
+  /** The account's preferences after a guest's were adopted. Absent from an older server. */
+  preferences?: LearnerPreferences;
+  /** The streak and goal after the merge. Absent from an older server. */
+  habits?: HabitStatus;
+  /**
+   * Solved ids that were NOT credited because they are in a premium stage
+   * this account has not unlocked. Absent when there were none.
+   */
+  skippedLocked?: string[];
+  /** Practice XP the merged review log paid (not in `awardedXp`). Absent from an older server. */
+  awardedReviewXp?: number;
+}
+
+/** What `POST /api/review/session` returns: a session, or nothing to practise and when to come back. */
+export interface ReviewSessionResponse {
+  sessionId: string | null;
+  items: ReviewItem[];
+  /** The day the next question falls due (null when none will). */
+  nextDueDay?: string | null;
+  xp?: { remainingToday: number };
+  expiresAt?: string;
+}
+
+/** What `POST /api/review/answer` returns. */
+export interface ReviewAnswerResponse {
+  correct: boolean;
+  outcome: ReviewOutcome;
+  awardedXp: number;
+  bonusXp: number;
+  /** The daily-goal bonus this answer paid, the first time today's goal was met. */
+  goalBonusXp?: number;
+  xpRemainingToday: number;
+  /** Answered right: the question is done in this session. */
+  resolved?: boolean;
+  /** Every question in the session is answered right. */
+  sessionComplete?: boolean;
+  /** The question was already answered right in this session: nothing was paid. */
+  replay?: boolean;
+  progress: ServerProgress;
+  today?: TodayRow;
+  habits?: HabitStatus;
+  habitEvents?: HabitEventsResponse | null;
+  settingsRevision?: number;
+}
+
+/** What `PATCH /api/me/preferences` accepts (any subset); `null` puts a default back - not for the zone. */
+export type PreferencesPatch = Partial<Pick<LearnerPreferences, 'soundOn' | 'dailyGoalId'>> & { timeZone?: string };
+
+/** What `PATCH /api/me/preferences` returns. */
+export interface PreferencesResponse {
+  user: UserProfile;
+  /** `timeZone` is present only when the request sent a zone. */
+  applied: { timeZone?: boolean };
+}
+
+/** What `GET /api/content` returns. */
+export interface ContentResponse {
+  /** Stage metadata; from Phase 2 each carries `units` (ids and names). */
+  stages: any[];
+  /** Every challenge; one in a premium stage this viewer cannot open is a `locked` stub. */
+  challenges: Challenge[];
+  languageTracks?: any[];
+  hiddenLanguages?: string[];
+  /** The premium stages this viewer has not unlocked (their challenges are stubs). Absent from an older server. */
+  lockedStageIds?: string[];
+}
+
+/** `POST /api/auth/password-reset/inspect`: is this reset link live, and whose is it? */
+export type PasswordResetInspect =
+  | { valid: true; username: string; expiresAt: string }
+  | { valid: false; reason: 'unknown' | 'expired' | 'used' | 'revoked' };
+
+/** One wrong answer on its way to `POST /api/activity/misses`. */
+export interface MissUpload {
+  challengeId: string;
+  /** The answer as the practice modal holds it (non-code challenges). */
+  answer?: unknown;
+  /** Pass counts of a failed run (code challenges). */
+  code?: { passed: number; total: number };
+  context?: ActivityContext;
+  /** The answer was shown after this miss. */
+  final?: boolean;
+  /** When it happened, if it was queued. */
+  at?: string;
+}
+
+export interface MissesResponse {
+  accepted: number;
+  dropped: number;
+  today: TodayRow;
+  misses: Record<string, MissSummary>;
 }
 
 /* ----------------------------------------------------------------- billing */
@@ -317,7 +543,7 @@ export const api = {
     return res;
   },
 
-  async me(): Promise<{ user: UserProfile; progress: ServerProgress }> {
+  async me(): Promise<{ user: UserProfile; progress: ServerProgress; habits?: HabitStatus }> {
     return request('/auth/me');
   },
 
@@ -382,8 +608,12 @@ export const api = {
     return request(`/drafts/${encodeURIComponent(challengeId)}`, { method: 'DELETE' });
   },
 
-  async content(): Promise<{ stages: any[]; challenges: Challenge[]; languageTracks?: any[]; hiddenLanguages?: string[] }> {
-    return request('/content', { auth: false });
+  /**
+   * The bank as THIS viewer may see it - so it is asked with the session:
+   * a premium stage the account has not unlocked comes back as stubs.
+   */
+  async content(): Promise<ContentResponse> {
+    return request('/content');
   },
 
   /**
@@ -395,25 +625,104 @@ export const api = {
     challengeId: string,
     attempts: number,
     hintsUsed: number,
-    submission: { answer?: unknown; code?: string } = {}
-  ): Promise<{
-    progress: ServerProgress;
-    awardedXp: number;
-    score: number;
-    firstSolve: boolean;
-    verified: boolean;
-  }> {
+    submission: {
+      answer?: unknown;
+      code?: string;
+      context?: ActivityContext;
+      /** Learn or Practice: which score cap applies after a reveal. */
+      learningMode?: LearningMode | null;
+      /** Back at the end of the unit after a miss: completes below the pass mark. */
+      requeued?: boolean;
+      /** Its answer was shown first: the score is capped. */
+      revealed?: boolean;
+    } = {}
+  ): Promise<SolveResponse> {
     return request('/progress/solve', {
       method: 'POST',
       body: { challengeId, attempts, hintsUsed, ...submission }
     });
   },
 
-  async mergeProgress(progress: Partial<ServerProgress>): Promise<{ progress: ServerProgress }> {
-    return request('/progress/merge', { method: 'POST', body: { progress } });
+  /**
+   * Carry local progress into the account: a guest's on sign-in, or this
+   * account's own offline copy. `activity` (days, miss summaries, recent
+   * misses - trimmed by the caller to stay under the 256 kB body limit) is
+   * merged idempotently, so sending it twice never counts anything twice.
+   *
+   * Should the body still be too large (413), the progress goes up again on
+   * its own: the solves are what a sign-in or a sign-out must not lose, and
+   * the log is only history.
+   */
+  async mergeProgress(
+    progress: Partial<ServerProgress>,
+    activity?: Pick<ActivityLog, 'days' | 'misses' | 'missLog'>,
+    preferences?: LearnerPreferences | null,
+    reviewLog?: ReviewEvent[] | null
+  ): Promise<MergeResponse> {
+    // A guest's own choices (sound on or off, their daily goal) go along; the
+    // server adopts them only where the account has none. Their streak
+    // freezes and history ride in `progress.habit`, their Practice schedule
+    // in `progress.review`; Practice answers the server has not priced yet
+    // go in `reviewLog`.
+    const extra = { ...(preferences ? { preferences } : {}), ...(reviewLog && reviewLog.length ? { reviewLog } : {}) };
+    try {
+      return await request<MergeResponse>('/progress/merge', { method: 'POST', body: activity ? { progress, activity, ...extra } : { progress, ...extra } });
+    } catch (err) {
+      if (activity && err instanceof ApiError && err.status === 413) {
+        return request<MergeResponse>('/progress/merge', { method: 'POST', body: { progress, ...extra } });
+      }
+      throw err;
+    }
   },
 
-  async resetProgress(): Promise<{ progress: ServerProgress }> {
+  /**
+   * Change the learner's own preferences: sound (Phase 2), the daily goal and
+   * the time zone (Phase 3); `null` puts a default back. A zone changed again
+   * within the cooldown is not applied (`applied.timeZone: false`) - that is
+   * not an error.
+   */
+  async updatePreferences(patch: PreferencesPatch): Promise<PreferencesResponse> {
+    return request('/me/preferences', { method: 'PATCH', body: patch });
+  },
+
+  /** The learner-facing rules. Public: guests play by the same rules. */
+  async settings(): Promise<SettingsResponse> {
+    return request('/settings', { auth: false, timeoutMs: 10000 });
+  },
+
+  /** The account's days from `from` (default: the last 14 weeks) and its miss summaries. */
+  async activity(from?: string): Promise<ActivityView> {
+    return request(`/activity${from ? `?from=${encodeURIComponent(from)}` : ''}`);
+  },
+
+  /** Record wrong answers (1-50). `keepalive` lets the request outlive a closing tab. */
+  async recordMisses(misses: MissUpload[], options: { keepalive?: boolean } = {}): Promise<MissesResponse> {
+    return request('/activity/misses', { method: 'POST', body: { misses }, keepalive: options.keepalive });
+  },
+
+  /** Start a Practice session (the whole bank, or one stage). */
+  async reviewSession(scope: { stageId?: string } = {}): Promise<ReviewSessionResponse> {
+    return request('/review/session', { method: 'POST', body: scope.stageId ? { stageId: scope.stageId } : {} });
+  },
+
+  /**
+   * Answer one question of a Practice session. The server checks the answer
+   * and prices it; a 404 with `reason: 'expired'` means the session is over
+   * (start a new one).
+   */
+  async reviewAnswer(body: {
+    sessionId: string;
+    challengeId: string;
+    answer?: unknown;
+    code?: string;
+    attempts: number;
+    hintsUsed: number;
+    revealed?: boolean;
+  }): Promise<ReviewAnswerResponse> {
+    return request('/review/answer', { method: 'POST', body });
+  },
+
+  async resetProgress(): Promise<{ progress: ServerProgress; habits?: HabitStatus }> {
     return request('/progress/reset', { method: 'POST' });
   },
 
@@ -465,8 +774,9 @@ export const api = {
     return request('/leaderboard', { auth: false });
   },
 
+  /** With the session, so a premium lesson is graded for a learner who has unlocked it. */
   async grade(challengeId: string, answer: unknown): Promise<{ correct: boolean; explanation: string }> {
-    return request('/grade', { method: 'POST', auth: false, body: { challengeId, answer } });
+    return request('/grade', { method: 'POST', body: { challengeId, answer } });
   },
 
   async execute(payload: {
@@ -482,6 +792,28 @@ export const api = {
      */
     stdin?: string;
   }): Promise<ExecutionResult> {
-    return request('/execute', { method: 'POST', auth: false, body: payload, timeoutMs: 30000 });
+    // With the session when there is one: a signed-in learner's runs are
+    // limited per account, a guest's per address (a 429 or a 503 "busy"
+    // comes back as an ApiError with its `reason`).
+    return request('/execute', { method: 'POST', body: payload, timeoutMs: 30000 });
+  },
+
+  /* Password reset links. An administrator issues one from Users; the token
+     arrives in the page's URL fragment and only ever travels in these bodies. */
+
+  /** Is this link live, and for whom? Never throws for a dead link - `valid: false` says why. */
+  async inspectPasswordReset(token: string): Promise<PasswordResetInspect> {
+    return request('/auth/password-reset/inspect', { method: 'POST', auth: false, body: { token } });
+  },
+
+  /**
+   * Set a new password with a link. Answers like a login (and stores the new
+   * token); every other session of the account is signed out. 410 when the
+   * link is used, expired or withdrawn.
+   */
+  async resetPassword(token: string, newPassword: string): Promise<AuthResponse> {
+    const res = await request<AuthResponse>('/auth/password-reset', { method: 'POST', auth: false, body: { token, newPassword } });
+    setToken(res.token);
+    return res;
   }
 };

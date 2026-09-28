@@ -109,6 +109,57 @@ function Get-TunnelConfig {
 }
 
 <#
+  What the API said about the administrator account when it last started.
+
+  The server checks ADMIN_USER_ID / ADMIN_PASSWORD from .env at boot and
+  refuses weak ones - but it only says so in its log, and a refused password
+  once went unnoticed through two restarts. start.ps1 and up.ps1 call this
+  once the API answers, so the verdict is on screen straight away. Only the
+  server's own [admin] lines are shown; .env itself is never read here.
+#>
+function Show-AdminBootstrapStatus {
+    $log = Join-Path $script:LogDir 'server.log'
+    if (-not (Test-Path -LiteralPath $log)) { return }
+    $lines = @(Get-Content -LiteralPath $log -Tail 5000 -ErrorAction SilentlyContinue)
+
+    # The [admin] lines of a boot come just before its "listening on" line, so
+    # take the ones between the previous boot and the last one.
+    $boots = @()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ([string]$lines[$i] -like '*CodeConsist API listening on*') { $boots += $i }
+    }
+    if ($boots.Count -eq 0) { return }
+    $last = $boots[$boots.Count - 1]
+    $from = 0
+    if ($boots.Count -gt 1) { $from = $boots[$boots.Count - 2] + 1 }
+    $adminLines = @()
+    for ($i = $from; $i -lt $last; $i++) {
+        $line = [string]$lines[$i]
+        if ($line.StartsWith('[admin]')) { $adminLines += $line.Substring(7).Trim() }
+    }
+
+    Write-Host ''
+    Write-Host 'Admin sign-in:'
+    if ($adminLines.Count -eq 0) {
+        Write-Host '  [ok]   no change at this start (.env matches the account, or sets no admin password)'
+        return
+    }
+    $refused = $false
+    foreach ($text in $adminLines) {
+        if ($text -match 'NOT applied|invalid|No administrator account|signed out') {
+            Write-Host "  [WARN] $text" -ForegroundColor Yellow
+            $refused = $true
+        } else {
+            Write-Host "  [ok]   $text"
+        }
+    }
+    if ($refused) {
+        Write-Host '         Fix ADMIN_USER_ID / ADMIN_PASSWORD in .env, then restart the API:' -ForegroundColor Yellow
+        Write-Host '         ops\stop.ps1, then ops\start.ps1' -ForegroundColor Yellow
+    }
+}
+
+<#
   Anything that looks like a credential, blanked.
 
   status.ps1 prints log tails, and a log line can quote a URL with a token in

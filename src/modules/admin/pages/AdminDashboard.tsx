@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { DashboardSummary, adminApi } from '../services/adminApi';
+import { DashboardSummary, EngagementSummary, adminApi } from '../services/adminApi';
 import { AdminPageHeader, Badge, Card, ErrorText, Spinner } from '../components/ui';
 import { Stat } from '@/ui';
 import { ROUTES } from '@/config/routes';
@@ -19,12 +19,18 @@ const rupees = (paise: number) => `₹${Math.floor(paise / 100).toLocaleString('
 export const AdminDashboard: React.FC = () => {
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Goals and streaks across learners; the card is left out when the server cannot say.
+  const [engagement, setEngagement] = useState<EngagementSummary | null>(null);
 
   useEffect(() => {
     adminApi
       .dashboard()
       .then(setData)
       .catch((err) => setError(err.message ?? 'Failed to load the dashboard.'));
+    adminApi
+      .engagement()
+      .then(setEngagement)
+      .catch(() => setEngagement(null));
   }, []);
 
   if (error) return <ErrorText>{error}</ErrorText>;
@@ -55,6 +61,25 @@ export const AdminDashboard: React.FC = () => {
           ))}
         </dl>
       </div>
+
+      {engagement && (
+        <Card className="mb-6">
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-sm font-medium text-fg">Engagement</h2>
+            <Link to="/admin/rules/goals" className="text-xs text-fg-muted hover:text-fg underline-offset-2 hover:underline">
+              Goal, streak and reminder rules
+            </Link>
+          </div>
+          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-y-4" data-testid="engagement-card">
+            <Stat label="Goal met today" value={engagement.metGoalToday} hint={`of ${engagement.learners} learners`} />
+            <Stat label="At risk now" value={engagement.atRiskNow} hint="streaks not counted today" />
+            <Stat label="Avg. streak" value={`${engagement.avgStreak}d`} hint={`${engagement.learnersWithStreak} with a streak`} />
+            <Stat label="Repairs open" value={engagement.repairsOpen} hint={`${engagement.repairsDone7d} done this week`} />
+            <Stat label="Freezes held" value={engagement.freezesHeld} hint={`${engagement.freezesUsed7d} used this week`} />
+            <Stat label="Time zones" value={engagement.learnersWithTimeZone} hint="learners with one on record" />
+          </dl>
+        </Card>
+      )}
 
       <Card className="mb-6">
         <div className="flex items-baseline justify-between mb-3">

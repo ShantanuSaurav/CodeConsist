@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom';
 import { Check, Copy, ExternalLink, X } from 'lucide-react';
 import { useSession } from '@/platform/session';
+import { getCopy } from '@/platform/settings';
 import { intents } from '@/platform/events';
 import { api, ApiError, OfflineError, rupees } from '@/platform/api-client/api';
 import type { BillingCatalogResponse, BillingOrder, BillingProduct, CreateOrderResponse, OrderPaidResponse } from '@/platform/api-client/api';
@@ -114,7 +115,7 @@ function nameFromUsername(username: string | undefined): string {
 }
 
 function messageOf(err: unknown, fallback: string): string {
-  if (err instanceof OfflineError) return 'The API server is not reachable, so nothing can be bought right now.';
+  if (err instanceof OfflineError) return getCopy('copy.offline.checkout') || 'Checkout is temporarily unavailable. Please try again in a little while.';
   if (err instanceof ApiError || err instanceof Error) return err.message || fallback;
   return fallback;
 }

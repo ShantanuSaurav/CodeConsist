@@ -1,19 +1,129 @@
 import React, { useEffect, useState } from 'react';
-import { AnalyticsSummary, adminApi } from '../services/adminApi';
-import { AdminPageHeader, Card, EmptyState, ErrorText, Spinner, Table } from '../components/ui';
+import { Link } from 'react-router-dom';
+import { Pencil } from 'lucide-react';
+import { AdminChallengeRow, AdminStageRow, AnalyticsSummary, ChallengeMisses, MostMissedRow, adminApi } from '../services/adminApi';
+import { AdminPageHeader, Badge, Button, Card, Drawer, EmptyState, ErrorText, Spinner, Table } from '../components/ui';
+import { QuestionWizard } from '../components/QuestionWizard';
 import { ProgressBar } from '@/ui';
 
 const LANGUAGE_LABEL: Record<string, string> = { javascript: 'JavaScript', python: 'Python', c: 'C', cpp: 'C++' };
+const CONTEXT_LABEL: Record<string, string> = { lesson: 'Lesson', test: 'Stage test', review: 'Review', library: 'Library', assessment: 'Assessment' };
+
+const percent = (rate: number) => `${Math.round(rate * 100)}%`;
+
+function when(iso: string): string {
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? iso : at.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/** The wrong answers to one question, across every learner - answers only, never who gave them. */
+const MissesDrawer: React.FC<{ row: MostMissedRow | null; onClose: () => void }> = ({ row, onClose }) => {
+  const [data, setData] = useState<ChallengeMisses | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setData(null);
+    setError(null);
+    if (!row) return;
+    adminApi
+      .challengeMisses(row.id)
+      .then(setData)
+      .catch((err) => setError(err.message ?? 'Could not load the answers.'));
+  }, [row]);
+
+  const max = Math.max(1, ...(data?.answers ?? []).map((a) => a.count));
+
+  return (
+    <Drawer open={Boolean(row)} title={row ? `Wrong answers: ${row.title}` : ''} onClose={onClose} size="lg">
+      {error && <ErrorText>{error}</ErrorText>}
+      {!data && !error && <Spinner label="Loading answers…" />}
+      {data && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap gap-2 text-sm">
+            <Badge>{data.missedBy} learners missed it</Badge>
+            <Badge>{data.totalMisses} wrong answers</Badge>
+            <Badge tone={data.revealed > 0 ? 'warning' : 'default'}>{data.revealed} ended with the answer shown</Badge>
+            <Badge>{data.challenge.type}</Badge>
+          </div>
+
+          <section>
+            <h3 className="text-sm font-medium text-fg mb-2">Most common wrong answers</h3>
+            {data.answers.length === 0 ? (
+              <EmptyState>No answer details - code questions record only how many tests passed.</EmptyState>
+            ) : (
+              <div className="space-y-2">
+                {data.answers.map((a) => (
+                  <div key={a.key} className="flex items-center gap-3">
+                    <span className="w-64 text-sm text-fg-secondary truncate" title={a.label}>
+                      {a.label}
+                    </span>
+                    <ProgressBar value={(a.count / max) * 100} size="sm" tone="neutral" className="flex-1" label={`${a.count} times`} />
+                    <span className="text-xs font-mono tabular-nums text-fg w-8 text-right">{a.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {data.challenge.options && (
+            <section>
+              <h3 className="text-sm font-medium text-fg mb-2">The options</h3>
+              <ol className="list-decimal pl-5 text-sm text-fg-secondary space-y-0.5">
+                {data.challenge.options.map((option, i) => (
+                  <li key={i}>{option}</li>
+                ))}
+              </ol>
+            </section>
+          )}
+
+          <section>
+            <h3 className="text-sm font-medium text-fg mb-2">Latest wrong answers</h3>
+            {data.recent.length === 0 ? (
+              <EmptyState>None kept.</EmptyState>
+            ) : (
+              <Table>
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Where</th>
+                    <th>Answer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.recent.map((r, i) => (
+                    <tr key={`${r.at}-${i}`}>
+                      <td className="cell-mono text-fg-muted whitespace-nowrap">{when(r.at)}</td>
+                      <td className="text-fg-secondary">
+                        {CONTEXT_LABEL[r.context] ?? r.context}
+                        {r.final && <span className="ml-1 text-xs text-warning">(shown)</span>}
+                      </td>
+                      <td className="text-fg">{r.answer}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </section>
+        </div>
+      )}
+    </Drawer>
+  );
+};
 
 /**
- * /admin/analytics. Every number here is derived from real solve/attempt
- * records in server/db.js's progress store - "most missed" is attempted-but-
- * rarely-solved, which is an honest signal for "too hard or badly worded",
- * never invented (see the route's comment in server/admin.js).
+ * /admin/analytics. Every number here is derived from real records in
+ * server/db.js: solves from the progress store, and "Most missed" from the
+ * wrong answers learners actually gave (the activity store) - an honest
+ * signal for "too hard or badly worded", never invented (see mostMissedRows
+ * in server/admin.js).
  */
 export const AdminAnalytics: React.FC = () => {
   const [data, setData] = useState<AnalyticsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState<MostMissedRow | null>(null);
+  // "Edit feedback": the question wizard, on the question a row names.
+  const [editing, setEditing] = useState<{ row: AdminChallengeRow; stages: AdminStageRow[] } | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
     adminApi
@@ -22,12 +132,24 @@ export const AdminAnalytics: React.FC = () => {
       .catch((err) => setError(err.message ?? 'Failed to load analytics.'));
   }, []);
 
+  const editFeedback = async (m: MostMissedRow) => {
+    setEditError(null);
+    try {
+      const [{ challenges }, { stages }] = await Promise.all([adminApi.challenges(m.stageId), adminApi.stages()]);
+      const row = challenges.find((c) => c.id === m.id);
+      if (!row) throw new Error('That question is no longer in the bank.');
+      setEditing({ row, stages });
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Could not open the question.');
+    }
+  };
+
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!data) return <Spinner label="Loading analytics…" />;
 
   return (
     <div>
-      <AdminPageHeader title="Analytics" description="Derived from real solve and attempt records. Nothing here is invented." />
+      <AdminPageHeader title="Analytics" description="Derived from real solves and real wrong answers. Nothing here is invented." />
 
       <div className="grid lg:grid-cols-2 gap-6 mb-6">
         <Card>
@@ -48,6 +170,31 @@ export const AdminAnalytics: React.FC = () => {
               })}
             </div>
           )}
+        </Card>
+
+        <Card>
+          <h2 className="text-sm font-medium text-fg mb-2">Practice (7 days)</h2>
+          {data.practice ? (
+            <div className="flex flex-wrap gap-8">
+              <div>
+                <div className="text-2xl font-semibold text-fg tabular-nums">{data.practice.learners7d}</div>
+                <div className="text-xs text-fg-muted">learners practised</div>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold text-fg tabular-nums">{data.practice.xp7d.toLocaleString()}</div>
+                <div className="text-xs text-fg-muted">Practice XP paid</div>
+              </div>
+            </div>
+          ) : (
+            <EmptyState>Practice numbers appear once the server has started fully.</EmptyState>
+          )}
+          <p className="text-xs text-fg-muted mt-3">
+            Sessions over learners' mistakes and questions due for review. Their rules are under{' '}
+            <Link to="/admin/rules/review" className="underline">
+              Rules &amp; rewards › Practice sessions
+            </Link>
+            .
+          </p>
         </Card>
 
         <Card>
@@ -72,33 +219,94 @@ export const AdminAnalytics: React.FC = () => {
           <div>
             <h2 className="panel-title">Most missed challenges</h2>
             <p className="text-xs text-fg-muted mt-0.5">
-              Attempted at least 3 times with more attempts than solves - a real signal something may be too hard or unclear.
+              The share of learners who got a question wrong at least once, from their recorded wrong answers. A question is listed once
+              enough learners have missed it - set the minimum under{' '}
+              <Link to="/admin/rules/retention" className="underline">
+                Rules &amp; rewards › Data limits
+              </Link>
+              . Select a row for the wrong answers themselves.
             </p>
           </div>
         </div>
+        {editError && (
+          <div className="px-4 pt-3">
+            <ErrorText>{editError}</ErrorText>
+          </div>
+        )}
         {data.mostMissed.length === 0 ? (
-          <EmptyState>Not enough attempts yet to surface anything.</EmptyState>
+          <EmptyState>Not enough wrong answers yet to surface anything.</EmptyState>
         ) : (
           <Table>
             <thead>
               <tr>
                 <th>Challenge</th>
-                <th>Attempts</th>
-                <th>Solved</th>
+                <th>Missed by</th>
+                <th>Miss rate</th>
+                <th>Wrong answers</th>
+                <th>Most common wrong answer</th>
+                <th>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {data.mostMissed.map((m) => (
-                <tr key={m.id}>
+                <tr
+                  key={m.id}
+                  className="cursor-pointer hover:bg-surface-2"
+                  tabIndex={0}
+                  onClick={() => setOpen(m)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setOpen(m);
+                    }
+                  }}
+                  aria-label={`Show wrong answers for ${m.title}`}
+                >
                   <td className="cell-primary">{m.title}</td>
-                  <td className="cell-num">{m.attempts}</td>
-                  <td className="cell-num">{m.solved}</td>
+                  <td className="cell-num">
+                    {m.missedBy} / {m.learners}
+                  </td>
+                  <td className="cell-num">{percent(m.missRate)}</td>
+                  <td className="cell-num">
+                    {m.totalMisses}
+                    {m.revealed > 0 && <span className="text-xs text-fg-muted"> · {m.revealed} shown</span>}
+                  </td>
+                  <td className="text-fg-secondary truncate max-w-xs">{m.topWrong[0]?.label ?? '—'}</td>
+                  <td className="text-right">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        // The row opens the wrong answers; this opens the question itself.
+                        e.stopPropagation();
+                        void editFeedback(m);
+                      }}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      aria-label={`Edit the feedback on ${m.title}`}
+                    >
+                      <Pencil size={13} /> Edit feedback
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </Table>
         )}
       </Card>
+
+      <MissesDrawer row={open} onClose={() => setOpen(null)} />
+
+      {editing && (
+        <QuestionWizard
+          stages={editing.stages}
+          stageId={editing.row.stageId}
+          existing={editing.row}
+          onClose={() => setEditing(null)}
+          onSaved={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 };

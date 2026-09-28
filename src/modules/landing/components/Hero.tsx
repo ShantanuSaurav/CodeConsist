@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { ArrowRight } from 'lucide-react';
-import { useSession } from '@/platform/session';
+import { useContentStats, useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { intents } from '@/platform/events';
 import { optionOrder } from '@/platform/grading-engine/answers';
 import { ButtonLink, CodeBlock } from '@/ui';
@@ -81,12 +82,14 @@ const Preview: React.FC<{ challenge: Challenge }> = ({ challenge: c }) => {
  * exactly that lesson, and the panel moves on as they solve.
  */
 export const Hero: React.FC = () => {
-  const { allChallenges, contentReady } = useSession();
+  const { contentReady } = useSession();
   const next = useNextChallenge(anyLesson);
   const sample = next?.challenge ?? null;
 
-  const lessons = allChallenges.filter((c) => !c.isStageTest).length;
-  const tests = allChallenges.filter((c) => c.isStageTest).length;
+  // Counted from the bank the session has, never typed into a template.
+  const stats = useContentStats();
+  const { lessons, tests } = stats;
+  const copy = useCopy();
 
   return (
     <section className="hero pt-28 pb-16 sm:pt-36 sm:pb-24">
@@ -115,7 +118,8 @@ export const Hero: React.FC = () => {
           </div>
 
           <p className="hero-in hero-in-4 mt-8 text-sm text-fg-muted">
-            Free, runs on your machine · No videos · Every stage ends in a coding test
+            {/* Admin-editable (`copy.landing.heroFootnote`); the stage counts come from the content. */}
+            {contentReady ? copy('copy.landing.heroFootnote', { ...stats }) : 'Free to start · Every stage ends in a coding test'}
           </p>
         </div>
 

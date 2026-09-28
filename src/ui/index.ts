@@ -7,6 +7,7 @@ export { CodeEditor } from './primitives/CodeEditor';
 export { PageHeader } from './primitives/PageHeader';
 export { LearningModeSwitch } from './primitives/LearningModeSwitch';
 export { ErrorBoundary } from './primitives/ErrorBoundary';
+export { DevHint } from './primitives/DevHint';
 export { ToastProvider, Toasts, useToast } from './primitives/toast';
 export type { Toast, ToastTone } from './primitives/toast';
 export { useFocusTrap } from './hooks/useFocusTrap';
@@ -26,6 +27,14 @@ export { SectionHeader } from './primitives/SectionHeader';
 export { EmptyState } from './primitives/EmptyState';
 export { Switch } from './primitives/Switch';
 export { Segmented } from './primitives/Segmented';
+export { ProgressRing } from './primitives/ProgressRing';
+export { StreakFlame } from './primitives/StreakFlame';
+export type { StreakFlameState } from './primitives/StreakFlame';
+export { ChoiceCards } from './primitives/ChoiceCards';
+export type { ChoiceCardOption, ChoiceCardVia } from './primitives/ChoiceCards';
+export { StreakStrip } from './primitives/StreakStrip';
+export type { StreakStripDay, StreakStripState } from './primitives/StreakStrip';
+export { GoalMetCard } from './primitives/GoalMetCard';
 export type { SegmentedOption } from './primitives/Segmented';
 export {
   CodeConsistLogo,

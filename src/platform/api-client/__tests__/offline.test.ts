@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError, OfflineError } from '../api';
+import { api, ApiError, OfflineError, setToken } from '../api';
 
 /**
  * When the laptop's tunnel is down, Vercel still forwards /api/* to ngrok, and
@@ -45,5 +45,160 @@ describe('learner API client when the server is offline', () => {
     const err = await api.login('someone@example.com', 'not-a-real-password').catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.message).toBe('Wrong email or password.');
+  });
+});
+
+describe("the learner's time zone", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Capture the headers of the one request a call makes. */
+  function capture() {
+    const seen: Record<string, string>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        seen.push({ ...(init.headers as Record<string, string>) });
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      })
+    );
+    return seen;
+  }
+
+  it('goes with every request as X-Time-Zone', async () => {
+    const seen = capture();
+    await api.health();
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(seen[0]['X-Time-Zone']).toBe(zone);
+  });
+
+  it('is simply left out when Intl throws, and the request still works', async () => {
+    const seen = capture();
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => {
+      throw new Error('broken Intl');
+    });
+    await expect(api.health()).resolves.toEqual({ ok: true });
+    expect(seen[0]['X-Time-Zone']).toBeUndefined();
+    expect(seen[0]['ngrok-skip-browser-warning']).toBe('true');
+  });
+});
+
+describe('a merge the server finds too large', () => {
+  const json = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  const log = { days: {}, misses: {}, missLog: [] };
+
+  it('goes up again without its activity log, so a sign-in or sign-out never loses the solves', async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return bodies.length === 1 ? json({ error: 'That request is too large.' }, 413) : json({ progress: { xp: 40 } }, 200);
+      })
+    );
+    const res = await api.mergeProgress({ completedChallenges: ['c1'] }, log);
+    expect(res.progress.xp).toBe(40);
+    expect(bodies).toEqual([{ progress: { completedChallenges: ['c1'] }, activity: log }, { progress: { completedChallenges: ['c1'] } }]);
+  });
+
+  it('does not retry any other refusal', async () => {
+    const fetch = vi.fn(async () => json({ error: 'Something went wrong on the server.' }, 500));
+    vi.stubGlobal('fetch', fetch);
+    await expect(api.mergeProgress({ completedChallenges: ['c1'] }, log)).rejects.toBeInstanceOf(ApiError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('why the server refused', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('carries the reason and the wait of a 429', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: 'Too many attempts - try again in 3 minutes.', reason: 'rate-limited', retryAfterSeconds: 150 }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json', 'Retry-After': '150' }
+          })
+      )
+    );
+    const err = await api.login('someone@example.com', 'wrong-password').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 429, reason: 'rate-limited', retryAfterSeconds: 150, message: 'Too many attempts - try again in 3 minutes.' });
+  });
+
+  it('takes the wait from Retry-After when the body does not say', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: 'Slow down.', reason: 'rate-limited' }), { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '42' } }))
+    );
+    const err = await api.health().catch((e) => e);
+    expect(err.retryAfterSeconds).toBe(42);
+  });
+
+  it('carries the reason of a 403 premium lock', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: 'This lesson is part of a premium stage.', reason: 'premium-locked', stageId: 'stage-9' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' }
+          })
+      )
+    );
+    const err = await api.solve('q1', 1, 0, { answer: 1 }).catch((e) => e);
+    expect(err).toMatchObject({ status: 403, reason: 'premium-locked', message: 'This lesson is part of a premium stage.' });
+    expect(err.retryAfterSeconds).toBeUndefined();
+    expect((err.payload as { stageId?: string }).stageId).toBe('stage-9');
+  });
+
+  it('reads the sentence of a busy code runner from its run result', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ status: 'error', engine: 'none', reason: 'busy', stderr: 'The code runner is busy - try again in a moment.', testResults: [] }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' }
+          })
+      )
+    );
+    const err = await api.execute({ language: 'java', code: 'class A {}' }).catch((e) => e);
+    expect(err).toMatchObject({ status: 503, reason: 'busy', message: 'The code runner is busy - try again in a moment.' });
+  });
+});
+
+describe('who is asking', () => {
+  afterEach(() => {
+    setToken(null);
+    vi.unstubAllGlobals();
+  });
+
+  /** The Authorization header of the one request a call makes. */
+  async function authorizationOf(call: () => Promise<unknown>): Promise<string | null> {
+    let seen: string | null = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        seen = (init.headers as Record<string, string>).Authorization ?? null;
+        return new Response(JSON.stringify({ stages: [], challenges: [], valid: false, reason: 'unknown' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      })
+    );
+    await call().catch(() => undefined);
+    return seen;
+  }
+
+  it('asks for the content, runs code and grades with the session, so premium access is decided per learner', async () => {
+    setToken('learner-token');
+    expect(await authorizationOf(() => api.content())).toBe('Bearer learner-token');
+    expect(await authorizationOf(() => api.execute({ language: 'javascript', code: '1' }))).toBe('Bearer learner-token');
+    expect(await authorizationOf(() => api.grade('q1', 0))).toBe('Bearer learner-token');
+    // A reset link is its own credential: no session goes with it.
+    expect(await authorizationOf(() => api.inspectPasswordReset('t'))).toBeNull();
   });
 });

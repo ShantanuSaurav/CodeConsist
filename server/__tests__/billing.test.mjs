@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../db.js', () => {
-  const EMPTY = () => ({ users: [], progress: {}, contentOverrides: { stages: {}, challenges: {}, languages: {} }, customChallenges: {}, orders: {}, certificates: {}, pricing: {} });
+  const EMPTY = () => ({ users: [], progress: {}, contentOverrides: { stages: {}, challenges: {}, languages: {} }, customChallenges: {}, conceptCards: {}, orders: {}, certificates: {}, pricing: {} });
   let state = EMPTY();
   const newest = (rows, field) => [...rows].sort((a, b) => String(b[field] ?? '').localeCompare(String(a[field] ?? '')));
   return {
@@ -26,6 +26,19 @@ vi.mock('../db.js', () => {
     getContentOverrides: () => state.contentOverrides,
     allCustomChallenges: () => Object.values(state.customChallenges),
     getCustomChallenge: () => null,
+    allConceptCards: () => Object.values(state.conceptCards),
+    getConceptCard: (key) => (typeof key === 'string' && Object.hasOwn(state.conceptCards, key) ? state.conceptCards[key] : null),
+    putConceptCard: (record) => {
+      const existing = state.conceptCards[record.key];
+      const now = new Date().toISOString();
+      state.conceptCards[record.key] = { ...record, createdAt: existing?.createdAt ?? now, updatedAt: now };
+      return state.conceptCards[record.key];
+    },
+    deleteConceptCard: (key) => {
+      if (!Object.hasOwn(state.conceptCards, key)) return false;
+      delete state.conceptCards[key];
+      return true;
+    },
     getPricing: () => state.pricing,
     setPricing: (patch) => Object.assign(state.pricing, patch),
     getOrder: (id) => (typeof id === 'string' && Object.hasOwn(state.orders, id) ? state.orders[id] : null),

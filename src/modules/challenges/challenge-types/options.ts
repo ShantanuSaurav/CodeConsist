@@ -1,5 +1,6 @@
 import type { ChallengeType } from '@/types';
 import { sameSet } from '@/platform/grading-engine/grading';
+import { optionNotes } from '@/platform/grading-engine/feedback';
 import { OptionsChallenge } from './OptionsChallenge';
 import type { AnswerTypeDefinition } from './types';
 
@@ -15,7 +16,8 @@ const single = (type: ChallengeType, label: string): AnswerTypeDefinition => ({
   emptyAnswer: () => null,
   isComplete: (_c, answer) => typeof answer === 'number',
   check: (c, answer) => answer === c.correctIndex,
-  wrongPositions: () => []
+  wrongPositions: () => [],
+  feedback: (c, answer, reveal) => optionNotes(c, typeof answer === 'number' ? [answer] : [], reveal)
 });
 
 export const quiz = single('quiz', 'Multiple choice');
@@ -32,5 +34,6 @@ export const multiSelect: AnswerTypeDefinition = {
   emptyAnswer: () => [] as number[],
   isComplete: (_c, answer) => Array.isArray(answer) && answer.length > 0,
   check: (c, answer) => Array.isArray(answer) && sameSet(answer as number[], c.correctIndices ?? []),
-  wrongPositions: () => []
+  wrongPositions: () => [],
+  feedback: (c, answer, reveal) => optionNotes(c, Array.isArray(answer) ? (answer as number[]) : [], reveal)
 };

@@ -8,12 +8,18 @@ import React, {
   useState
 } from 'react';
 import {
+  ActivityContext,
+  ActivityLog,
   Challenge,
   CodeDraft,
+  DailyGoalOption,
+  DayRecord,
   ExecutionResult,
   LanguageTrack,
   LearningMode,
   LeaderboardEntry,
+  MissEntry,
+  ReviewEvent,
   Stage,
   SupportedLanguage,
   TestCase,
@@ -23,13 +29,46 @@ import {
 import { useToast } from '@/ui';
 import { eventBus } from '../events';
 import { applyProgressByTrack, stagesForTrack } from '../progress/stages';
-import { loadFromApi } from './content';
+import { unitFor } from '../progress/units';
+import { loadFromApi, readUnitDefCache, withUnits } from './content';
 import type { ContentBundle } from './content';
 import { compilerService, ExecuteOptions } from '../execution/compilerService';
 import { api, ApiError, OfflineError, getToken, setToken } from '../api-client/api';
-import type { OAuthProviders, RuntimeInfo } from '../api-client/api';
+import type { OAuthProviders, PreferencesPatch, RuntimeInfo } from '../api-client/api';
 import { STORAGE_KEYS, readJson, readString, writeJson, writeString, remove } from '../storage/storage';
-import { currentStreak, dayKey, levelFromXp, nextStreak, xpForSolve } from '../xp-leveling/leveling';
+import { levelFromXp, scoreSolve, xpForSolve } from '../xp-leveling/leveling';
+import { revealCap } from '../settings/budget';
+import { browserTimeZone, msUntilLocalMidnight } from '../time/days';
+import { isGoalOptionAvailable, learnerSolve, resetHabit, streakFieldsOf } from '../habits';
+import type { HabitStatus, StreakStripCell } from '../habits';
+import { MERGE_BODY_MAX_BYTES, dayRow, jsonByteLength, trimActivityForMerge, unsyncedMisses } from '../activity/log';
+import type { ActivityView } from '../activity/log';
+import { isCodeChallengeType, normalizeMissAnswer, rawAnswerFromMiss, wrongAnswerKeys } from '../grading-engine/misses';
+import { gradeAnswer } from '../grading-engine/grading';
+import { DEFAULT_SETTINGS } from '../settings/defaults';
+import { getCopy } from '../settings/store';
+import type { PublicSettings, SfxEvent } from '../settings/types';
+import { applyUnitRewards } from '../xp-leveling/rewards';
+import { playSfx } from '../sound/sfx';
+import { INITIAL_STATS, adoptAccountProgress, hydrateStats, pendingReviewLog, sessionToday, solveWasDeferred, statsAfterSolve, withoutPendingReviews } from './stats';
+import { applyReviewResult, reviewStateOf } from '../review';
+import type { ReviewSummary } from '../review';
+import { useSettingsState } from './useSettingsState';
+import { useActivityLog } from './useActivityLog';
+import { useHabitState } from './useHabitState';
+import { useReview } from './useReview';
+import type { ReviewAnswerOptions, ReviewAnswerOutcome, ReviewStart } from './useReview';
+import type { SolveHabitEvents } from './useHabitState';
+import { readLocalPreferences, reconcilePreferences, resolveDailyGoalId, resolveSoundOn, settledLocal, writeLocalPreferences } from './preferences';
+import type { LocalPreferences } from './preferences';
+import { createCelebrationHold } from './celebrationHold';
+
+/**
+ * How long a typed answer may be when it is kept as a miss. The real cap is
+ * the admin-only `retention.answerMaxChars`; the server applies it again, so
+ * this is only the browser's own bound on what it stores.
+ */
+const MISS_ANSWER_CHARS = DEFAULT_SETTINGS.retention.answerMaxChars;
 
 export type ServerStatus = 'checking' | 'online' | 'offline';
 
@@ -48,6 +87,70 @@ export interface SolveOptions {
   answer?: unknown;
   /** The code as submitted, for coding challenges. */
   code?: string;
+  /** Where it was answered: a lesson (default), a stage test, the library. */
+  context?: ActivityContext;
+  /**
+   * The question came back at the end of the unit after a miss: it completes
+   * even below the pass mark (the score says how it went). `attempts` and
+   * `hintsUsed` are then the totals of every round.
+   */
+  requeued?: boolean;
+  /** Its answer was shown before this solve: the score is capped (`feedback.requeue.maxScoreAfterReveal`). */
+  revealed?: boolean;
+  /** Learn or Practice mode - which cap applies after a reveal. */
+  learningMode?: LearningMode | null;
+  /**
+   * Inside a unit run (or a stage test): no XP or level-up toast - the end
+   * screen celebrates the whole run at once (and the practice modal toasts a
+   * level crossed in a run closed before its end screen). Confetti per
+   * answer still follows `celebrations.confetti`.
+   */
+  deferCelebrations?: boolean;
+}
+
+/**
+ * What a solve paid, as best known: the server's figures when it answered,
+ * else the optimistic ones this browser worked out with the same rules.
+ */
+export interface SolveOutcome {
+  /** The solve's own XP (0 on a re-solve). */
+  solveXp: number;
+  /** A perfect-unit bonus paid on top (0 when none). */
+  perfectBonusXp: number;
+  /**
+   * The daily-goal bonus this solve paid, the first time today's goal was met
+   * (0 when none). A signed-in learner's is the server's; a guest's is their own.
+   */
+  goalBonusXp: number;
+  /** This solve met today's daily goal for the first time (the server's word when it answered). */
+  goalMet?: boolean;
+  /** Everything this solve paid: its XP and both bonuses. */
+  totalXp: number;
+  /** The unit this solve completed for the first time, or null. */
+  unitCompleted: string | null;
+  /** That unit was cleared perfectly. */
+  perfect: boolean;
+  /** The server checked and recorded it (false for a guest, offline, or a solve kept for later). */
+  verifiedByServer: boolean;
+  /** The server refused it (a wrong submission, a premium lesson) and it was rolled back: nothing was paid. */
+  rejected?: boolean;
+}
+
+/** Confetti, for the end screens and a correct answer. */
+export interface CelebrateOptions {
+  /** How many particles; `celebrations.confetti.onCorrectParticles` when omitted. 0 is none. */
+  particles?: number;
+}
+
+const NO_OUTCOME: SolveOutcome = { solveXp: 0, perfectBonusXp: 0, goalBonusXp: 0, totalXp: 0, unitCompleted: null, perfect: false, verifiedByServer: false };
+
+/** What changing the time zone to this device's did. */
+export type TimeZoneResult = 'applied' | 'cooldown' | 'unavailable';
+
+/** A wrong answer as the practice modal saw it: the answer given, or a failed run's pass counts. */
+export interface MissSubmission {
+  answer?: unknown;
+  code?: { passed: number; total: number };
 }
 
 /** One language track, with progress computed against the player's own stats. */
@@ -97,8 +200,54 @@ export interface SessionContextType {
   learningMode: LearningMode | null;
   setLearningMode: (mode: LearningMode) => void;
 
+  /* rules */
+  /**
+   * The learning rules - XP, levels and ranks, streak - as the server last
+   * served them (or the defaults). An admin's change arrives within one
+   * health probe. Use `useLeveling()` for levels and rank titles.
+   */
+  settings: PublicSettings;
+  /** The revision `settings` came from; null for the built-in defaults. */
+  settingsRevision: number | null;
+
   /* player */
   stats: UserStats;
+  /**
+   * Days and wrong answers: a guest's own log, or a signed-in learner's
+   * mirror of the account's (the server's rows win when they arrive).
+   */
+  activity: ActivityLog;
+  /** The learner's current day (`yyyy-mm-dd` in their time zone). Rolls over at their midnight. */
+  todayKey: string;
+  /** Today's row of the activity log: XP actually awarded today, lessons, re-solves, mistakes. */
+  today: DayRecord & { day: string };
+  /** The zone the learner's days are counted in: the account's, else this device's (null when unknown). */
+  timeZone: string | null;
+
+  /* streak and daily goal */
+  /**
+   * The streak and today's goal as they stand now - freezes applied, a break
+   * worked out, the repair on offer, at risk or not. Derived by the habits
+   * engine (the server runs the same); `stats.streak` is the RAW stored value
+   * and is never what a screen shows.
+   */
+  habits: HabitStatus;
+  /** The goal options a learner can pick now. */
+  goalOptions: DailyGoalOption[];
+  /** The goal that applies today (the learner's choice, else the default), or null when daily goals are off. */
+  dailyGoal: DailyGoalOption | null;
+  /** The learner's own choice (an option id), or null when they follow the default. */
+  dailyGoalId: string | null;
+  /** Choose a daily goal (null: back to the default). Kept here and, signed in, on the account. */
+  setDailyGoal: (optionId: string | null) => void;
+  /** Count days in this device's time zone from now on (signed in; the server may refuse a change made too recently). */
+  adoptDeviceTimeZone: () => Promise<TimeZoneResult>;
+  /** The last `count` days of the streak: active, frozen, repaired, missed or today. */
+  streakStrip: (count: number) => StreakStripCell[];
+  /** A reminder banner (its `key` from pickHabitBanner) dismissed for the day? */
+  isHabitBannerDismissed: (key: string) => boolean;
+  dismissHabitBanner: (key: string) => void;
+
   user: UserProfile | null;
   serverStatus: ServerStatus;
   /** Server-verified: is a remote compiler (Judge0) configured for languages beyond JavaScript/Python? Never the credentials. */
@@ -112,10 +261,54 @@ export interface SessionContextType {
    */
   runtimes: Record<string, RuntimeInfo>;
 
+  /* sound */
+  /**
+   * Sound effects on or off: the account's choice, else this browser's, else
+   * `celebrations.sound.defaultOn`. Survives a reload and a sign-out.
+   */
+  soundOn: boolean;
+  /** Remember the choice here and, signed in, on the account. */
+  setSoundOn: (on: boolean) => void;
+  /** Play one effect, if sound is on and the admin has not switched that event off. */
+  playSound: (event: SfxEvent) => void;
+
   /* actions */
-  completeChallenge: (challenge: Challenge, options?: SolveOptions) => Promise<number>;
+  /**
+   * Record a solve. Resolves with what it paid - the solve's XP, a
+   * perfect-unit bonus when it completed a unit - from the server when it
+   * answered, else from the same rules run here.
+   */
+  completeChallenge: (challenge: Challenge, options?: SolveOptions) => Promise<SolveOutcome>;
+  /**
+   * Record a wrong answer. Fire and forget: a guest's stays in this browser;
+   * a signed-in learner's goes to the server, or waits (marked unsynced) for
+   * the next merge when the server cannot be reached. A correct answer, or one
+   * that does not fit the challenge, is ignored. Never touches XP or attempts.
+   */
+  recordMiss: (challenge: Challenge, submission: MissSubmission, options?: { context?: ActivityContext; final?: boolean }) => void;
   /** Record that a Concept's teaching sequence has been shown, so it is not repeated. Local only; earns nothing. */
   markConceptSeen: (conceptId: string) => void;
+
+  /* Practice sessions (review) */
+  /**
+   * What the next Practice session would hold ("6 to practise: 2 mistakes,
+   * 4 due"), worked out with the builder the session uses. `enabled` is
+   * false when the admin switched sessions off.
+   */
+  reviewSummary: ReviewSummary;
+  /**
+   * Start a Practice session (the whole path, or one stage). Signed in and
+   * online, the server builds it; a guest's (or an offline learner's) is
+   * built here with the same rules, id `local-<ts>`.
+   */
+  startReview: (scope?: { stageId?: string }) => Promise<ReviewStart>;
+  /**
+   * Record one answer in a Practice session: the server's session checks and
+   * prices it; a local one (or one the server cannot be reached for) is
+   * priced here with the same rules and goes up with the next sync, where
+   * the server prices it again under the daily cap.
+   */
+  completeReview: (challenge: Challenge, options: ReviewAnswerOptions) => Promise<ReviewAnswerOutcome>;
   executeCode: (
     code: string,
     language?: SupportedLanguage,
@@ -160,55 +353,45 @@ export interface SessionContextType {
    * the only source of `isPremium` / `unlockedStages`.
    */
   refreshAccount: () => Promise<void>;
+  /**
+   * Fetch the bank again, as this viewer may see it: a premium stage they
+   * have not unlocked comes back as `locked` stubs. Runs by itself after
+   * every sign-in, sign-out and account refresh; call it when the content
+   * and the entitlements disagree. A no-op while the server is unreachable.
+   */
+  reloadContent: () => Promise<void>;
   resetProgress: () => Promise<void>;
 
   leaderboard: LeaderboardEntry[];
   refreshLeaderboard: () => Promise<void>;
 
-  celebrate: () => void;
+  /** Confetti (never with reduced motion). */
+  celebrate: (options?: CelebrateOptions) => void;
+
+  /**
+   * "Celebrations deferred" (./celebrationHold): while a lesson run is on
+   * screen its end screen announces what it earned, so other toasts (a badge
+   * the moment it is earned) are held. The practice modal holds when a run
+   * opens and releases when it closes - `announced: true` when the end
+   * screen was reached (the held toasts are dropped), false when it was
+   * closed before (they are shown then). Stable identities.
+   */
+  holdCelebrations: () => void;
+  releaseCelebrations: (outcome: { announced: boolean }) => void;
+  /** Show a celebration now, or hold it while a run is on screen. */
+  celebrateOrHold: (show: () => void) => void;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
-/* Not exported: a non-component export from this file breaks React Fast
-   Refresh, which turns every edit here into a full remount. */
-const INITIAL_STATS: UserStats = {
-  xp: 0,
-  level: 1,
-  streak: 0,
-  bestStreak: 0,
-  lastActiveDay: null,
-  completedChallenges: [],
-  completedStages: [],
-  seenConcepts: [],
-  attempts: {},
-  isPremium: false,
-  unlockedStages: []
-};
-
-/** Old saves are missing fields added later; fill them in rather than crashing. */
-function hydrateStats(raw: unknown): UserStats {
-  const saved = (raw ?? {}) as Partial<UserStats>;
-  const xp = Number(saved.xp) || 0;
-  return {
-    ...INITIAL_STATS,
-    ...saved,
-    xp,
-    level: levelFromXp(xp),
-    streak: currentStreak(Number(saved.streak) || 0, saved.lastActiveDay ?? null),
-    bestStreak: Number(saved.bestStreak) || Number(saved.streak) || 0,
-    completedChallenges: Array.isArray(saved.completedChallenges) ? saved.completedChallenges : [],
-    completedStages: Array.isArray(saved.completedStages) ? saved.completedStages : [],
-    seenConcepts: Array.isArray(saved.seenConcepts) ? saved.seenConcepts : [],
-    attempts: saved.attempts && typeof saved.attempts === 'object' ? saved.attempts : {},
-    isPremium: Boolean(saved.isPremium),
-    // A cached copy of what the server said last time; the next restore overwrites it.
-    unlockedStages: Array.isArray(saved.unlockedStages) ? saved.unlockedStages.filter((id) => typeof id === 'string') : []
-  };
-}
+/* INITIAL_STATS and hydrateStats live in ./stats: a non-component export from
+   this file breaks React Fast Refresh, which turns every edit here into a
+   full remount. */
 
 /** At most one draft write per challenge in this window, on the trailing edge. */
 const DRAFT_DEBOUNCE_MS = 1500;
+/** How long a daily-goal choice waits before it goes up (the arrow keys pick each option in turn). */
+const GOAL_SEND_DELAY_MS = 600;
 
 /**
  * Own-property lookup only. A challenge id of `__proto__` or `constructor`
@@ -268,6 +451,17 @@ function entitlementsOf(profile: UserProfile): Pick<UserStats, 'isPremium' | 'un
   return { isPremium: Boolean(profile.isPremium), unlockedStages: profile.unlockedStages ?? [] };
 }
 
+/**
+ * The one info toast after a merge that left some solves out: they were in
+ * premium stages the account has not unlocked, so the server did not credit
+ * them. Null when there were none.
+ */
+function skippedLockedMessage(skipped: string[] | undefined): string | null {
+  const n = Array.isArray(skipped) ? skipped.length : 0;
+  if (n === 0) return null;
+  return `${n} ${n === 1 ? 'solve was' : 'solves were'} not added to your account: ${n === 1 ? 'it is' : 'they are'} in premium stages this account has not unlocked.`;
+}
+
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 }
@@ -303,11 +497,62 @@ const EMPTY_TRACK: LanguageTrackProgress = {
 export const SessionProvider: React.FC<SessionProviderProps> = ({ content, children }) => {
   const { notify } = useToast();
 
+  /* ---------------------------------------------------------------- rules */
+  // The admin's learning rules, cached, refetched when the server reports a
+  // new revision (see useSettingsState). Read through a ref in the long-lived
+  // handshake closures below.
+  const { settings, settingsRevision, noteRevision } = useSettingsState();
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
   /* --------------------------------------------------------------- player */
   const [user, setUser] = useState<UserProfile | null>(() =>
     readJson<UserProfile | null>(STORAGE_KEYS.user, null)
   );
-  const [stats, setStats] = useState<UserStats>(() => hydrateStats(readJson(STORAGE_KEYS.stats, null)));
+
+  /* ------------------------------------------------------------- activity */
+  // The learner's days: today's row feeds the daily goal, and the log's last
+  // day is part of what "today" is.
+  const activityLog = useActivityLog();
+  const { activity, activityRef } = activityLog;
+
+  // The learner's own zone: the account's once the server has one, else this browser's.
+  const zone = user?.preferences?.timeZone ?? browserTimeZone();
+
+  // The streak is kept RAW (./stats): the habits engine below derives what
+  // screens show, so a missed day is still there for freezes and repair.
+  const [stats, setStats] = useState<UserStats>(() => hydrateStats(readJson<Partial<UserStats> | null>(STORAGE_KEYS.stats, null), settings.levels));
+
+  // A new level curve re-derives the level silently: the level-up toast only
+  // ever fires from a solve, so an admin's curve change never announces one.
+  const levelsRef = useRef(settings.levels);
+  useEffect(() => {
+    if (levelsRef.current === settings.levels) return;
+    levelsRef.current = settings.levels;
+    setStats((prev) => {
+      const level = levelFromXp(prev.xp, settings.levels);
+      return level === prev.level ? prev : { ...prev, level };
+    });
+  }, [settings.levels]);
+
+  // The learner's day, counted exactly as the server counts it: local in
+  // their zone, but never before their last active day or the log's last
+  // day (see sessionToday) - so after a flight west the browser does not
+  // judge the streak on a day the server has already left behind.
+  // Re-evaluated at their local midnight.
+  const [midnightTick, setMidnightTick] = useState(0);
+  const todayKey = useMemo(
+    () => sessionToday(zone, { lastActiveDay: stats.lastActiveDay }, { lastDay: activity.lastDay }),
+    // midnightTick is only there to re-evaluate at local midnight.
+    [zone, midnightTick, stats.lastActiveDay, activity.lastDay]
+  );
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMidnightTick((n) => n + 1), msUntilLocalMidnight(new Date(), zone) + 500);
+    return () => window.clearTimeout(timer);
+  }, [zone, midnightTick]);
+  const today = useMemo(() => dayRow(activity, todayKey), [activity, todayKey]);
   const [serverStatus, setServerStatus] = useState<ServerStatus>('checking');
   const [judge0Configured, setJudge0Configured] = useState(false);
   const [runtimes, setRuntimes] = useState<Record<string, RuntimeInfo>>({});
@@ -335,6 +580,183 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+
+  /* ---------------------------------------------------------------- sound */
+  // This browser's own choice (a guest's, or the last one seen here); the
+  // account's wins once there is one. See ./preferences.
+  const [localPrefs, setLocalPrefsState] = useState<LocalPreferences>(readLocalPreferences);
+  const setLocalPrefs = useCallback((next: LocalPreferences) => {
+    setLocalPrefsState(next);
+    writeLocalPreferences(next);
+  }, []);
+  const signedInUser = user && user.provider !== 'guest' ? user : null;
+  const soundOn = resolveSoundOn(signedInUser?.preferences, localPrefs, settings.celebrations.sound.defaultOn);
+  const soundRef = useRef({ soundOn, sound: settings.celebrations.sound });
+  useEffect(() => {
+    soundRef.current = { soundOn, sound: settings.celebrations.sound };
+  }, [soundOn, settings.celebrations.sound]);
+
+  const playSound = useCallback((event: SfxEvent) => {
+    const { soundOn: on, sound } = soundRef.current;
+    playSfx(event, { volume: sound.volume, enabled: on && sound.events[event] !== false });
+  }, []);
+
+  const setSoundOn = useCallback(
+    (on: boolean) => {
+      const account = userRef.current && userRef.current.provider !== 'guest' && getToken() ? userRef.current : null;
+      // Remembered here either way, so it survives a reload and a sign-out;
+      // pending until an account has it.
+      setLocalPrefs({ ...readLocalPreferences(), soundOn: on, pendingSync: account ? account.id : 'guest' });
+      if (!account) return;
+      setUser((prev) => (prev ? { ...prev, preferences: { ...prev.preferences, soundOn: on } } : prev));
+      api
+        .updatePreferences({ soundOn: on })
+        .then((res) => {
+          if (res?.user) setUser((prev) => (prev && prev.id === res.user.id ? { ...prev, ...res.user } : prev));
+          setLocalPrefs(settledLocal({ ...readLocalPreferences(), soundOn: on }, { soundOn: on }));
+        })
+        .catch(() => {
+          /* offline, or an older server: it stays pending and goes up on the next sign-in */
+        });
+    },
+    [setLocalPrefs]
+  );
+
+  /* ------------------------------------------------------------ daily goal */
+  // The goal the learner chose: the account's, else this browser's (a
+  // guest's, or one made offline and still on its way up). See ./preferences.
+  const dailyGoalId = resolveDailyGoalId(signedInUser?.id ?? null, signedInUser?.preferences, localPrefs);
+
+  // A goal choice goes up once the learner has settled on one: browsing the
+  // options with the arrow keys picks each in turn, and only the last is sent.
+  const goalSendTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (goalSendTimer.current !== null) window.clearTimeout(goalSendTimer.current);
+    },
+    []
+  );
+  const setDailyGoal = useCallback(
+    (optionId: string | null) => {
+      const account = userRef.current && userRef.current.provider !== 'guest' && getToken() ? userRef.current : null;
+      // Remembered here either way (so it is in use at once); pending until
+      // an account has it - a send that never happens goes up on the next
+      // sign-in or restore.
+      setLocalPrefs({ ...readLocalPreferences(), dailyGoalId: optionId, goalPendingSync: account ? account.id : 'guest' });
+      if (goalSendTimer.current !== null) window.clearTimeout(goalSendTimer.current);
+      goalSendTimer.current = null;
+      if (!account) return;
+      setUser((prev) => (prev ? { ...prev, preferences: { ...prev.preferences, dailyGoalId: optionId } } : prev));
+      // No longer pending - unless another choice was made while this one was on its way.
+      const landed = () => {
+        const local = readLocalPreferences();
+        if ((local.dailyGoalId ?? null) === optionId) setLocalPrefs(settledLocal(local, { dailyGoalId: optionId }));
+      };
+      goalSendTimer.current = window.setTimeout(() => {
+        goalSendTimer.current = null;
+        api
+          .updatePreferences({ dailyGoalId: optionId })
+          .then((res) => {
+            if (res?.user) setUser((prev) => (prev && prev.id === res.user.id ? { ...prev, ...res.user } : prev));
+            landed();
+          })
+          .catch((err) => {
+            // Refused outright (the option was switched off meanwhile): nothing
+            // to retry. Offline: it stays pending and goes up on the next sign-in.
+            if (err instanceof ApiError && err.status === 400) {
+              landed();
+              void refreshAccountRef.current().catch(() => {});
+            }
+          });
+      }, GOAL_SEND_DELAY_MS);
+    },
+    [setLocalPrefs]
+  );
+
+  /**
+   * Bring this browser's choices and the account's together once the account
+   * is known (sign-in, a restored session): a choice still pending goes up
+   * (a guest's only where the account has none), otherwise the account's is
+   * remembered here. This device's time zone goes up when it differs from
+   * the account's (the server keeps the old one within its cooldown).
+   */
+  const reconcileAccountPreferences = useCallback(
+    async (profile: UserProfile) => {
+      const local = readLocalPreferences();
+      // A goal choice made here for an option switched off since is dropped
+      // rather than sent (the server would refuse the whole patch with it).
+      const goals = settingsRef.current.goals;
+      const { patch, local: next } = reconcilePreferences(profile.id, profile.preferences, local, {
+        zone: browserTimeZone(),
+        isGoalAvailable: (id) => isGoalOptionAvailable(id, goals)
+      });
+      if (!patch) {
+        setLocalPrefs(next);
+        return;
+      }
+      const send = async (body: PreferencesPatch) => {
+        const res = await api.updatePreferences(body);
+        if (res?.user) setUser((prev) => (prev && prev.id === res.user.id ? { ...prev, ...res.user } : prev));
+      };
+      try {
+        await send(patch);
+        setLocalPrefs(settledLocal(next, patch));
+      } catch (err) {
+        // Unreachable: everything stays pending for next time.
+        if (!(err instanceof ApiError && err.status === 400)) return setLocalPrefs(local);
+        // Refused outright, with no goal in it: nothing it carried can ever land.
+        if (!('dailyGoalId' in patch)) return setLocalPrefs(settledLocal(next, patch));
+        // Refused with a goal in it. The goal is the one choice the server may
+        // no longer take (its options are the admin's, and may have changed
+        // since this tab read them): it is dropped - the account's is the one
+        // in use - and the rest goes up once more without it.
+        const accountGoal = typeof profile.preferences?.dailyGoalId === 'string' ? profile.preferences.dailyGoalId : null;
+        const dropped = settledLocal({ ...next, dailyGoalId: accountGoal }, { dailyGoalId: accountGoal });
+        const rest: PreferencesPatch = { ...patch };
+        delete rest.dailyGoalId;
+        if (Object.keys(rest).length === 0) return setLocalPrefs(dropped);
+        try {
+          await send(rest);
+          setLocalPrefs(settledLocal(dropped, rest));
+        } catch (retryErr) {
+          setLocalPrefs(retryErr instanceof ApiError && retryErr.status === 400 ? settledLocal(dropped, rest) : dropped);
+        }
+      }
+    },
+    [setLocalPrefs]
+  );
+
+  /** A guest's own choices, to go up with a merge (the server adopts them only where the account has none). */
+  const guestPreferences = useCallback(() => {
+    const local = readLocalPreferences();
+    const prefs: { soundOn?: boolean; dailyGoalId?: string } = {};
+    if (local.pendingSync === 'guest' && typeof local.soundOn === 'boolean') prefs.soundOn = local.soundOn;
+    if (local.goalPendingSync === 'guest' && typeof local.dailyGoalId === 'string') prefs.dailyGoalId = local.dailyGoalId;
+    return Object.keys(prefs).length > 0 ? prefs : null;
+  }, []);
+
+  /* ------------------------------------------------------- streak and goal */
+  // Derived from the raw streak fields and today's row with the same engine
+  // the server runs; announces goal met, freezes, repairs and milestones once.
+  // Whose streak it is: the account the stats mirror, else a guest's own.
+  const habitState = useHabitState({ owner: stats.ownerId ?? null, stats, settings, dailyGoalId, today: todayKey, todayRow: today, zone });
+  const { habits, goalOptions, dailyGoal } = habitState;
+
+  /** Count days in this device's zone from now on. Guests always do. */
+  const adoptDeviceTimeZone = useCallback(async (): Promise<TimeZoneResult> => {
+    const device = browserTimeZone();
+    const account = userRef.current && userRef.current.provider !== 'guest' && getToken() ? userRef.current : null;
+    if (!device || !account) return 'unavailable';
+    try {
+      const res = await api.updatePreferences({ timeZone: device });
+      if (res?.user) setUser((prev) => (prev && prev.id === res.user.id ? { ...prev, ...res.user } : prev));
+      return res?.applied?.timeZone ? 'applied' : 'cooldown';
+    } catch {
+      return 'unavailable';
+    }
+  }, []);
+
+  const streakStripFor = useCallback((count: number) => habitState.strip(activity.days, count), [habitState, activity.days]);
 
   /* --------------------------------------------------------------- drafts */
   /**
@@ -611,6 +1033,87 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   const contentReady = bundle !== null;
 
+  /**
+   * The server's bank depends on who asks - a premium stage this account has
+   * not unlocked is served as stubs - so it is fetched again whenever that
+   * changes: sign-in, sign-out, a purchase. Unreachable leaves what is there.
+   */
+  const reloadContent = useCallback(async () => {
+    const fresh = await loadFromApi(bundleRef.current?.tracks ?? []);
+    if (fresh) setBundle(fresh);
+  }, []);
+
+  /** `refreshAccount`, for callbacks declared before it (it is assigned below). */
+  const refreshAccountRef = useRef<() => Promise<void>>(async () => {});
+
+  /* ------------------------------------------------- activity: bookkeeping */
+
+  // The log is tagged with the account it mirrors, exactly like the stats. A
+  // cache from before the log existed starts untagged; it takes the stats' tag.
+  const { setOwner, backfillOnce, adoptView, resetActivity } = activityLog;
+  useEffect(() => {
+    if (!activityRef.current.ownerId && stats.ownerId) setOwner(stats.ownerId);
+  }, [stats.ownerId, activityRef, setOwner]);
+
+  // History from before the log existed is rebuilt once from `attempts` in
+  // this browser's zone (the server does the same for accounts), as soon as
+  // the content bank is here to say which solves were stage tests.
+  useEffect(() => {
+    if (!bundle || activity.backfilledAt) return;
+    const byId = bundle.byId;
+    backfillOnce(
+      statsRef.current,
+      (id) => {
+        const c = byId.get(id);
+        return c ? { isStageTest: Boolean(c.isStageTest), xpReward: c.xpReward } : null;
+      },
+      zone,
+      settingsRef.current.xp,
+      todayKey
+    );
+  }, [bundle, activity.backfilledAt, backfillOnce, zone, todayKey]);
+
+  /**
+   * Make the browser's log the account's. `view` is what a merge returned
+   * (everything local was just sent, so nothing is pending any more); without
+   * one the server's view is fetched. A log that belongs to anyone else is
+   * dropped first - it must never be shown under, or sent into, this account.
+   */
+  const adoptAccountActivity = useCallback(
+    async (ownerId: string, view?: ActivityView | null) => {
+      if (activityRef.current.ownerId && activityRef.current.ownerId !== ownerId) resetActivity();
+      let fresh: ActivityView | null | undefined = view;
+      if (!fresh) {
+        try {
+          fresh = await api.activity();
+        } catch {
+          fresh = null; // offline, or an older server without the route
+        }
+      }
+      if (fresh) adoptView(fresh, { ownerId, synced: Boolean(view) });
+      else setOwner(ownerId);
+    },
+    [activityRef, adoptView, resetActivity, setOwner]
+  );
+
+  /**
+   * What goes up with a merge next to `progress`: this log, trimmed so the
+   * whole body stays well under the server's 256 kB limit. A signed-in
+   * learner's own log only sends what the server has not taken yet
+   * (`pendingOnly`); a guest's goes whole, its oldest entries first to go.
+   */
+  const activityForMerge = useCallback(
+    (progress: unknown, options: { pendingOnly?: boolean } = {}) => {
+      const log = activityRef.current;
+      const day = sessionToday(userRef.current?.preferences?.timeZone ?? browserTimeZone(), statsRef.current, log);
+      return trimActivityForMerge(log, day, undefined, {
+        pendingOnly: options.pendingOnly,
+        maxBytes: MERGE_BODY_MAX_BYTES - jsonByteLength(progress)
+      });
+    },
+    [activityRef]
+  );
+
   /* -------------------------------------------------------- language track */
   /**
    * Which track the learner is currently following. A client-side viewing
@@ -632,9 +1135,17 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     [bundle]
   );
 
+  // Each stage's lessons in units: the server's grouping (on content from the
+  // API), else the one it sent last time, else the default - resolved with
+  // the current unit settings, so an admin's change to them applies here too.
+  const unitDefCache = useMemo(() => (bundle && bundle.source !== 'api' ? readUnitDefCache() : null), [bundle]);
+  const unitStages = useMemo(
+    () => (bundle ? withUnits(bundle.stages, settings.units, unitDefCache) : NO_STAGES),
+    [bundle, settings.units, unitDefCache]
+  );
   const stages = useMemo(
-    () => (bundle ? applyProgressByTrack(bundle.stages, visibleTracks, stats) : NO_STAGES),
-    [bundle, visibleTracks, stats]
+    () => (bundle ? applyProgressByTrack(unitStages, visibleTracks, stats) : NO_STAGES),
+    [bundle, unitStages, visibleTracks, stats]
   );
   const allChallenges = bundle?.challenges ?? EMPTY;
   const challengeById = useCallback((id: string) => bundle?.byId.get(id), [bundle]);
@@ -739,20 +1250,40 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         const local = statsRef.current;
         const localBelongsHere = !local.ownerId || local.ownerId === me.id;
         const serverSolved = new Set(progress.completedChallenges ?? []);
+        // Wrong answers recorded while the server was unreachable are waiting
+        // too, even when there is no solve to carry.
+        const localLog = activityRef.current;
+        const logBelongsHere = !localLog.ownerId || localLog.ownerId === me.id;
+        const pendingMisses = logBelongsHere && unsyncedMisses(localLog).length > 0;
+        // Practice answered offline (or as a guest) waits to be priced too.
+        const pendingReviews = localBelongsHere ? pendingReviewLog(local) : [];
         const localIsAhead =
           localBelongsHere &&
           ((local.completedChallenges ?? []).some((id) => !serverSolved.has(id)) ||
-            local.xp > (progress.xp ?? 0));
+            local.xp > (progress.xp ?? 0) ||
+            pendingMisses ||
+            pendingReviews.length > 0);
 
         let reconciled = progress;
+        let mergedActivity: ActivityView | null = null;
+        let sentReviews: ReviewEvent[] = [];
         if (localIsAhead) {
           try {
-            reconciled = (await api.mergeProgress(local)).progress;
+            // This account's own log: only what the server has not taken yet.
+            const pendingOnly = Boolean(localLog.ownerId);
+            const merged = await api.mergeProgress(local, logBelongsHere ? activityForMerge(local, { pendingOnly }) : undefined, undefined, pendingReviews);
+            reconciled = merged.progress;
+            mergedActivity = merged.activity ?? null;
+            sentReviews = pendingReviews;
+            const skipped = skippedLockedMessage(merged.skippedLocked);
+            if (skipped && !cancelled) notify(skipped, 'info');
           } catch {
             // Could not reach the server after all - keep the local copy
             // rather than discarding work.
             reconciled = {
               ...progress,
+              // The schedule as this browser has it: the server's is behind too.
+              review: { ...(progress.review ?? {}), ...(local.review ?? {}) },
               xp: Math.max(local.xp, progress.xp ?? 0),
               completedChallenges: [
                 ...new Set([...(progress.completedChallenges ?? []), ...(local.completedChallenges ?? [])])
@@ -762,14 +1293,27 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         }
         if (cancelled) return;
 
-        setStats((prev) => ({
-          ...prev,
-          ...reconciled,
-          level: levelFromXp(reconciled.xp),
-          streak: currentStreak(reconciled.streak, reconciled.lastActiveDay),
-          ...entitlementsOf(me),
-          ownerId: me.id
-        }));
+        // The streak as the server worked it out on the learner's own day
+        // (/auth/me and the merge both recalculate it) - never judged again
+        // against this browser's day, which can differ after a zone flip.
+        // Practice answers another account left pending here are never sent
+        // into this one; the ones just merged are no longer pending.
+        setStats((prev) => {
+          const own = !prev.ownerId || prev.ownerId === me.id ? prev : { ...prev, unsynced: undefined };
+          return {
+            ...withoutPendingReviews(adoptAccountProgress(own, reconciled, settingsRef.current.levels), sentReviews),
+            ...entitlementsOf(me),
+            ownerId: me.id
+          };
+        });
+
+        // The account's days and misses, as the server has them. A log that
+        // was just merged is adopted from the merge; otherwise it is fetched
+        // (and a pending one that could not be sent stays pending).
+        await adoptAccountActivity(me.id, mergedActivity);
+
+        // Sound on or off: a choice made offline goes up now.
+        void reconcileAccountPreferences(me);
 
         // Unfinished code is part of "where I left off", so it is restored in
         // the same breath as the progress - not when an editor happens to open.
@@ -826,6 +1370,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         const reportedRuntimes: Record<string, RuntimeInfo> = health?.runtimes ?? {};
         setRuntimes(reportedRuntimes);
         compilerService.setServerRuntimes(reportedRuntimes);
+        // An admin changed the rules: fetch them. An older server that sends
+        // no revision means the defaults.
+        noteRevision(typeof health?.settingsRevision === 'number' ? health.settingsRevision : undefined);
         const recovered = !wasOnline;
         wasOnline = true;
         setServerStatus('online');
@@ -899,12 +1446,17 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   /* -------------------------------------------------------------- actions */
 
-  const celebrate = useCallback(() => {
+  // One hold per provider; its functions never change identity.
+  const [celebrationHold] = useState(createCelebrationHold);
+
+  const celebrate = useCallback((options: CelebrateOptions = {}) => {
     if (prefersReducedMotion()) return;
-    // Fetched on the first solve, not on page load - nobody celebrates before that.
+    const particles = Math.max(0, Math.round(options.particles ?? settingsRef.current.celebrations.confetti.onCorrectParticles));
+    if (particles === 0) return;
+    // Fetched on the first celebration, not on page load - nobody celebrates before that.
     import('canvas-confetti').then(({ default: confetti }) =>
       confetti({
-        particleCount: 70,
+        particleCount: particles,
         spread: 68,
         origin: { y: 0.65 },
         disableForReducedMotion: true,
@@ -914,28 +1466,42 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   }, []);
 
   /**
-   * Record a solve. Returns the XP actually awarded (0 when re-solving).
-   * All side effects live here - never inside a setState updater, which React
-   * may run twice.
+   * Record a solve. Resolves with what it paid (SolveOutcome): the solve's
+   * XP (0 when re-solving), the perfect-unit bonus when this first solve
+   * completed a unit, and the daily-goal bonus the first time today's goal
+   * is met - worked out here with the same rules the server runs
+   * (src/platform/xp-leveling/rewards.ts, src/platform/habits), then replaced
+   * by the server's figures when it answers. A signed-in learner's goal bonus
+   * comes only from the server; a guest's is paid here. All side effects live
+   * here - never inside a setState updater, which React may run twice.
    */
   const completeChallenge = useCallback(
-    async (challenge: Challenge, options: SolveOptions = {}): Promise<number> => {
+    async (challenge: Challenge, options: SolveOptions = {}): Promise<SolveOutcome> => {
       const attempts = Math.max(1, options.attempts ?? 1);
       const hintsUsed = Math.max(0, options.hintsUsed ?? 0);
       const alreadySolved = stats.completedChallenges.includes(challenge.id);
-      const awarded = alreadySolved ? 0 : xpForSolve(challenge.xpReward, attempts, hintsUsed);
+      // After its answer was shown a question pays at most the reveal cap -
+      // the same rule, from the same settings, as the server.
+      const cap = options.revealed ? revealCap(options.learningMode ?? learningMode, settings.feedback) : 100;
+      // The same rules the server prices with (settings.xp); its answer wins
+      // when signed in, this is the instant preview.
+      const awarded = alreadySolved ? 0 : xpForSolve(challenge.xpReward, attempts, hintsUsed, settings.xp, cap);
+      // Which revision of the rules that preview was priced with.
+      const pricedWith = settingsRevision;
 
-      const today = dayKey();
-      const streak = nextStreak(stats.streak, stats.lastActiveDay, today);
+      const day = todayKey;
+      const at = new Date().toISOString();
       const xp = stats.xp + awarded;
+      const previous = stats.attempts[challenge.id];
+      const signedIn = Boolean(user && user.provider !== 'guest' && getToken());
+      const toServer = signedIn && serverStatus === 'online';
 
-      const optimistic: UserStats = {
+      // The streak fields are left as they are here: the habits engine below
+      // counts the day once today's row has this solve in it.
+      const solved: UserStats = {
         ...stats,
         xp,
-        level: levelFromXp(xp),
-        streak,
-        bestStreak: Math.max(stats.bestStreak, streak),
-        lastActiveDay: today,
+        level: levelFromXp(xp, settings.levels),
         completedChallenges: alreadySolved
           ? stats.completedChallenges
           : [...stats.completedChallenges, challenge.id],
@@ -943,17 +1509,102 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
           ...stats.attempts,
           [challenge.id]: {
             challengeId: challenge.id,
-            score: Math.max(stats.attempts[challenge.id]?.score ?? 0, Math.max(50, 100 - (attempts - 1) * 10 - hintsUsed * 10)),
-            attempts: (stats.attempts[challenge.id]?.attempts ?? 0) + attempts,
-            hintsUsed: (stats.attempts[challenge.id]?.hintsUsed ?? 0) + hintsUsed,
-            solvedAt: new Date().toISOString()
+            score: Math.max(previous?.score ?? 0, scoreSolve(attempts, hintsUsed, settings.xp, cap)),
+            attempts: (previous?.attempts ?? 0) + attempts,
+            hintsUsed: (previous?.hintsUsed ?? 0) + hintsUsed,
+            // The FIRST solve's time - a re-solve used to overwrite it, which
+            // moved old lessons onto today in the heatmap and the badges.
+            solvedAt: previous?.solvedAt || at,
+            lastSolvedAt: at,
+            solves: (typeof previous?.solves === 'number' ? previous.solves : previous ? 1 : 0) + 1,
+            // A first solve made after its answer was shown: the cap it was
+            // paid under, so a guest merge pays the same (never more).
+            ...(!alreadySolved && cap < 100 ? { scoreCap: cap } : previous?.scoreCap !== undefined ? { scoreCap: previous.scoreCap } : {})
           }
         }
       };
 
+      // A first solve that completes a unit: its record, and the perfect-unit
+      // bonus when every lesson in it was clean - the rule the server applies.
+      const stage = stages.find((s) => s.id === challenge.stageId);
+      const { progress: rewarded, reward } = applyUnitRewards(
+        stats,
+        solved,
+        { challengeId: challenge.id, firstSolve: !alreadySolved, now: at },
+        { cfg: settings.units, unitFor: (id) => unitFor(stage?.units, id) }
+      );
+      let optimistic: UserStats = reward ? { ...rewarded, level: levelFromXp(rewarded.xp, settings.levels) } : solved;
+      const localBonus = reward?.bonusXp ?? 0;
+
+      // Today's row, optimistically: a re-solve counts as one and pays nothing.
+      const activityBefore = activityLog.applyEvent(
+        {
+          type: 'solve',
+          challengeId: challenge.id,
+          isTest: Boolean(challenge.isStageTest),
+          firstSolve: !alreadySolved,
+          awardedXp: awarded,
+          unitCompleted: Boolean(reward),
+          perfectBonusXp: localBonus
+        },
+        { day, at }
+      );
+
+      // The streak and the daily goal, on today's row WITH this solve: missed
+      // days worked out (freezes, a break, a repair offer), an open repair
+      // counted, today counted under the day rule, and the goal snapshotted
+      // the first time it is met - the engine the server runs.
+      const habitRun = learnerSolve(optimistic, {
+        settings,
+        dailyGoalId,
+        today: day,
+        day: dayRow(activityLog.activityRef.current, day),
+        at
+      });
+      // The goal bonus: a guest's is paid here; a signed-in learner's only
+      // ever by the server (its figure arrives with the answer, or the merge).
+      const localGoalBonus = habitRun.events.goalMet && !signedIn ? habitRun.events.bonusXp : 0;
+      if (habitRun.events.goalMet && habitRun.events.goal) {
+        activityLog.applyEvent({ type: 'goal', goal: habitRun.events.goal, bonusXp: localGoalBonus }, { day, at });
+      }
+      const withXp = optimistic.xp + localGoalBonus;
+      optimistic = {
+        ...optimistic,
+        streak: habitRun.fields.streak,
+        bestStreak: habitRun.fields.bestStreak,
+        lastActiveDay: habitRun.fields.lastActiveDay,
+        habit: habitRun.fields.habit,
+        xp: withXp,
+        level: levelFromXp(withXp, settings.levels)
+      };
+      const localHabitEvents: SolveHabitEvents = {
+        goalMet: habitRun.events.goalMet,
+        bonusXp: localGoalBonus,
+        freezeEarned: habitRun.events.freezeEarned,
+        repaired: habitRun.events.repaired,
+        streakDay: habitRun.events.streakDay,
+        frozenDays: habitRun.events.frozenDays
+      };
+      const localAfter = { streak: habitRun.fields.streak, freezes: habitRun.fields.habit.freezes };
+
+      let outcome: SolveOutcome = {
+        solveXp: awarded,
+        perfectBonusXp: localBonus,
+        goalBonusXp: localGoalBonus,
+        goalMet: habitRun.events.goalMet,
+        totalXp: awarded + localBonus + localGoalBonus,
+        unitCompleted: reward?.unitId ?? null,
+        perfect: Boolean(reward?.perfect),
+        verifiedByServer: false
+      };
+
       const levelledUp = optimistic.level > stats.level;
       setStats(optimistic);
-      celebrate();
+
+      // Confetti only for a solve that paid something - a 0-XP re-solve gets
+      // none unless the admin asked for it (`celebrations.confetti`).
+      const confetti = settings.celebrations.confetti;
+      if (confetti.onCorrect && (outcome.totalXp > 0 || confetti.onReSolve)) celebrate({ particles: confetti.onCorrectParticles });
 
       eventBus.emit('challenge:completed', {
         challenge,
@@ -962,62 +1613,264 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         hintsUsed,
         firstTime: !alreadySolved
       });
+      if (reward) {
+        eventBus.emit('unit:completed', { stageId: challenge.stageId, unitId: reward.unitId, perfect: reward.perfect, xpEarned: reward.bonusXp });
+      }
       if (!alreadySolved) {
-        const stage = stages.find((s) => s.id === challenge.stageId);
-        const solved = new Set(optimistic.completedChallenges);
+        const solvedIds = new Set(optimistic.completedChallenges);
         const cleared =
           stage &&
           stage.challenges.length > 0 &&
-          stage.challenges.every((c) => solved.has(c.id)) &&
-          (!stage.test || solved.has(stage.test.id));
+          stage.challenges.every((c) => solvedIds.has(c.id)) &&
+          (!stage.test || solvedIds.has(stage.test.id));
         if (cleared) eventBus.emit('stage:completed', { stageId: stage.id });
       }
 
-      if (levelledUp) notify(`Level ${optimistic.level} reached! +${awarded} XP`, 'success');
-      else if (awarded > 0) notify(challenge.uiPreview ? `+${awarded} XP · Assessment Completed!` : `+${awarded} XP`, 'success');
+      // Inside a unit run the end screen celebrates the whole run instead.
+      if (!options.deferCelebrations) {
+        if (levelledUp) notify(`Level ${optimistic.level} reached! +${outcome.totalXp} XP`, 'success');
+        else if (outcome.totalXp > 0) notify(challenge.uiPreview ? `+${outcome.totalXp} XP · Assessment Completed!` : `+${outcome.totalXp} XP`, 'success');
+      }
+
+      // A guest's (or an account's while the server is unreachable) streak and
+      // goal news is this browser's own; a signed-in learner's waits for the
+      // server's word below.
+      if (!toServer) habitState.announceSolve(day, localHabitEvents, localAfter);
 
       // The server is authoritative when signed in; reconcile after the fact so
       // the UI never waits on the network to feel responsive.
-      if (user && user.provider !== 'guest' && serverStatus === 'online' && getToken()) {
+      if (toServer) {
+        // The optimistic day row must not pass for a goal met elsewhere.
+        const release = habitState.holdAnnouncements();
         try {
-          const { progress } = await api.solve(challenge.id, attempts, hintsUsed, {
+          const res = await api.solve(challenge.id, attempts, hintsUsed, {
             answer: options.answer,
-            code: options.code
+            code: options.code,
+            context: options.context,
+            learningMode: options.learningMode ?? learningMode,
+            // Sent only when true, so an older server sees the body it knows.
+            ...(options.requeued ? { requeued: true } : {}),
+            ...(options.revealed ? { revealed: true } : {})
           });
-          setStats((prev) => ({
-            ...prev,
-            // Union rather than overwrite: anything solved locally while this
-            // request was in flight must not be erased by an older snapshot.
-            ...progress,
-            xp: Math.max(prev.xp, progress.xp),
-            completedChallenges: [...new Set([...prev.completedChallenges, ...progress.completedChallenges])],
-            level: levelFromXp(Math.max(prev.xp, progress.xp)),
-            streak: currentStreak(progress.streak, progress.lastActiveDay),
-            // Progress carries no entitlements; keep the ones the profile gave us.
-            isPremium: prev.isPremium,
-            unlockedStages: prev.unlockedStages
-          }));
+          const { progress } = res;
+          // The bonuses the server paid: the perfect unit's, and the daily
+          // goal's (`bonusXp` counts both; an older server knows no goal).
+          const serverGoalBonus = res.habitEvents ? Math.max(0, Number(res.habitEvents.bonusXp) || 0) : 0;
+          const serverUnitBonus = Array.isArray(res.bonuses)
+            ? res.bonuses.reduce((sum, b) => sum + (b.kind === 'perfect-unit' ? Number(b.xp) || 0 : 0), 0)
+            : typeof res.bonusXp === 'number'
+              ? res.bonusXp - serverGoalBonus
+              : localBonus;
+          // Priced with other rules than the server's (an admin changed them
+          // since this tab fetched its copy), or the server grouped the unit
+          // differently: the server's XP is the truth, not the larger of the two.
+          const rulesChanged =
+            (typeof res.settingsRevision === 'number' && res.settingsRevision !== pricedWith) || serverUnitBonus !== localBonus;
+          // The rules changed since this tab last looked: fetch them.
+          noteRevision(res.settingsRevision);
+          // The server's day row wins over the optimistic one (its goal snapshot and bonus too).
+          activityLog.adoptDay(res.today);
+          // Union rather than overwrite: anything solved locally while this
+          // request was in flight must not be erased by an older snapshot.
+          // `unitsCompleted` and the streak fields are the server's.
+          setStats((prev) => statsAfterSolve(prev, progress, { rulesChanged, curve: settingsRef.current.levels }));
+          const solveXp = typeof res.awardedXp === 'number' ? res.awardedXp : awarded;
+          outcome = {
+            solveXp,
+            perfectBonusXp: serverUnitBonus,
+            goalBonusXp: serverGoalBonus,
+            goalMet: res.habitEvents ? Boolean(res.habitEvents.goalMet) : habitRun.events.goalMet,
+            totalXp: solveXp + serverUnitBonus + serverGoalBonus,
+            unitCompleted: res.unitCompleted !== undefined ? res.unitCompleted : outcome.unitCompleted,
+            perfect: typeof res.unitPerfect === 'boolean' ? res.unitPerfect : outcome.perfect,
+            verifiedByServer: true
+          };
+          // What the server says this solve did to the streak and the goal
+          // (an older server says nothing: this browser's own reading then).
+          const events = res.habitEvents;
+          habitState.announceSolve(
+            res.today?.day ?? day,
+            events
+              ? {
+                  goalMet: Boolean(events.goalMet),
+                  bonusXp: serverGoalBonus,
+                  freezeEarned: Boolean(events.freezeEarned),
+                  repaired: Boolean(events.repaired),
+                  streakDay: Boolean(events.streakDay),
+                  frozenDays: Array.isArray(events.frozenDays) ? events.frozenDays : []
+                }
+              : localHabitEvents,
+            {
+              streak: typeof res.habits?.streak === 'number' ? res.habits.streak : Number(progress.streak) || 0,
+              freezes: typeof res.habits?.freezes === 'number' ? res.habits.freezes : progress.habit?.freezes ?? localAfter.freezes
+            }
+          );
         } catch (err) {
           if (err instanceof OfflineError) {
-            // Kept locally; the next session restore pushes it up.
+            // Kept locally; the next session restore pushes it up (and the
+            // server pays any goal bonus then).
+            habitState.announceSolve(day, localHabitEvents, localAfter);
             notify('Server unreachable - this solve is saved here and will sync later.', 'info');
           } else if (err instanceof ApiError && err.status === 422) {
             // The server re-checked the submission and disagreed. Its verdict
             // wins: take the local award back rather than show XP that does
-            // not exist on the leaderboard.
+            // not exist on the leaderboard - and the day row with it.
             setStats(stats);
+            activityLog.replaceActivity(activityBefore);
             notify('The server did not accept that answer, so no XP was awarded.', 'error');
-            return 0;
+            return { ...NO_OUTCOME, rejected: true };
+          } else if (err instanceof ApiError && err.status === 403 && err.reason === 'premium-locked') {
+            // A premium lesson this account has not unlocked: the server
+            // credits nothing, so neither does this tab - rolled back exactly
+            // like a 422. The entitlements here were out of date (a revoke,
+            // another device): fetch them, and the bank, again.
+            setStats(stats);
+            activityLog.replaceActivity(activityBefore);
+            notify(getCopy('premium.lockedSolve') || err.message, 'error');
+            void refreshAccountRef.current().catch(() => {});
+            return { ...NO_OUTCOME, rejected: true };
+          } else if (solveWasDeferred(err)) {
+            // Too many solves in a row, or every code-runner slot busy while
+            // the server re-ran the code: not a verdict on the answer, and
+            // nothing was recorded. It is kept here and goes up with the next
+            // sync, like an offline solve.
+            habitState.announceSolve(day, localHabitEvents, localAfter);
+            notify(`${err.message} This solve is saved on this device and will sync later.`, 'info');
+          } else if (err instanceof ApiError && err.status === 401) {
+            // The session ended under this tab - a password reset from a link
+            // signs out every other session. Say so now, the way a restore
+            // does, rather than failing every solve quietly.
+            setToken(null);
+            setUser(null);
+            clearDraftsFromMemory();
+            notify('Your session has ended. Sign in again to keep syncing.', 'info');
           } else {
             notify('Progress saved locally, but the server rejected it.', 'error');
           }
+        } finally {
+          release();
         }
       }
 
-      return awarded;
+      return outcome;
     },
-    [stats, stages, user, serverStatus, celebrate, notify]
+    [
+      stats,
+      stages,
+      user,
+      serverStatus,
+      celebrate,
+      notify,
+      settings,
+      settingsRevision,
+      todayKey,
+      dailyGoalId,
+      learningMode,
+      activityLog,
+      habitState,
+      noteRevision,
+      clearDraftsFromMemory
+    ]
   );
+
+  /**
+   * Record a wrong answer (see SessionContextType.recordMiss). What a miss is
+   * reduced to comes from the shared code the server re-runs:
+   * normalizeMissAnswer, wrongAnswerKeys and gradeAnswer.
+   */
+  const recordMiss = useCallback<SessionContextType['recordMiss']>(
+    (challenge, submission, options = {}) => {
+      const isCode = isCodeChallengeType(challenge.type);
+      const raw = isCode ? (submission.code ? { kind: 'code', ...submission.code } : undefined) : submission.answer;
+      if (raw === undefined) return;
+      const answer = normalizeMissAnswer(challenge, raw, MISS_ANSWER_CHARS);
+      // Not a miss at all: malformed, or - for anything but code - correct,
+      // graded as given and as it would be stored (the server does both).
+      if (!answer) return;
+      if (!isCode && (gradeAnswer(challenge, submission.answer) || gradeAnswer(challenge, rawAnswerFromMiss(challenge, answer)))) return;
+
+      const context = options.context ?? 'lesson';
+      const at = new Date().toISOString();
+      const signedIn = Boolean(user && user.provider !== 'guest' && getToken());
+      activityLog.applyEvent(
+        {
+          type: 'miss',
+          challengeId: challenge.id,
+          context,
+          answer,
+          final: options.final === true,
+          keys: wrongAnswerKeys(challenge, answer),
+          // A signed-in learner's miss is pending until the server has it.
+          synced: signedIn ? false : undefined
+        },
+        { day: todayKey, at }
+      );
+      const final = options.final === true;
+      if (final) {
+        // Its answer was shown: back to the start of the Practice schedule
+        // (the server does the same when it takes the miss).
+        setStats((prev) => {
+          const rules = settingsRef.current.review;
+          const state = reviewStateOf(prev, challenge.id, rules, { zone, today: todayKey });
+          return { ...prev, review: { ...(prev.review ?? {}), [challenge.id]: applyReviewResult(state, 'missed', rules, todayKey, at) } };
+        });
+      }
+      eventBus.emit('challenge:missed', { challenge, context, final });
+      // A guest's log lives here; an offline learner's waits for the next merge.
+      if (!signedIn || serverStatus !== 'online') return;
+
+      const isThis = (entry: MissEntry) => entry.challengeId === challenge.id && entry.at === at;
+      api
+        .recordMisses([
+          {
+            challengeId: challenge.id,
+            ...(isCode ? { code: submission.code } : { answer: submission.answer }),
+            context,
+            final: options.final === true,
+            at
+          }
+        ])
+        .then((res) => {
+          activityLog.markSynced(isThis);
+          activityLog.adoptDay(res.today);
+          activityLog.adoptMisses(res.misses);
+        })
+        .catch((err) => {
+          // Unreachable: it stays pending and goes up with the next merge.
+          // Refused (a cap, an unknown lesson): there is nothing to retry.
+          if (!(err instanceof OfflineError)) activityLog.markSynced(isThis);
+        });
+    },
+    [user, serverStatus, todayKey, zone, activityLog]
+  );
+
+  /* ------------------------------------------------------ Practice (review) */
+  // The next session's summary, starting one and recording its answers (./useReview).
+  const endSignedOutSession = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    clearDraftsFromMemory();
+    notify('Your session has ended. Sign in again to keep syncing.', 'info');
+  }, [clearDraftsFromMemory, notify]);
+  const { reviewSummary, startReview, completeReview } = useReview({
+    user,
+    online: serverStatus === 'online',
+    stats,
+    statsRef,
+    setStats,
+    settings,
+    settingsRef,
+    activityLog,
+    habitState,
+    allChallenges,
+    bundleRef,
+    todayKey,
+    zone,
+    dailyGoalId,
+    noteRevision,
+    onSignedOut: endSignedOutSession,
+    notify
+  });
 
   /**
    * Beginner teaching is a purely local, per-browser UI affordance ("have I
@@ -1053,14 +1906,17 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   const adoptSession = useCallback(
     (profile: UserProfile, progress: any) => {
       setUser(profile);
-      setStats((prev) => ({
-        ...prev,
-        ...progress,
-        level: levelFromXp(progress.xp ?? 0),
-        streak: currentStreak(progress.streak ?? 0, progress.lastActiveDay ?? null),
-        ...entitlementsOf(profile),
-        ownerId: profile.id
-      }));
+      // Login, /auth/me and a merge all hand over the streak already worked
+      // out on the learner's own day: taken as it is. Practice answers left
+      // pending by another account are never carried into this one.
+      setStats((prev) => {
+        const own = !prev.ownerId || prev.ownerId === profile.id ? prev : { ...prev, unsynced: undefined };
+        return {
+          ...adoptAccountProgress(own, progress, settingsRef.current.levels),
+          ...entitlementsOf(profile),
+          ownerId: profile.id
+        };
+      });
     },
     []
   );
@@ -1073,57 +1929,85 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
    * lab machine, signing in used to hand the next user all of the previous
    * user's solves. Progress already tagged with THIS account is the server's
    * own cache and needs no merge (the session-restore path reconciles it).
+   *
+   * A guest who only got answers wrong (no solves yet) still has something to
+   * carry: their misses. The activity log goes along only when it is a
+   * guest's too.
    */
-  const mergeableGuestProgress = useCallback(
-    (forUserId: string): UserStats | null => {
-      if (stats.completedChallenges.length === 0) return null;
-      if (stats.ownerId && stats.ownerId !== forUserId) return null;
-      if (stats.ownerId === forUserId) return null;
-      return stats;
+  const mergeableGuestProgress = useCallback((): { stats: UserStats; activity?: ReturnType<typeof trimActivityForMerge> } | null => {
+    if (stats.ownerId) return null;
+    const log = activityRef.current;
+    const guestLog = !log.ownerId;
+    const hasMisses = guestLog && (Object.keys(log.misses).length > 0 || log.missLog.length > 0);
+    if (stats.completedChallenges.length === 0 && !hasMisses && pendingReviewLog(stats).length === 0) return null;
+    return { stats, activity: guestLog ? activityForMerge(stats) : undefined };
+  }, [stats, activityRef, activityForMerge]);
+
+  /**
+   * Everything after a successful sign-in: carry the guest's progress and
+   * activity into the account (the server re-prices it and merges the log
+   * idempotently), then adopt the account's progress and activity.
+   * Resolves once the activity is in; callers that want the modal to close
+   * sooner need not wait for it.
+   */
+  const enterAccount = useCallback(
+    async (profile: UserProfile, serverProgress: any): Promise<void> => {
+      let progress = serverProgress;
+      let account = profile;
+      let mergedActivity: ActivityView | null = null;
+      const guest = mergeableGuestProgress();
+      let sentReviews: ReviewEvent[] = [];
+      if (guest) {
+        try {
+          // The guest's Practice answers go up to be priced by the server.
+          const reviews = pendingReviewLog(guest.stats);
+          const merged = await api.mergeProgress(guest.stats, guest.activity, guestPreferences(), reviews);
+          sentReviews = reviews;
+          progress = merged.progress;
+          mergedActivity = merged.activity ?? null;
+          // The guest's sound choice, where the account had none.
+          if (merged.preferences) account = { ...profile, preferences: { ...profile.preferences, ...merged.preferences } };
+          const skipped = skippedLockedMessage(merged.skippedLocked);
+          if (skipped) notify(skipped, 'info');
+        } catch {
+          /* keep the server copy */
+        }
+      }
+      adoptSession(account, progress);
+      if (sentReviews.length) setStats((prev) => withoutPendingReviews(prev, sentReviews));
+      await adoptAccountActivity(profile.id, mergedActivity);
+      // Sound on or off: a choice made here goes up, else the account's is remembered here.
+      void reconcileAccountPreferences(account);
+      // The bank as this account may see it: a premium stage it has unlocked
+      // arrives in full, one it has not as stubs. Not awaited - the sign-in
+      // window closes now and the lessons swap in when they land.
+      void reloadContent();
     },
-    [stats]
+    [mergeableGuestProgress, guestPreferences, adoptSession, adoptAccountActivity, reconcileAccountPreferences, reloadContent, notify]
   );
 
   const loginWithEmail = useCallback(
     async (email: string, password: string) => {
       const res = await api.login(email, password);
-      let progress = res.progress;
-      const guest = mergeableGuestProgress(res.user.id);
-      if (guest) {
-        try {
-          progress = (await api.mergeProgress(guest)).progress;
-        } catch {
-          /* keep the server copy */
-        }
-      }
-      adoptSession(res.user, progress);
+      await enterAccount(res.user, res.progress);
       // Not awaited: the modal should close now, and the editor picks the
       // drafts up as soon as they land.
       restoreDrafts(res.user.id);
       eventBus.emit('auth:signedIn', { user: res.user });
       notify(`Welcome back, ${res.user.username}.`, 'success');
     },
-    [mergeableGuestProgress, adoptSession, restoreDrafts, notify]
+    [enterAccount, restoreDrafts, notify]
   );
 
   const signupWithEmail = useCallback(
     async (email: string, username: string, password: string) => {
       const res = await api.register(email, username, password);
-      let progress = res.progress;
-      const guest = mergeableGuestProgress(res.user.id);
-      if (guest) {
-        try {
-          progress = (await api.mergeProgress(guest)).progress;
-        } catch {
-          /* keep the server copy */
-        }
-      }
-      adoptSession(res.user, progress);
+      await enterAccount(res.user, res.progress);
       restoreDrafts(res.user.id);
       eventBus.emit('auth:signedIn', { user: res.user });
       notify(`Account created. Welcome, ${res.user.username}.`, 'success');
     },
-    [mergeableGuestProgress, adoptSession, restoreDrafts, notify]
+    [enterAccount, restoreDrafts, notify]
   );
 
   /**
@@ -1147,21 +2031,12 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         throw err;
       }
 
-      let progress = res.progress;
-      const guest = mergeableGuestProgress(res.user.id);
-      if (guest) {
-        try {
-          progress = (await api.mergeProgress(guest)).progress;
-        } catch {
-          /* keep the server copy */
-        }
-      }
-      adoptSession(res.user, progress);
+      await enterAccount(res.user, res.progress);
       await restoreDrafts(res.user.id);
       eventBus.emit('auth:signedIn', { user: res.user });
       notify(`Signed in as ${res.user.username}.`, 'success');
     },
-    [mergeableGuestProgress, adoptSession, restoreDrafts, clearDraftsFromMemory, notify]
+    [enterAccount, restoreDrafts, clearDraftsFromMemory, notify]
   );
 
   const continueAsGuest = useCallback(() => {
@@ -1182,10 +2057,19 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     // Anything solved while the server was unreachable exists only here. Push
     // it up before clearing, or signing out would be the one action that
     // loses work.
+    // Wrong answers recorded while it was unreachable are waiting too.
     let synced = true;
-    if (user && user.provider !== 'guest' && getToken() && stats.completedChallenges.length > 0) {
+    const log = activityRef.current;
+    const logIsTheirs = Boolean(user) && (!log.ownerId || log.ownerId === user?.id);
+    const pendingMisses = logIsTheirs && unsyncedMisses(log).length > 0;
+    const pendingReviews = pendingReviewLog(stats);
+    if (user && user.provider !== 'guest' && getToken() && (stats.completedChallenges.length > 0 || pendingMisses || pendingReviews.length > 0)) {
       try {
-        await api.mergeProgress(stats);
+        // Their own log sends only what the server has not taken yet - small
+        // enough that signing out never trips the body limit.
+        const merged = await api.mergeProgress(stats, logIsTheirs ? activityForMerge(stats, { pendingOnly: Boolean(log.ownerId) }) : undefined, undefined, pendingReviews);
+        const skipped = skippedLockedMessage(merged?.skippedLocked);
+        if (skipped) notify(skipped, 'info');
       } catch {
         synced = false;
       }
@@ -1204,35 +2088,56 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     // The account's progress lives on the server; the local copy is a cache
     // and must not be left for the next person who signs in on this browser.
     setStats({ ...INITIAL_STATS });
+    // So is their activity log - days and wrong answers.
+    resetActivity();
     // The same goes for the code they were writing: it is on the account now.
     clearDraftsFromMemory();
     eventBus.emit('auth:signedOut', {});
     notify('Signed out. Your progress is saved to your account.', 'info');
-  }, [user, stats, flushAllDrafts, clearDraftsFromMemory, notify]);
+    // Back to the bank a visitor sees: premium stages as stubs again.
+    void reloadContent();
+  }, [user, stats, activityRef, activityForMerge, resetActivity, flushAllDrafts, clearDraftsFromMemory, notify, reloadContent]);
 
   const refreshAccount = useCallback(async () => {
     // Only a real account has anything to refresh; a guest owns nothing.
     if (!getToken()) return;
     const { user: me } = await api.me();
+    // Content first, then the entitlements: a stage just bought must not
+    // show as unlocked while its lessons are still the stubs from before.
+    await reloadContent();
     setUser(me);
     setStats((prev) => ({ ...prev, ...entitlementsOf(me), ownerId: me.id }));
     await restoreDrafts(me.id);
-  }, [restoreDrafts]);
+  }, [restoreDrafts, reloadContent]);
+  // For completeChallenge, which is declared above and must not depend on it.
+  refreshAccountRef.current = refreshAccount;
 
+  const { clearMisses } = activityLog;
+  const habitRules = habitState.rules;
   const resetProgress = useCallback(async () => {
-    // Purchases are not progress: keep what the server says is unlocked.
-    setStats({ ...INITIAL_STATS, isPremium: stats.isPremium, unlockedStages: stats.unlockedStages ?? [] });
+    // Purchases are not progress: keep what the server says is unlocked. The
+    // streak history is kept too: the current run is closed into it as
+    // ended by a reset, and freezes go back to the starting number (the
+    // server does the same).
+    const streak = resetHabit(streakFieldsOf(stats, habitRules), todayKey, habitRules);
+    setStats({ ...INITIAL_STATS, ...streak, isPremium: stats.isPremium, unlockedStages: stats.unlockedStages ?? [] });
+    // The wrong answers go with the progress; the days are history and stay
+    // (the server does the same).
+    clearMisses();
     eventBus.emit('progress:reset', {});
     if (user && user.provider !== 'guest' && serverStatus === 'online' && getToken()) {
       try {
-        await api.resetProgress();
+        const res = await api.resetProgress();
+        // The server's own record of the history it kept.
+        const habit = res?.progress?.habit;
+        if (habit && typeof habit === 'object') setStats((prev) => ({ ...prev, habit }));
       } catch {
         notify('Progress cleared here, but the server copy could not be reset.', 'error');
         return;
       }
     }
     notify('Progress reset. Back to Stage 01.', 'info');
-  }, [stats.isPremium, stats.unlockedStages, user, serverStatus, notify]);
+  }, [stats, habitRules, todayKey, clearMisses, user, serverStatus, notify]);
 
   const refreshLeaderboard = useCallback(async () => {
     try {
@@ -1263,13 +2168,35 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       learnerChallenges,
       learningMode,
       setLearningMode,
+      settings,
+      settingsRevision,
       stats,
+      activity,
+      todayKey,
+      today,
+      timeZone: zone,
+      habits,
+      goalOptions,
+      dailyGoal,
+      dailyGoalId,
+      setDailyGoal,
+      adoptDeviceTimeZone,
+      streakStrip: streakStripFor,
+      isHabitBannerDismissed: habitState.isDismissed,
+      dismissHabitBanner: habitState.dismiss,
       user,
       serverStatus,
       judge0Configured,
       runtimes,
+      soundOn,
+      setSoundOn,
+      playSound,
       completeChallenge,
+      recordMiss,
       markConceptSeen,
+      reviewSummary,
+      startReview,
+      completeReview,
       executeCode,
       drafts,
       draftFor,
@@ -1284,12 +2211,32 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       oauthProviders,
       adoptToken,
       refreshAccount,
+      reloadContent,
       resetProgress,
       leaderboard,
       refreshLeaderboard,
-      celebrate
+      celebrate,
+      holdCelebrations: celebrationHold.hold,
+      releaseCelebrations: celebrationHold.release,
+      celebrateOrHold: celebrationHold.celebrateOrHold
     }),
     [
+      settings,
+      settingsRevision,
+      activity,
+      todayKey,
+      today,
+      zone,
+      habits,
+      goalOptions,
+      dailyGoal,
+      dailyGoalId,
+      setDailyGoal,
+      adoptDeviceTimeZone,
+      streakStripFor,
+      habitState.isDismissed,
+      habitState.dismiss,
+      recordMiss,
       contentReady,
       stages,
       allChallenges,
@@ -1307,8 +2254,14 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       serverStatus,
       judge0Configured,
       runtimes,
+      soundOn,
+      setSoundOn,
+      playSound,
       completeChallenge,
       markConceptSeen,
+      reviewSummary,
+      startReview,
+      completeReview,
       executeCode,
       drafts,
       draftFor,
@@ -1323,10 +2276,12 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       oauthProviders,
       adoptToken,
       refreshAccount,
+      reloadContent,
       resetProgress,
       leaderboard,
       refreshLeaderboard,
-      celebrate
+      celebrate,
+      celebrationHold
     ]
   );
 

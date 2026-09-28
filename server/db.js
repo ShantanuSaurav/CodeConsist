@@ -24,8 +24,29 @@ const DATA_DIR = process.env.DATA_DIR
   : path.join(HERE, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
+/**
+ * The shape version of db.json. Bumped by one whenever a release adds a
+ * top-level key; `load()` keeps a copy of the file as it was
+ * (`db.json.pre-v<N>-<ts>`) before migrating an older one. Migrations are
+ * additive only: no existing row is rewritten or re-scored.
+ *   2 - `settings` (the admin rules store) and `activity` (per-learner days
+ *       and failed attempts), plus `users[].preferences`.
+ *   3 - `passwordResets` (admin-issued reset links, hashes only), plus
+ *       `users[].tokenVersion` (bumped by a reset to sign out old sessions).
+ *   4 - `contentOverrides.units` (an admin's grouping of a stage's lessons
+ *       into units), `users[].preferences` in its full shape (every field
+ *       null until chosen), and - lazily, on first read - progress
+ *       `unitsCompleted`.
+ *   5 - `conceptCards` (an admin's teaching cards) and `reviewSessions`
+ *       (each learner's open Practice session), plus - lazily, on first
+ *       read - progress `review`. `contentOverrides.challenges[id]` may
+ *       now carry `optionFeedback`, `blankFeedback` and `feedbackBasis`
+ *       (wrong-answer notes on a built-in question - server/content.js).
+ */
+export const SCHEMA_VERSION = 5;
+
 const EMPTY = {
-  version: 1,
+  version: SCHEMA_VERSION,
   users: [],
   progress: {},
   /**
@@ -45,8 +66,13 @@ const EMPTY = {
    * through the validate/lint pipeline and stay hand-authored). This is the
    * one place either the learner app or the admin app reads "is this stage
    * hidden / premium / reordered", so there is exactly one roadmap, not two.
+   *
+   * `units` is an admin's own grouping of a stage's lessons into units,
+   * keyed by stage id: `{ units: [{ id, name, description?, challengeIds }],
+   * nextSeq, updatedAt }`. A stage without one uses the default grouping
+   * (src/platform/progress/units.ts); server/units.js resolves both.
    */
-  contentOverrides: { stages: {}, challenges: {}, languages: {} },
+  contentOverrides: { stages: {}, challenges: {}, languages: {}, units: {} },
   /**
    * Questions an administrator wrote in the console, keyed by id. Each is a
    * complete Challenge (validated against the same zod schema the authored
@@ -85,7 +111,43 @@ const EMPTY = {
    * user (see DRAFT_CODE_MAX / DRAFTS_PER_USER_MAX) so it cannot grow db.json
    * without limit, and dropped entirely when the account is deleted.
    */
-  drafts: {}
+  drafts: {},
+  /**
+   * The administrator's changes to the learning rules - XP, levels, streak
+   * and time zones, data limits - as SPARSE overrides nested by section
+   * (`{ xp: { passScore: 70 } }`). Everything not here is the default in
+   * src/platform/settings/defaults.ts. `revision` goes up by one on every
+   * save, which is how learners notice a change (server/settings.js).
+   */
+  settings: { overrides: {}, revision: 0, updatedAt: null, updatedBy: null },
+  /**
+   * Per learner, keyed by user id: their days (in their own time zone), a
+   * summary of their wrong answers per challenge, and a capped log of recent
+   * ones - see src/platform/activity/log.ts for the shape and
+   * server/activity.js for who writes it. Deleted with the account.
+   */
+  activity: {},
+  /**
+   * Password reset links an administrator issued, keyed by reset id:
+   * `{ id, userId, tokenHash, createdAt, expiresAt, createdBy, usedAt,
+   * revokedAt }`. Only the SHA-256 of a token is ever stored - the token
+   * itself is shown to the admin once and then exists nowhere on this server
+   * (server/password-reset.js). Deleted with the account.
+   */
+  passwordResets: {},
+  /**
+   * Teaching cards an administrator wrote or edited, keyed by card key:
+   * `{ key, concept, anchor, hidden?, createdAt, updatedAt }`. A key equal to
+   * a built-in concept's id replaces that concept; any other key is a card
+   * the admin created (server/concept-cards.js).
+   */
+  conceptCards: {},
+  /**
+   * Each learner's one open Practice (review) session, keyed by user id:
+   * `{ id, createdAt, stageId?, items, answered, bonusPaid }`. A new session
+   * replaces the old one. Deleted with the account.
+   */
+  reviewSessions: {}
 };
 
 let state = null;
@@ -120,9 +182,58 @@ function ownEntry(map, key) {
   return typeof key === 'string' && map && Object.hasOwn(map, key) ? map[key] : null;
 }
 
-/** Fill in fields added to the schema after some rows already existed. */
+/** The settings record with every field present and sane. */
+function normalizeSettingsRecord(raw) {
+  const record = plainObject(raw);
+  return {
+    overrides: plainObject(record.overrides),
+    revision: Number.isInteger(record.revision) && record.revision >= 0 ? record.revision : 0,
+    updatedAt: typeof record.updatedAt === 'string' ? record.updatedAt : null,
+    updatedBy: typeof record.updatedBy === 'string' ? record.updatedBy : null
+  };
+}
+
+/**
+ * A learner's own preferences, stored on the user row so they survive a
+ * progress reset. Every field is nullable - null means "use the default".
+ * The whole shape is present from schema version 4 on, even the fields a
+ * later phase starts to use. Fields this version does not know are kept, so
+ * an older build never strips what a newer one wrote.
+ */
+export function normalizePreferences(raw) {
+  const prefs = plainObject(raw);
+  const text = (value) => (typeof value === 'string' && value ? value : null);
+  return {
+    ...prefs,
+    timeZone: text(prefs.timeZone),
+    timeZoneSetAt: text(prefs.timeZoneSetAt),
+    dailyGoalId: text(prefs.dailyGoalId),
+    soundOn: typeof prefs.soundOn === 'boolean' ? prefs.soundOn : null,
+    trackId: text(prefs.trackId),
+    learningMode: prefs.learningMode === 'learn' || prefs.learningMode === 'practice' ? prefs.learningMode : null,
+    motivation: text(prefs.motivation),
+    experience: text(prefs.experience),
+    updatedAt: text(prefs.updatedAt)
+  };
+}
+
+/**
+ * Fill in fields added to the schema after some rows already existed.
+ *
+ * Pure, idempotent and order-independent: it only ADDS what is missing and
+ * normalizes containers; progress rows are carried over untouched (new
+ * progress fields appear lazily, on first read or write).
+ */
+export function migrateState(loaded) {
+  return migrate(plainObject(loaded));
+}
+
 function migrate(loaded) {
   const next = { ...clone(EMPTY), ...loaded };
+  next.version = Math.max(SCHEMA_VERSION, Number.isInteger(loaded.version) ? loaded.version : 1);
+  next.progress = plainObject(loaded.progress);
+  next.settings = normalizeSettingsRecord(loaded.settings);
+  next.activity = plainObject(loaded.activity);
   next.auditLog = Array.isArray(loaded.auditLog) ? loaded.auditLog : [];
   next.admin = loaded.admin && typeof loaded.admin === 'object' ? loaded.admin : null;
   next.contentOverrides = {
@@ -134,7 +245,8 @@ function migrate(loaded) {
     languages:
       loaded.contentOverrides?.languages && typeof loaded.contentOverrides.languages === 'object'
         ? loaded.contentOverrides.languages
-        : {}
+        : {},
+    units: plainObject(loaded.contentOverrides?.units)
   };
   next.customChallenges =
     loaded.customChallenges && typeof loaded.customChallenges === 'object' && !Array.isArray(loaded.customChallenges)
@@ -156,6 +268,9 @@ function migrate(loaded) {
   next.certificates = plainObject(loaded.certificates);
   next.pricing = plainObject(loaded.pricing);
   next.drafts = plainObject(loaded.drafts);
+  next.passwordResets = plainObject(loaded.passwordResets);
+  next.conceptCards = plainObject(loaded.conceptCards);
+  next.reviewSessions = plainObject(loaded.reviewSessions);
   next.users = (loaded.users ?? []).map((u) => {
     // `role` was a field from the old, retired admin-via-user-account
     // system. It is no longer read anywhere - administrators now live
@@ -169,7 +284,13 @@ function migrate(loaded) {
       // rather than `undefined` so "this account has no password" is a state
       // the login route can check, not a missing key it has to guess at.
       passwordHash: rest.passwordHash ?? null,
-      identities: plainObject(rest.identities)
+      identities: plainObject(rest.identities),
+      preferences: normalizePreferences(rest.preferences),
+      // Stamped into every learner token as `tv`; a password reset bumps it,
+      // which signs out every session issued before (server/auth.js). A
+      // token from before this existed has no `tv` and reads as 0, so
+      // nobody is signed out by the upgrade itself.
+      tokenVersion: Number.isInteger(rest.tokenVersion) && rest.tokenVersion >= 0 ? rest.tokenVersion : 0
     };
   });
   return next;
@@ -180,10 +301,12 @@ export async function load() {
   await mkdir(DATA_DIR, { recursive: true });
 
   if (existsSync(DB_FILE)) {
+    let raw = null;
+    let parsed = null;
     try {
-      const raw = await readFile(DB_FILE, 'utf8');
-      const parsed = JSON.parse(raw);
-      state = migrate(parsed);
+      raw = await readFile(DB_FILE, 'utf8');
+      parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a JSON object');
     } catch (err) {
       // A corrupt database should not take the server down; keep the bad file
       // around for inspection and start clean.
@@ -194,7 +317,29 @@ export async function load() {
       } catch {
         console.error(`[db] db.json was unreadable and could not be moved: ${err.message}`);
       }
+      parsed = null;
       state = clone(EMPTY);
+    }
+
+    if (parsed) {
+      // An older file is copied aside, byte for byte, before it is migrated -
+      // the same approach as the `.corrupt-*` copy above, so a release can
+      // always be rolled back to the data it started from. A failed copy is
+      // loud but not fatal: the migration only adds fields.
+      const from = Number.isInteger(parsed.version) ? parsed.version : 1;
+      if (from < SCHEMA_VERSION) {
+        const copy = `${DB_FILE}.pre-v${SCHEMA_VERSION}-${Date.now()}`;
+        try {
+          await writeFile(copy, raw, 'utf8');
+          console.log(`[db] db.json is version ${from}; kept a copy as ${path.basename(copy)} before migrating to ${SCHEMA_VERSION}`);
+        } catch (err) {
+          console.error(`[db] could not keep a copy of db.json before migrating (${err.message}); migrating anyway`);
+        }
+      }
+      // Deliberately outside the try above: a bug in a migration must stop
+      // the server with the file untouched, never move a readable database
+      // aside as "corrupt" and start empty.
+      state = migrate(parsed);
     }
   } else {
     state = clone(EMPTY);
@@ -258,6 +403,8 @@ export function findUserById(id) {
 }
 
 export function insertUser(user) {
+  // Every account starts at token version 0 (see migrate()).
+  if (!Number.isInteger(user.tokenVersion)) user.tokenVersion = 0;
   db().users.push(user);
   persist();
   return user;
@@ -285,6 +432,12 @@ export function deleteUser(id) {
   // Their unsolved work in progress goes too - it is their code, and nothing
   // else in the database refers to it.
   deleteDraftsForUser(id);
+  // So do their days and wrong answers (typed blanks are their words).
+  deleteActivity(id);
+  // And any reset link issued for them - it names the account.
+  deletePasswordResetsForUser(id);
+  // And their open Practice session.
+  deleteReviewSession(id);
 
   forgetBillingIdentity(db(), id);
 
@@ -458,14 +611,43 @@ export const EMPTY_PROGRESS = {
   lastActiveDay: null,
   completedChallenges: [],
   completedStages: [],
-  attempts: {}
+  attempts: {},
+  /**
+   * `{ [unitId]: { completedAt, perfect, bonusXp } }` - the record that a
+   * unit's first completion was seen and what bonus it paid. Never what makes
+   * a unit "done" (that is derived from `completedChallenges`).
+   */
+  unitsCompleted: {},
+  /**
+   * `{ [challengeId]: { box, due, last?, paid? } }` - the Practice (review)
+   * schedule, written only for an item that was reviewed or revealed. An item
+   * without an entry has a state derived from its solve
+   * (src/platform/review/schedule.ts `reviewStateOf`).
+   */
+  review: {}
 };
+
+/**
+ * A progress row with every field present, WITHOUT touching the stored row:
+ * fields added after a row was written appear here, on read, and are stored
+ * on the next write. Nested objects added later are fresh copies, so a
+ * caller can never mutate the stored row through them.
+ */
+export function normalizeProgress(row) {
+  const src = plainObject(row);
+  return {
+    ...clone(EMPTY_PROGRESS),
+    ...src,
+    unitsCompleted: { ...plainObject(src.unitsCompleted) },
+    review: { ...plainObject(src.review) }
+  };
+}
 
 export function getProgress(userId) {
   const all = db().progress;
   if (!all[userId]) all[userId] = clone(EMPTY_PROGRESS);
   // Backfill fields added after a row was first written.
-  return { ...clone(EMPTY_PROGRESS), ...all[userId] };
+  return normalizeProgress(all[userId]);
 }
 
 export function setProgress(userId, progress) {
@@ -550,6 +732,145 @@ export function deleteDraftsForUser(userId) {
   return true;
 }
 
+/* --------------------------------------------------------------- settings */
+
+/**
+ * The admin's rule overrides: `{ overrides, revision, updatedAt, updatedBy }`.
+ * Read and written only through server/settings.js, which validates every
+ * change and resolves the effective settings.
+ */
+export function getSettingsRecord() {
+  return db().settings;
+}
+
+export function setSettingsRecord({ overrides, revision, updatedAt, updatedBy }) {
+  db().settings = normalizeSettingsRecord({ overrides, revision, updatedAt, updatedBy });
+  persist();
+  return db().settings;
+}
+
+/* --------------------------------------------------------------- activity */
+
+/** A learner's activity log as stored, or null when they have none yet. Own-property lookup only. */
+export function getActivity(userId) {
+  return ownEntry(db().activity, String(userId ?? ''));
+}
+
+/** Replace a learner's activity log (built and bounded by server/activity.js). */
+export function putActivity(userId, record) {
+  defineEntry(db().activity, String(userId), record);
+  persist();
+  return record;
+}
+
+/** Every stored log, keyed by user id - for the admin's analytics. */
+export function allActivity() {
+  return db().activity;
+}
+
+export function deleteActivity(userId) {
+  const id = String(userId ?? '');
+  if (!Object.hasOwn(db().activity, id)) return false;
+  delete db().activity[id];
+  persist();
+  return true;
+}
+
+/* --------------------------------------------------------- review sessions */
+
+/** A learner's open Practice session, or null. Own-property lookup only. */
+export function getReviewSession(userId) {
+  return ownEntry(db().reviewSessions, String(userId ?? ''));
+}
+
+/** Store a learner's Practice session, replacing the one they had. */
+export function putReviewSession(userId, record) {
+  defineEntry(db().reviewSessions, String(userId), record);
+  persist();
+  return record;
+}
+
+export function deleteReviewSession(userId) {
+  const sessions = db().reviewSessions;
+  const id = String(userId ?? '');
+  if (!sessions || !Object.hasOwn(sessions, id)) return false;
+  delete sessions[id];
+  persist();
+  return true;
+}
+
+/* --------------------------------------------------------- password resets */
+
+/**
+ * Admin-issued reset links (server/password-reset.js builds and checks
+ * them). Only a token's SHA-256 is stored, so reading db.json never yields a
+ * usable link.
+ */
+export function putPasswordReset(record) {
+  defineEntry(db().passwordResets, String(record.id), record);
+  persist();
+  return record;
+}
+
+export function getPasswordReset(id) {
+  return ownEntry(db().passwordResets, String(id ?? ''));
+}
+
+/** The record whose token hashes to `hash`, or null. */
+export function findPasswordResetByTokenHash(hash) {
+  if (typeof hash !== 'string' || !hash) return null;
+  return Object.values(db().passwordResets).find((r) => r?.tokenHash === hash) ?? null;
+}
+
+/** One learner's reset links, newest first. */
+export function passwordResetsForUser(userId) {
+  return Object.values(db().passwordResets)
+    .filter((r) => r?.userId === userId)
+    .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+}
+
+/** Patch one reset record in place (`usedAt`, `revokedAt`). Null when there is no such record. */
+export function updatePasswordReset(id, patch) {
+  const record = getPasswordReset(id);
+  if (!record) return null;
+  Object.assign(record, patch);
+  persist();
+  return record;
+}
+
+/**
+ * Drop links that can never be used again - used, revoked or expired -
+ * once they are 30 days past that point. Called on every issue, so the table
+ * stays small without a timer. Returns how many went.
+ */
+export function prunePasswordResets(nowMs = Date.now()) {
+  const cutoff = nowMs - 30 * 86_400_000;
+  let removed = 0;
+  for (const [id, record] of Object.entries(db().passwordResets)) {
+    const ended = [record?.usedAt, record?.revokedAt, record?.expiresAt]
+      .map((value) => Date.parse(value ?? ''))
+      .filter((t) => Number.isFinite(t));
+    const done = record?.usedAt || record?.revokedAt || Date.parse(record?.expiresAt ?? '') <= nowMs;
+    if (done && ended.length && Math.min(...ended) < cutoff) {
+      delete db().passwordResets[id];
+      removed += 1;
+    }
+  }
+  if (removed) persist();
+  return removed;
+}
+
+export function deletePasswordResetsForUser(userId) {
+  let removed = 0;
+  for (const [id, record] of Object.entries(db().passwordResets)) {
+    if (record?.userId !== userId) continue;
+    delete db().passwordResets[id];
+    removed += 1;
+  }
+  if (removed) persist();
+  return removed;
+}
+
 /* ---------------------------------------------------------------- content */
 
 /** Layered, non-destructive edits over the authored TypeScript content. */
@@ -577,6 +898,29 @@ export function setChallengeOverride(challengeId, patch) {
   }
   persist();
   return overrides[challengeId] ?? null;
+}
+
+/**
+ * An admin's grouping of one stage into units, or null (the default grouping).
+ * Own-property lookup, so a stage id of '__proto__' is just a missing entry.
+ */
+export function getUnitOverride(stageId) {
+  const units = plainObject(db().contentOverrides.units);
+  return ownEntry(units, String(stageId ?? ''));
+}
+
+/** Store (or, with `null`, drop) one stage's grouping. Validated by the caller (server/admin.js). */
+export function setUnitOverride(stageId, record) {
+  const overrides = db().contentOverrides;
+  if (!overrides.units || typeof overrides.units !== 'object' || Array.isArray(overrides.units)) overrides.units = {};
+  const id = String(stageId);
+  if (record === null || record === undefined) {
+    if (Object.hasOwn(overrides.units, id)) delete overrides.units[id];
+  } else {
+    defineEntry(overrides.units, id, record);
+  }
+  persist();
+  return record ?? null;
 }
 
 export function setLanguageOverride(languageId, patch) {
@@ -625,6 +969,37 @@ export function deleteCustomChallenge(id) {
   if (!existed) return false;
   delete db().customChallenges[id];
   if (Object.hasOwn(db().contentOverrides.challenges, id)) delete db().contentOverrides.challenges[id];
+  persist();
+  return true;
+}
+
+/* ------------------------------------------------------------ concept cards */
+
+/** Every teaching card an administrator wrote or edited (server/concept-cards.js), in creation order. */
+export function allConceptCards() {
+  return Object.values(plainObject(db().conceptCards));
+}
+
+/** One card by key, or null. Own-property lookup only. */
+export function getConceptCard(key) {
+  return ownEntry(db().conceptCards, String(key ?? '')) ?? null;
+}
+
+/** Insert or replace one card (validated by the caller); keeps its creation time. */
+export function putConceptCard(record) {
+  const existing = getConceptCard(record.key);
+  const now = new Date().toISOString();
+  const saved = { ...record, createdAt: existing?.createdAt ?? record.createdAt ?? now, updatedAt: now };
+  defineEntry(db().conceptCards, String(record.key), saved);
+  persist();
+  return saved;
+}
+
+export function deleteConceptCard(key) {
+  const cards = db().conceptCards;
+  const id = String(key ?? '');
+  if (!cards || !Object.hasOwn(cards, id)) return false;
+  delete cards[id];
   persist();
   return true;
 }

@@ -1,4 +1,5 @@
 import { checkBlank } from '@/platform/grading-engine/grading';
+import { blankNotes } from '@/platform/grading-engine/feedback';
 import { FillBlankChallenge } from './FillBlankChallenge';
 import type { AnswerTypeDefinition } from './types';
 
@@ -27,5 +28,6 @@ export const fillBlank: AnswerTypeDefinition = {
     return blanks
       .map((b, i) => (checkBlank(String(given[i] ?? ''), b.answer, b.alternatives ?? []) ? -1 : i))
       .filter((i) => i >= 0);
-  }
+  },
+  feedback: (c, answer, reveal) => blankNotes(c, Array.isArray(answer) ? (answer as string[]) : [], reveal)
 };

@@ -16,12 +16,13 @@ import {
   Wifi,
   WifiOff
 } from 'lucide-react';
-import { useSession } from '@/platform/session';
+import { useLeveling, useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
-import { levelProgress } from '@/platform/xp-leveling/leveling';
 import { ROUTES } from '@/config/routes';
 import { DevlingoLogo, Dropdown, ProgressBar } from '@/ui';
+import { HabitChip } from './HabitChip';
 
 const ICON = 16;
 
@@ -58,7 +59,9 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
   const { user, stats, logout, serverStatus, tracks, selectedTrackId, setSelectedTrack } = useSession();
   const { theme, toggleTheme } = useTheme();
+  const copy = useCopy();
   const openAuthModal = intents.openAuth;
+  const { levelProgress } = useLeveling();
   const level = levelProgress(stats.xp);
   const signedIn = Boolean(user && user.provider !== 'guest');
 
@@ -177,14 +180,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
               <span>{stats.xp.toLocaleString()} XP</span>
               <span
                 className={`ml-auto ${serverStatus === 'online' ? 'text-fg-muted' : 'text-warning'}`}
-                title={serverStatus === 'online' ? 'Connected to the API' : 'API offline - progress is saved in this browser'}
+                title={
+                  serverStatus === 'online'
+                    ? signedIn
+                      ? copy('copy.sync.online')
+                      : copy('copy.sync.guest')
+                    : serverStatus === 'checking'
+                      ? 'Checking…'
+                      : copy('copy.sync.offline')
+                }
               >
                 {serverStatus === 'online' ? <Wifi size={11} /> : <WifiOff size={11} />}
               </span>
             </div>
           </div>
         </div>
-        <ProgressBar value={level.percent} size="sm" className="mt-2.5" label={`${level.into} of ${level.needed} XP into level ${level.level}`} />
+        {/* The streak and today's goal - the dashboard's goal card is one click away. */}
+        <HabitChip onNavigate={onNavigate} className="mt-2 -ml-2" />
+        <ProgressBar value={level.percent} size="sm" className="mt-1.5" label={`${level.into} of ${level.needed} XP into level ${level.level}`} />
       </div>
     </div>
   );

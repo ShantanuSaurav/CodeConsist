@@ -26,8 +26,102 @@
  * name and a version, never a URL or a host.
  */
 import { ExecutionResult, SupportedLanguage, TestCase, TestResult } from '@/types';
-import { api, RuntimeInfo } from '../api-client/api';
+import { ENV } from '@/config/env';
+import { api, ApiError, OfflineError, RuntimeInfo } from '../api-client/api';
 import { displayValue, matchesExpected } from '../grading-engine/grading';
+import { getCopy } from '../settings/store';
+
+/** Names for the languages the server compiles, for the sentences a learner reads. */
+const SERVER_LANGUAGE_NAMES: Partial<Record<SupportedLanguage, string>> = {
+  java: 'Java',
+  c: 'C',
+  cpp: 'C++',
+  go: 'Go'
+};
+
+/**
+ * What a run says when the server that compiles this language cannot be
+ * reached. A visitor gets plain words; a development build keeps the
+ * instruction for whoever is running the app locally.
+ */
+function serverUnreachableMessage(language: SupportedLanguage): string {
+  if (ENV.isDev) {
+    return (
+      `Could not reach the local API server to run ${language}. Start it with ` +
+      '`npm run dev:api` (or `npm run dev`, which starts both).'
+    );
+  }
+  const name = SERVER_LANGUAGE_NAMES[language] ?? language;
+  // The admin-editable sentence (`copy.offline.playgroundCompiled`); the
+  // built-in words only if the copy is missing.
+  return (
+    getCopy('copy.offline.playgroundCompiled', { language: name }) ||
+    `${name} runs on the CodeConsist server, which is not reachable right now. Please try again in a little ` +
+      'while - JavaScript and Python still run in your browser.'
+  );
+}
+
+/**
+ * The server refused the run without running it: too many runs in a row
+ * (429, `limits.tooMany`) or every code-runner slot busy (503 `busy`,
+ * `limits.busy`). Both come back as an ordinary failed run carrying the
+ * server's own sentence, so the Playground and the practice modal show them
+ * like any other error. Null for anything else.
+ */
+function refusedRun(error: unknown): ExecutionResult | null {
+  if (!(error instanceof ApiError)) return null;
+  if (error.status === 429 || error.reason === 'rate-limited') {
+    return {
+      status: 'error',
+      engine: 'none',
+      reason: 'rate-limited',
+      stderr: error.message || getCopy('copy.limits.tooMany', { minutes: Math.max(1, Math.ceil((error.retryAfterSeconds ?? 60) / 60)) }),
+      testResults: []
+    };
+  }
+  if (error.reason === 'busy') {
+    // The server's sentence is already its (admin-edited) copy.
+    const said = (error.payload as { stderr?: unknown } | undefined)?.stderr;
+    return {
+      status: 'error',
+      engine: 'none',
+      reason: 'busy',
+      stderr: (typeof said === 'string' && said) || getCopy('copy.limits.busy') || error.message,
+      testResults: []
+    };
+  }
+  return null;
+}
+
+/**
+ * Was this "failed run" one the server refused without running (see
+ * refusedRun)? Nothing of the learner's was tested, so it is not their try:
+ * it must not cost the retry penalty on XP, count towards "Show me the
+ * solution", or be kept as a miss. A missing engine ('runtime-unavailable')
+ * is not a refusal - that is how this server is set up, not a moment's load.
+ */
+export function isRefusedRun(result: Pick<ExecutionResult, 'engine' | 'reason'> | null | undefined): boolean {
+  return result?.engine === 'none' && (result.reason === 'rate-limited' || result.reason === 'busy');
+}
+
+/**
+ * What a production build calls a language with no engine, wherever it names
+ * one: the engine line (`engineFor`) and the Playground's language picker.
+ * Development builds keep the setup wording ("needs Judge0", "needs setup").
+ */
+export const RUNTIME_UNAVAILABLE_LABEL = 'not available here';
+
+/**
+ * A server answer can carry a `devHint` (the Judge0 setup steps behind a
+ * `runtime-unavailable`). It is appended to the message in development and
+ * dropped everywhere else - `stderr` alone is the friendly sentence.
+ */
+function withDevHint(result: ExecutionResult): ExecutionResult {
+  if (!result?.devHint) return result;
+  const { devHint, ...rest } = result;
+  if (!ENV.isDev) return rest;
+  return { ...rest, stderr: [rest.stderr, devHint].filter(Boolean).join('\n\n') };
+}
 
 let remoteCompilerConfigured = false;
 let remoteCompilerLanguages: SupportedLanguage[] = [];
@@ -464,6 +558,13 @@ export const compilerService = {
 
   /** Which engine will handle a language, for display in the UI. */
   engineFor(language: SupportedLanguage): string {
+    // A visitor can do nothing about a missing engine, so a production build
+    // only says that it is missing: "needs Judge0" and "requires Judge0
+    // configuration" are instructions for whoever runs the app, and read as a
+    // broken site to anyone else. Decided by runtimeAvailable, so this line and
+    // the Playground's availability hint cannot disagree about a language.
+    if (!ENV.isDev && !this.runtimeAvailable(language)) return RUNTIME_UNAVAILABLE_LABEL;
+
     // The server's own label wins for anything the server runs: it is the only
     // side that knows whether its Judge0 is self-hosted, hosted or absent, and
     // guessing "requires Judge0 configuration" at somebody with Docker already
@@ -543,7 +644,9 @@ export const compilerService = {
           const result = await api.execute({ language, code, entryFunction, testCases });
           if (result && result.engine !== 'none') return result;
         } catch {
-          /* server down - fall through to the browser sandbox */
+          // Server down - or it refused the run (a 429, or every slot busy):
+          // JavaScript has an engine right here, so the browser sandbox runs
+          // it instead of showing an error.
         }
       }
       return runInWorker(code, entryFunction, testCases);
@@ -560,15 +663,19 @@ export const compilerService = {
     try {
       // stdin only goes on this path: it is the Judge0 languages that read it,
       // and sending it to a Node-VM run that has no stdin would be noise.
-      return await api.execute({ language, code, entryFunction, testCases, stdin });
-    } catch (e: any) {
+      return withDevHint(await api.execute({ language, code, entryFunction, testCases, stdin }));
+    } catch (e: unknown) {
+      // Refused without running - too many runs (429) or no free slot (503
+      // busy): a failed run with the server's own sentence.
+      const refused = refusedRun(e);
+      if (refused) return refused;
+      // Unreachable is said in this module's own words, in the language's
+      // terms; any other failure (a 413, a 5xx) already carries the server's.
+      const unreachable = e instanceof OfflineError || !(e instanceof Error) || !e.message;
       return {
         status: 'error',
         engine: 'none',
-        stderr:
-          e?.message ??
-          `Could not reach the local API server to run ${language}. Start it with ` +
-            '`npm run dev:api` (or `npm run dev`, which starts both).',
+        stderr: unreachable ? serverUnreachableMessage(language) : (e as Error).message,
         testResults: []
       };
     }

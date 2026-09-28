@@ -2,9 +2,12 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { Sidebar } from './Sidebar';
+import { HabitChip } from './HabitChip';
+import { HabitBanner } from './HabitBanner';
 import { useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { intents } from '@/platform/events';
-import { DevlingoLogo, PageSkeleton } from '@/ui';
+import { DevHint, DevlingoLogo, PageSkeleton } from '@/ui';
 
 /**
  * The app shell: fixed sidebar on desktop, a drawer on small screens.
@@ -20,6 +23,7 @@ import { DevlingoLogo, PageSkeleton } from '@/ui';
 export const DashboardLayout: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { user, stats, serverStatus, contentReady } = useSession();
+  const copy = useCopy();
   const openAuthModal = intents.openAuth;
   const location = useLocation();
   const isGuest = !user || user.provider === 'guest';
@@ -41,8 +45,10 @@ export const DashboardLayout: React.FC = () => {
       </aside>
 
       {/* Mobile top bar + drawer */}
-      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between h-12 px-4 border-b border-border bg-surface">
+      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between gap-2 h-12 px-4 border-b border-border bg-surface">
         <DevlingoLogo size="sm" wordmark />
+        {/* The streak and today's goal, one tap from the goal card. */}
+        <HabitChip compact className="ml-auto" />
         <button
           type="button"
           onClick={() => setDrawerOpen(true)}
@@ -75,9 +81,17 @@ export const DashboardLayout: React.FC = () => {
         {isGuest && (
           <div className="px-4 sm:px-8 h-10 text-sm bg-surface border-b border-border text-fg-secondary flex items-center justify-between gap-3">
             <span className="truncate">
-              Practising as a guest — progress is saved in this browser
-              {stats.completedChallenges.length > 0 ? ` (${stats.completedChallenges.length} solved so far)` : ''}.
-              {serverStatus === 'offline' && ' The API is offline, so accounts are unavailable right now.'}
+              {serverStatus === 'offline' ? (
+                <>
+                  {copy('copy.offline.banner')}
+                  <DevHint> The API is offline: start it with npm run dev:api.</DevHint>
+                </>
+              ) : (
+                <>
+                  Practising as a guest — progress is saved in this browser
+                  {stats.completedChallenges.length > 0 ? ` (${stats.completedChallenges.length} solved so far)` : ''}.
+                </>
+              )}
             </span>
             {serverStatus !== 'offline' && (
               <button type="button" onClick={openAuthModal} className="shrink-0 font-medium text-fg hover:text-accent">
@@ -86,6 +100,8 @@ export const DashboardLayout: React.FC = () => {
             )}
           </div>
         )}
+        {/* One in-app reminder at a time: welcome back, a streak to repair, a freeze used, a streak at risk. */}
+        <HabitBanner />
         <main className="flex-1">
           {contentReady ? (
             <Suspense fallback={<PageSkeleton />}>

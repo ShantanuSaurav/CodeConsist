@@ -24,3 +24,5 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
+      # A production build must not ship source maps (vite.config.ts).
+      - run: node scripts/check-dist.mjs

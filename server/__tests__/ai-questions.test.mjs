@@ -4,7 +4,19 @@
  * trusting it - bogus stages, over-long arrays, unknown ids, invalid kinds.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { AiInputError, KINDS, draftQuestion, emptyDraft, findDuplicates, kindOf, kindToPreset, suggestQuestions } from '../ai-questions.js';
+import {
+  AiInputError,
+  FEEDBACK_BATCH,
+  KINDS,
+  draftFeedback,
+  draftQuestion,
+  emptyDraft,
+  findDuplicates,
+  kindOf,
+  kindToPreset,
+  suggestQuestions
+} from '../ai-questions.js';
+import { feedbackLeaks } from '../../src/platform/grading-engine/feedback.ts';
 
 const STAGES = [
   { id: 'stage-1', index: '01', name: 'Programming Basics', language: 'javascript', description: 'Variables, types, operators, control flow.' },
@@ -79,6 +91,7 @@ describe('kindToPreset / kindOf / emptyDraft', () => {
       tags: [],
       codeSnippet: '',
       options: ['', '', '', ''],
+      optionFeedback: [],
       correctIndex: undefined,
       correctIndices: [],
       blanks: [],
@@ -230,6 +243,38 @@ describe('draftQuestion', () => {
     expect(coded.constraints).toHaveLength(10);
   });
 
+  it('lines option notes up with the options it kept, and keeps only usable wrong answers per blank', async () => {
+    const quiz = stubAi({ ...goodQuiz, optionFeedback: [' var can be redeclared. ', 'let can be reassigned.', '', 'static is not a keyword here.', 'an extra note'] });
+    const { draft } = await draftQuestion({ ai: quiz, kind: 'quiz', text: 'Ask which keyword declares a constant. Correct: const.', stages: STAGES, bank: BANK });
+    expect(draft.optionFeedback).toEqual(['var can be redeclared.', 'let can be reassigned.', '', 'static is not a keyword here.']);
+    // No notes at all: an empty list, the wizard's own blank value.
+    const bare = stubAi(goodQuiz);
+    expect((await draftQuestion({ ai: bare, kind: 'quiz', text: 'Ask which keyword declares a constant. Correct: const.', stages: STAGES, bank: BANK })).draft.optionFeedback).toEqual([]);
+
+    const fill = stubAi({
+      ...goodQuiz,
+      options: null,
+      correctIndex: null,
+      codeSnippet: 'let total = ___;',
+      blanks: [
+        {
+          answer: '0',
+          choices: ['0', '1', 'null'],
+          wrongAnswers: [
+            { answer: '1', feedback: 'Starting at 1 counts one extra.' },
+            { answer: '0', feedback: 'accepted - must be dropped' },
+            { answer: 'undefined', feedback: 'not a choice - must be dropped' },
+            { answer: 'null', feedback: '' }
+          ]
+        }
+      ]
+    });
+    const filled = (await draftQuestion({ ai: fill, kind: 'fill_blank', text: 'Fill in the starting value of a running total.', stages: STAGES, bank: BANK })).draft;
+    expect(filled.blanks).toEqual([{ answer: '0', alternatives: [], choices: ['0', '1', 'null'], wrongAnswers: [{ answer: '1', feedback: 'Starting at 1 counts one extra.' }] }]);
+    expect(fill.generateJson.mock.calls[0][0].schema.properties.optionFeedback).toBeTruthy();
+    expect(fill.generateJson.mock.calls[0][0].system).toContain('never name or quote the correct option');
+  });
+
   it('keeps a runnable language for code and the stage language otherwise', async () => {
     const py = stubAi({ ...goodQuiz, language: 'python', entryFunction: 'total', starterCode: 'def total(nums):\n    pass', solutionCode: 'def total(nums):\n    return sum(nums)', testCases: [{ input: '[1, 2]', expected: '3' }] });
     expect((await draftQuestion({ ai: py, kind: 'debug', text: 'Sum a list but the loop skips the last item.', stages: STAGES, bank: BANK })).draft.language).toBe('python');
@@ -343,5 +388,46 @@ describe('suggestQuestions', () => {
 
     await expect(suggestQuestions({ ai: stubAi(ideas), stage: STAGES[0], kind: 'essay', count: 3, bank: BANK })).rejects.toBeInstanceOf(AiInputError);
     await expect(suggestQuestions({ ai: stubAi(ideas), stage: null, count: 3, bank: BANK })).rejects.toBeInstanceOf(AiInputError);
+  });
+});
+
+describe('draftFeedback', () => {
+  const quiz = { id: 'q-const', type: 'quiz', language: 'javascript', title: 'Declare a constant', prompt: 'Which keyword declares a constant binding?', options: ['var', 'let', 'const binding'], correctIndex: 2 };
+  const blank = { id: 'q-blank', type: 'fill_blank', language: 'javascript', title: 'Start a total', prompt: 'Start the running total.', codeSnippet: 'let total = ___;', blanks: [{ answer: 'zero', choices: ['zero', 'one', 'none'] }] };
+
+  it('lines notes up with each question, keeps only usable wrong answers, and flags leaking notes', async () => {
+    const ai = stubAi({
+      items: [
+        { id: 'q-const', optionFeedback: ['var can be redeclared.', 'Use const binding instead of let.', 'const cannot be reassigned.', 'surplus'] },
+        { id: 'q-blank', blanks: [{ wrongAnswers: [{ answer: 'one', feedback: 'That counts one extra.' }, { answer: 'zero', feedback: 'accepted' }, { answer: 'two', feedback: 'not a choice' }] }] },
+        { id: 'invented', optionFeedback: ['x'] }
+      ]
+    });
+    const { drafts } = await draftFeedback({ ai, challenges: [quiz, blank], leaks: feedbackLeaks });
+    expect(drafts).toEqual([
+      { id: 'q-const', optionFeedback: ['var can be redeclared.', 'Use const binding instead of let.', 'const cannot be reassigned.'], leaks: ['o1'] },
+      { id: 'q-blank', blankFeedback: [{ wrongAnswers: [{ answer: 'one', feedback: 'That counts one extra.' }] }], leaks: [] }
+    ]);
+    const [{ user, schema }] = ai.generateJson.mock.calls[0];
+    expect(user).toContain('option 3 (CORRECT): const binding');
+    expect(user).toContain('blank 1: accepted "zero"; dropdown choices "zero", "one", "none"');
+    expect(schema.required).toEqual(['items']);
+  });
+
+  it('asks Gemini in batches, and marks a question it skipped as empty', async () => {
+    const many = Array.from({ length: FEEDBACK_BATCH + 2 }, (_, i) => ({ ...quiz, id: `q-${i}` }));
+    const ai = stubAi({ items: [] });
+    const { drafts } = await draftFeedback({ ai, challenges: many });
+    expect(ai.generateJson).toHaveBeenCalledTimes(2);
+    expect(drafts).toHaveLength(many.length);
+    expect(drafts[0]).toEqual({ id: 'q-0', optionFeedback: ['', '', ''], leaks: [], empty: true });
+  });
+
+  it('refuses nothing to draft, too many questions, or only kinds without notes', async () => {
+    const ai = stubAi({ items: [] });
+    await expect(draftFeedback({ ai, challenges: [] })).rejects.toBeInstanceOf(AiInputError);
+    await expect(draftFeedback({ ai, challenges: [{ ...quiz, type: 'code_runner' }] })).rejects.toBeInstanceOf(AiInputError);
+    await expect(draftFeedback({ ai, challenges: Array.from({ length: 11 }, (_, i) => ({ ...quiz, id: `q-${i}` })) })).rejects.toBeInstanceOf(AiInputError);
+    expect(ai.generateJson).not.toHaveBeenCalled();
   });
 });

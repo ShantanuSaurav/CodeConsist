@@ -305,3 +305,67 @@ describe('normalizeChallengeInput - modifying an authored question (preserve)', 
     expect(run({ ...base, type: 'quiz', options: ['a', 'b'], correctIndex: 0 }).candidate).not.toHaveProperty('concept');
   });
 });
+
+describe('normalizeChallengeInput - wrong-answer notes (Phase 4)', () => {
+  const quiz = { ...base, type: 'quiz', options: ['var', 'let', 'const'], correctIndex: 2 };
+  const fill = { ...base, type: 'fill_blank', codeSnippet: 'const x = ___;', blanks: [{ answer: 'total' }] };
+
+  it('lines the option notes up with the options: padded, cut, trimmed', () => {
+    expect(run({ ...quiz, optionFeedback: [' var can be redeclared. '] }).candidate.optionFeedback).toEqual(['var can be redeclared.', '', '']);
+    expect(run({ ...quiz, optionFeedback: ['a', 'b', 'c', 'extra', 'more'] }).candidate.optionFeedback).toEqual(['a', 'b', 'c']);
+    expect(run({ ...quiz, options: ['var', 'let'], correctIndex: 1, optionFeedback: ['', 'x', 'y'] }).candidate.optionFeedback).toEqual(['', 'x']);
+  });
+
+  it('leaves the field out when no option has a note', () => {
+    expect(run({ ...quiz, optionFeedback: ['', '  ', ''] }).candidate).not.toHaveProperty('optionFeedback');
+    expect(run(quiz).candidate).not.toHaveProperty('optionFeedback');
+    expect(run({ ...quiz, optionFeedback: 'not a list' }).candidate).not.toHaveProperty('optionFeedback');
+  });
+
+  it('names an over-long option note by its option', () => {
+    const r = run({ ...quiz, optionFeedback: ['', 'x'.repeat(601), ''] });
+    expect(r.issues).toContainEqual({ path: 'optionFeedback.1', message: 'The note on option B is too long (max 600 characters).' });
+  });
+
+  it('never puts option notes on another kind', () => {
+    const r = run({ ...fill, optionFeedback: ['a', 'b'] });
+    expect(r.candidate).not.toHaveProperty('optionFeedback');
+  });
+
+  it('keeps only blank rows with both an answer and a note', () => {
+    const r = run({
+      ...fill,
+      blanks: [{ answer: 'total', wrongAnswers: [{ answer: ' sum ', feedback: ' sum is never declared. ' }, { answer: 'count', feedback: '' }, { answer: '', feedback: 'orphan' }] }]
+    });
+    expect(r.issues).toEqual([]);
+    expect(r.candidate.blanks).toEqual([{ answer: 'total', wrongAnswers: [{ answer: 'sum', feedback: 'sum is never declared.' }] }]);
+    expect(run(fill).candidate.blanks[0]).not.toHaveProperty('wrongAnswers');
+  });
+
+  it('refuses a "wrong" answer the grader accepts, with the blank named', () => {
+    const r = run({
+      ...fill,
+      blanks: [{ answer: 'total', alternatives: ['sum'], wrongAnswers: [{ answer: 'TOTAL', feedback: 'x' }, { answer: 'sum', feedback: 'y' }, { answer: 'count', feedback: 'z' }] }]
+    });
+    expect(r.issues).toEqual([
+      { path: 'blanks.0.wrongAnswers.0', message: 'Blank 1: "TOTAL" is an accepted answer, so it cannot be a wrong answer.' },
+      { path: 'blanks.0.wrongAnswers.1', message: 'Blank 1: "sum" is an accepted answer, so it cannot be a wrong answer.' }
+    ]);
+  });
+
+  it('on a dropdown, a wrong answer must be one of its choices', () => {
+    const r = run({
+      ...fill,
+      blanks: [{ answer: 'total', choices: ['total', 'sum', 'count'], wrongAnswers: [{ answer: 'sum', feedback: 'x' }, { answer: 'tally', feedback: 'y' }] }]
+    });
+    expect(r.issues).toEqual([{ path: 'blanks.0.wrongAnswers.1', message: 'Blank 1: "tally" is not one of its dropdown choices, so no learner can give it.' }]);
+  });
+
+  it('flags a repeated wrong answer, a long note and too many rows', () => {
+    const rows = Array.from({ length: 9 }, (_, i) => ({ answer: `w${i}`, feedback: 'why' }));
+    rows[1] = { answer: 'W0', feedback: 'why' };
+    rows[2] = { answer: 'w2', feedback: 'n'.repeat(601) };
+    const r = run({ ...fill, blanks: [{ answer: 'total', wrongAnswers: rows }] });
+    expect(paths(r)).toEqual(['blanks.0.wrongAnswers', 'blanks.0.wrongAnswers.1', 'blanks.0.wrongAnswers.2']);
+  });
+});

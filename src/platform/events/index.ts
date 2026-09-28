@@ -10,7 +10,7 @@
  *   without importing the challenges module.
  */
 import { createTypedEventBus, useBusEvent } from './bus';
-import type { Challenge, LearningMode, UserProfile } from '@/types';
+import type { ActivityContext, Challenge, LearningMode, UserProfile } from '@/types';
 
 export type AppEvents = {
   /* ---------------------------------------------------------- facts */
@@ -22,8 +22,37 @@ export type AppEvents = {
     hintsUsed: number;
     firstTime: boolean;
   };
+  /**
+   * A wrong answer was recorded (never a correct one). `final`: the answer
+   * was shown after it - the question goes back on the Practice schedule.
+   */
+  'challenge:missed': { challenge: Challenge; context: ActivityContext; final: boolean };
+  /**
+   * A Practice session reached its end screen: `correct` of its `total`
+   * questions answered right, and the review XP it paid (bonus included).
+   */
+  'review:completed': { correct: number; total: number; xp: number };
   /** Every lesson and the test of a stage are solved. */
   'stage:completed': { stageId: string };
+  /**
+   * A first solve completed a unit (every lesson in it solved) for the first
+   * time. `xpEarned` is the perfect-unit bonus it paid (0 when not perfect).
+   */
+  'unit:completed': { stageId: string; unitId: string; perfect: boolean; xpEarned: number };
+  /**
+   * Today's daily goal was met (announced once per day in this browser).
+   * `source: 'solve'` - a lesson on screen just met it; `'sync'` - it was met
+   * elsewhere (offline, another device) and this browser learned it later.
+   */
+  'habit:goalMet': { day: string; source: 'solve' | 'sync'; label: string; bonusXp: number; streak: number };
+  /** A streak freeze was earned (`freezes` held now, of `maxFreezes`). */
+  'habit:freezeEarned': { freezes: number; maxFreezes: number };
+  /** A streak freeze covered missed days: the streak lives on. */
+  'habit:freezeUsed': { days: string[]; streak: number };
+  /** An open repair was completed: the lost streak is back. */
+  'habit:streakRepaired': { streak: number };
+  /** The streak reached one of the admin's milestones (`streak.milestones`). */
+  'habit:milestone': { streak: number };
   'auth:signedIn': { user: UserProfile };
   'auth:signedOut': Record<string, never>;
   'progress:reset': Record<string, never>;
@@ -33,8 +62,12 @@ export type AppEvents = {
   /* -------------------------------------------------------- intents */
   /** Open a stage's lessons; both ids optional ("wherever I left off"). `mode` switches Learn/Practice for this and later sessions. */
   'practice:open': { stageId?: string; challengeId?: string; mode?: LearningMode };
+  /** Open one unit of a stage (at its first unsolved lesson, or its start for a replay). */
+  'practice:openUnit': { stageId: string; unitId: string };
   /** Open a stage's mandatory coding test. */
   'practice:openTest': { stageId: string };
+  /** Start a Practice session: mistakes, due questions and weak solves - of one stage, or all. */
+  'review:open': { stageId?: string };
   'account:openAuth': Record<string, never>;
   /**
    * Open the unlock modal. `stageId` highlights the stage that was locked

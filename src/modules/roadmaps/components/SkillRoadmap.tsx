@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { ArrowRight, Check, Crown, Lock } from 'lucide-react';
 import type { Stage } from '@/types';
 import { useSession } from '@/platform/session';
-import { isPremiumLocked, stageStatus } from '@/platform/progress';
+import { estimateMinutes, isPremiumLocked, stageStatus } from '@/platform/progress';
+import type { UnitSettings } from '@/platform/settings';
 import { intents } from '@/platform/events';
 import '../styles/roadmap.css';
 
@@ -21,9 +22,13 @@ const CORE_GROUPS: Group[] = [
   { title: 'Engineering', stageIds: ['stage-8', 'stage-9', 'stage-10'] }
 ];
 
-/** Rough reading/solving time from the lesson count - a label, never a claim about progress. */
-function estimatedMinutes(stage: Stage): number {
-  return Math.max(5, Math.round(stage.challenges.length * 4));
+/**
+ * Rough solving time: the lessons and the test, each at the minutes its kind
+ * is expected to take (`settings.units.minutesByType`, the same figures the
+ * unit nodes show) - a label, never a claim about progress.
+ */
+function estimatedMinutes(stage: Stage, units: Pick<UnitSettings, 'minutesByType'>): number {
+  return Math.max(5, Math.round(estimateMinutes([...stage.challenges, ...(stage.test ? [stage.test] : [])], units)));
 }
 
 function totalXp(stage: Stage): number {
@@ -40,7 +45,7 @@ function totalXp(stage: Stage): number {
  * into its lessons or its pending test.
  */
 export const SkillRoadmap: React.FC = () => {
-  const { learnerStages: stages, activeTrack, stats } = useSession();
+  const { learnerStages: stages, activeTrack, stats, settings } = useSession();
 
   const groups = useMemo<Group[]>(() => {
     const ids = new Set(stages.map((s) => s.id));
@@ -137,7 +142,7 @@ export const SkillRoadmap: React.FC = () => {
                       <span className="roadmap-node-desc">{stage.description}</span>
 
                       <span className="roadmap-node-meta">
-                        <span>~{estimatedMinutes(stage)} min</span>
+                        <span>~{estimatedMinutes(stage, settings.units)} min</span>
                         <span>+{totalXp(stage)} XP</span>
                         {!locked && (
                           <span>

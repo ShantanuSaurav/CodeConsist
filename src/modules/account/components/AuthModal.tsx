@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useSession } from '@/platform/session';
+import { useCopy } from '@/platform/settings';
 import { oauthStartUrl } from '@/platform/api-client/api';
 import { useFocusTrap } from '@/ui/hooks/useFocusTrap';
 import { Button } from '@/ui/primitives/Button';
 import { DevlingoLogo } from '@/ui/primitives/DevlingoLogo';
+import { DevHint } from '@/ui/primitives/DevHint';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -66,6 +68,7 @@ const GitHubMark: React.FC = () => (
  */
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const { loginWithEmail, signupWithEmail, continueAsGuest, serverStatus, user, oauthProviders } = useSession();
+  const copy = useCopy();
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
@@ -153,8 +156,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         <div className="modal-body">
           {offline && (
             <div className="notice notice-warn">
-              The API server is not running, so accounts are unavailable. Start it with <code>npm run dev:api</code>, or keep
-              practising as a guest — progress is saved in this browser either way.
+              {copy('copy.offline.auth')}
+              <DevHint>
+                {' '}
+                The API server is not running: start it with <code>npm run dev:api</code>.
+              </DevHint>
             </div>
           )}
 

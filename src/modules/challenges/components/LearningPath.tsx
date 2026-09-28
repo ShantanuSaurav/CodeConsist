@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, Check, ChevronDown, Lock, Minus } from 'lucide-react';
-import type { ReadingResolver, Stage } from '@/types';
+import { BookOpen, Check, ChevronDown, Dumbbell, Lock, Minus, Star } from 'lucide-react';
+import type { Challenge, ReadingResolver, Stage, Unit, UserStats } from '@/types';
 import { useSession } from '@/platform/session';
-import { isPremiumLocked, stageStatus } from '@/platform/progress';
+import { isPremiumLocked, stageStatus, unitStates } from '@/platform/progress';
+import type { UnitGate } from '@/platform/progress';
+import { isPerfectUnit } from '@/platform/xp-leveling/rewards';
 import { intents } from '@/platform/events';
+import { describeNextReview, describeReviewSummary } from '@/platform/review';
 import { Badge, Button, ProgressBar } from '@/ui';
 
 export interface LearningPathProps {
@@ -21,7 +24,9 @@ type Visual = 'completed' | 'current' | 'locked' | 'pro';
  * in progress opens by default; the rest fold to a single line.
  */
 export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
-  const { learnerStages: stages, stats, learningMode } = useSession();
+  const { learnerStages: stages, stats, learningMode, settings, reviewSummary, todayKey } = useSession();
+  const practiceLine = describeReviewSummary(reviewSummary);
+  const nextReview = describeNextReview(reviewSummary.nextDueDay, todayKey);
   const solved = useMemo(() => new Set(stats.completedChallenges), [stats.completedChallenges]);
 
   const currentId = useMemo(
@@ -44,6 +49,26 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
     });
 
   return (
+    <>
+    {/* Practice (review): mistakes and questions due for another look, across the path. */}
+    {reviewSummary.enabled && (
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border-subtle px-4 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Dumbbell size={16} className="text-accent shrink-0" aria-hidden="true" />
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-fg">Practice</div>
+            <div className="text-xs text-fg-secondary">
+              {practiceLine ?? (nextReview ? `All caught up - next review ${nextReview}.` : 'Nothing to practise yet - solve a few lessons first.')}
+            </div>
+          </div>
+        </div>
+        {practiceLine && (
+          <Button size="sm" variant="secondary" onClick={() => intents.openReview()}>
+            Practise now
+          </Button>
+        )}
+      </div>
+    )}
     <ol className="relative">
       {/* The rail behind the stage markers. */}
       <span className="absolute left-[15px] top-4 bottom-4 w-px bg-border" aria-hidden="true" />
@@ -113,7 +138,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                     <button
                       type="button"
                       onClick={() => intents.openPractice(stage.id, undefined, 'learn')}
-                      className={`px-1.5 py-1 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'learn' ? 'text-fg font-medium' : ''}`}
+                      className={`inline-flex items-center min-h-[44px] px-2.5 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'learn' ? 'text-fg font-medium' : ''}`}
                       title="Theory, examples and a try-it before each new idea"
                     >
                       Learn
@@ -122,12 +147,23 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                     <button
                       type="button"
                       onClick={() => intents.openPractice(stage.id, undefined, 'practice')}
-                      className={`px-1.5 py-1 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'practice' ? 'text-fg font-medium' : ''}`}
+                      className={`inline-flex items-center min-h-[44px] px-2.5 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'practice' ? 'text-fg font-medium' : ''}`}
                       title="Jump straight to the questions"
                     >
                       Practice
                     </button>
                   </div>
+                )}
+                {stage.state === 'Completed' && !premiumLocked && reviewSummary.enabled && (
+                  <button
+                    type="button"
+                    onClick={() => intents.openReview({ stageId: stage.id })}
+                    className="inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-xs text-xs text-fg-secondary hover:bg-surface-2 hover:text-fg"
+                    title="A short session over this stage's questions you missed or that are due for another look"
+                  >
+                    <Dumbbell size={13} aria-hidden="true" />
+                    Practice this stage
+                  </button>
                 )}
                 {reading && (
                   <Link to={reading.href} className="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg">
@@ -139,29 +175,32 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
               </div>
             )}
 
-            {/* Lessons */}
+            {/* Units (each a node with its questions behind a disclosure), or the lessons for a stage without units */}
             {expanded && (
               <ol id={`stage-${stage.id}-lessons`} className="mt-4 border-t border-border-subtle">
-                {stage.challenges.map((c, i) => {
-                  const isDone = solved.has(c.id);
-                  const isNext = !isDone && stage.challenges.slice(0, i).every((p) => solved.has(p.id));
-                  return (
-                    <li key={c.id} className="border-b border-border-subtle">
-                      <button
-                        type="button"
-                        onClick={() => (premiumLocked ? intents.openPro({ stageId: stage.id }) : intents.openPractice(stage.id, c.id))}
-                        className="w-full flex items-center gap-3 py-2 px-1 -mx-1 rounded-xs text-left hover:bg-surface-2 transition-colors"
-                      >
-                        <LessonMark state={isDone ? 'done' : isNext ? 'next' : 'todo'} />
-                        <span className={`flex-1 min-w-0 truncate text-sm ${isDone ? 'text-fg-secondary' : isNext ? 'text-fg font-medium' : 'text-fg-secondary'}`}>
-                          {c.title}
-                        </span>
-                        <span className="hidden sm:inline font-mono text-[11px] text-fg-muted shrink-0">{c.difficulty}</span>
-                        <span className="font-mono text-[11px] text-fg-muted shrink-0 w-14 text-right">+{c.xpReward} XP</span>
-                      </button>
-                    </li>
-                  );
-                })}
+                {stage.units && stage.units.length > 0 ? (
+                  <UnitRail
+                    stage={stage}
+                    units={stage.units}
+                    stats={stats}
+                    premiumLocked={premiumLocked}
+                    perfectRequiresNoHints={settings.units.perfectRequiresNoHints}
+                  />
+                ) : (
+                  stage.challenges.map((c, i) => {
+                    const isDone = solved.has(c.id);
+                    const isNext = !isDone && stage.challenges.slice(0, i).every((p) => solved.has(p.id));
+                    return (
+                      <li key={c.id} className="border-b border-border-subtle">
+                        <LessonRow
+                          challenge={c}
+                          state={isDone ? 'done' : isNext ? 'next' : 'todo'}
+                          onClick={() => (premiumLocked ? intents.openPro({ stageId: stage.id }) : intents.openPractice(stage.id, c.id))}
+                        />
+                      </li>
+                    );
+                  })
+                )}
                 {stage.test && (
                   <li>
                     <button
@@ -186,10 +225,152 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
         );
       })}
     </ol>
+    </>
   );
 };
 
 /* ------------------------------------------------------------------ pieces */
+
+/** One question on the path: its mark, title, difficulty and XP. */
+const LessonRow: React.FC<{ challenge: Challenge; state: 'done' | 'next' | 'todo' | 'locked'; onClick: () => void }> = ({ challenge: c, state, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="w-full flex items-center gap-3 py-2 px-1 -mx-1 rounded-xs text-left hover:bg-surface-2 transition-colors"
+  >
+    <LessonMark state={state} />
+    <span className={`flex-1 min-w-0 truncate text-sm ${state === 'next' ? 'text-fg font-medium' : 'text-fg-secondary'}`}>{c.title}</span>
+    <span className="hidden sm:inline font-mono text-[11px] text-fg-muted shrink-0">{c.difficulty}</span>
+    <span className="font-mono text-[11px] text-fg-muted shrink-0 w-14 text-right">+{c.xpReward} XP</span>
+  </button>
+);
+
+/** A stage's units in order: each a node that opens it, with its questions behind a disclosure. */
+const UnitRail: React.FC<{
+  stage: Stage;
+  units: Unit[];
+  stats: UserStats;
+  premiumLocked: boolean;
+  perfectRequiresNoHints: boolean;
+}> = ({ stage, units, stats, premiumLocked, perfectRequiresNoHints }) => {
+  const states = useMemo(() => unitStates(units, stats.completedChallenges), [units, stats.completedChallenges]);
+  const solved = useMemo(() => new Set(stats.completedChallenges), [stats.completedChallenges]);
+  const [shown, setShown] = useState<Set<string>>(() => new Set());
+  const toggle = (id: string) =>
+    setShown((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  return (
+    <>
+      {units.map((unit, i) => {
+        const state = states[i];
+        // A recorded perfect completion, or one perfect by its attempts.
+        const perfect =
+          state.state === 'done' && (stats.unitsCompleted?.[unit.id]?.perfect === true || isPerfectUnit(unit, stats.attempts, { perfectRequiresNoHints }));
+        const open = shown.has(unit.id);
+        const reachable = state.state !== 'locked';
+        const firstOpen = unit.challenges.findIndex((c) => !solved.has(c.id));
+        return (
+          <li key={unit.id} className="border-b border-border-subtle">
+            <div className="flex items-center gap-3 py-2.5">
+              <UnitNode
+                unit={unit}
+                gate={state.state}
+                perfect={perfect}
+                done={state.done}
+                total={state.total}
+                onOpen={() => (premiumLocked ? intents.openPro({ stageId: stage.id }) : intents.openUnit(stage.id, unit.id))}
+              />
+              <button
+                type="button"
+                className="shrink-0 p-1 rounded-xs text-fg-muted hover:text-fg hover:bg-surface-2"
+                onClick={() => toggle(unit.id)}
+                aria-expanded={open}
+                aria-controls={`unit-${unit.id}-questions`}
+                aria-label={`${open ? 'Hide' : 'Show'} the questions in ${unit.name}`}
+              >
+                <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+              </button>
+            </div>
+            {open && (
+              <ol id={`unit-${unit.id}-questions`} className="ml-9 mb-2">
+                {unit.challenges.map((c, j) => {
+                  const isDone = solved.has(c.id);
+                  const lessonState = isDone ? 'done' : reachable && j === firstOpen ? 'next' : reachable ? 'todo' : 'locked';
+                  return (
+                    <li key={c.id}>
+                      <LessonRow
+                        challenge={c}
+                        state={lessonState}
+                        onClick={() => (premiumLocked ? intents.openPro({ stageId: stage.id }) : intents.openPractice(stage.id, c.id))}
+                      />
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </li>
+        );
+      })}
+    </>
+  );
+};
+
+/** One unit on the rail: a check (a star when perfect), its number when it is next, or a lock. */
+const UnitNode: React.FC<{ unit: Unit; gate: UnitGate; perfect: boolean; done: number; total: number; onOpen: () => void }> = ({
+  unit,
+  gate,
+  perfect,
+  done,
+  total,
+  onOpen
+}) => {
+  const base = 'w-7 h-7 rounded-full border flex items-center justify-center shrink-0 font-mono text-xs';
+  const marker =
+    gate === 'done' ? (
+      perfect ? (
+        <span className={`${base} border-warning/50 text-warning bg-warning-soft`} aria-hidden="true">
+          <Star size={13} strokeWidth={2.5} />
+        </span>
+      ) : (
+        <span className={`${base} border-success/40 text-success bg-success-soft`} aria-hidden="true">
+          <Check size={13} strokeWidth={2.5} />
+        </span>
+      )
+    ) : gate === 'current' ? (
+      <span className={`${base} border-accent text-accent font-semibold`} aria-hidden="true">
+        {unit.index + 1}
+      </span>
+    ) : (
+      <span className={`${base} border-border text-fg-muted`} aria-hidden="true">
+        <Lock size={11} />
+      </span>
+    );
+  const status = gate === 'done' ? (perfect ? 'perfect' : 'complete') : gate === 'current' ? 'up next' : 'locked';
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex-1 min-w-0 flex items-center gap-3 text-left rounded-xs px-1 -mx-1 py-1 hover:bg-surface-2 transition-colors"
+      aria-label={`${unit.name}, ${status}, ${done} of ${total} questions solved`}
+    >
+      {marker}
+      <span className="flex-1 min-w-0">
+        <span className={`block truncate text-sm ${gate === 'locked' ? 'text-fg-muted' : 'text-fg font-medium'}`}>{unit.name}</span>
+        <span className="block truncate font-mono text-[11px] text-fg-muted">
+          {total} {total === 1 ? 'question' : 'questions'} · ~{unit.estMinutes} min · +{unit.xp} XP
+        </span>
+      </span>
+      <span className="font-mono text-[11px] text-fg-muted shrink-0 tabular-nums">
+        {done}/{total}
+      </span>
+    </button>
+  );
+};
 
 const StageMarker: React.FC<{ visual: Visual; index: string }> = ({ visual, index }) => {
   const base = 'absolute left-0 top-0.5 w-8 h-8 rounded-sm border flex items-center justify-center font-mono text-xs bg-surface';

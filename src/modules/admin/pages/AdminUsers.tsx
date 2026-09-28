@@ -1,9 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Search, Trash2 } from 'lucide-react';
-import { AdminUserRow, adminApi } from '../services/adminApi';
-import { AdminPageHeader, Badge, Button, Card, ConfirmDialog, EmptyState, ErrorText, Spinner, Table, Toggle } from '../components/ui';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Activity, KeyRound, Search, Trash2 } from 'lucide-react';
+import { activityGridFromLog } from '@/platform/activity/log';
+import { AdminUserRow, UserLearning, adminApi } from '../services/adminApi';
+import { AdminPageHeader, Badge, Button, Card, ConfirmDialog, Drawer, EmptyState, ErrorText, Spinner, Table, Toggle } from '../components/ui';
+import { PasswordResetDialog } from '../components/PasswordResetDialog';
+import { UserHabitsPanel } from '../components/UserHabitsPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { google: 'Google', github: 'GitHub' };
+/* The same heat scale as the learner dashboard. */
+const HEAT = ['bg-surface-3', 'bg-accent/30', 'bg-accent/55', 'bg-accent/80', 'bg-accent'];
 
 /** yyyy-mm-dd of an ISO timestamp, or an em dash. Times are noise in a list. */
 function shortDate(iso: string | null | undefined): string {
@@ -11,6 +16,131 @@ function shortDate(iso: string | null | undefined): string {
   const at = new Date(iso);
   return Number.isNaN(at.getTime()) ? '—' : at.toISOString().slice(0, 10);
 }
+
+/** One learner's time zone, their last 14 weeks, the questions they miss most, and their streak and goal. */
+const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void; onChanged: () => void }> = ({ user, onClose, onChanged }) => {
+  const [data, setData] = useState<UserLearning | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'activity' | 'habits'>('activity');
+
+  useEffect(() => {
+    setData(null);
+    setError(null);
+    setTab('activity');
+    if (!user) return;
+    adminApi
+      .userLearning(user.id)
+      .then(setData)
+      .catch((err) => setError(err.message ?? 'Could not load this learner’s activity.'));
+  }, [user]);
+
+  const grid = useMemo(() => (data ? activityGridFromLog(data.days, 14, data.today) : []), [data]);
+  const totals = useMemo(() => {
+    const days = Object.values(data?.days ?? {});
+    return {
+      active: days.filter((d) => d.lessons + d.tests + d.reSolves + d.mistakes > 0).length,
+      xp: days.reduce((sum, d) => sum + d.xp, 0),
+      mistakes: days.reduce((sum, d) => sum + d.mistakes, 0)
+    };
+  }, [data]);
+
+  return (
+    <Drawer open={Boolean(user)} title={user ? `Learning: ${user.username}` : ''} onClose={onClose} size="lg">
+      {error && <ErrorText>{error}</ErrorText>}
+      {!data && !error && <Spinner label="Loading activity…" />}
+      {data && data.summary && (
+        <div className="flex gap-1 mb-4 border-b border-border" role="tablist" aria-label="Learner details">
+          {(
+            [
+              ['activity', 'Activity'],
+              ['habits', 'Streak & goal']
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={`px-3 py-2 -mb-px text-sm border-b-2 ${tab === id ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {data && user && tab === 'habits' && data.summary && data.habit && (
+        <UserHabitsPanel
+          user={user}
+          data={data}
+          onSaved={(next) => {
+            setData(next);
+            onChanged();
+          }}
+        />
+      )}
+      {data && tab === 'activity' && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap gap-2 text-sm">
+            <Badge>Time zone: {data.timeZone ?? 'server'}</Badge>
+            {data.timeZoneSetAt && <Badge>set {shortDate(data.timeZoneSetAt)}</Badge>}
+            <Badge>Today: {data.today}</Badge>
+          </div>
+
+          <section>
+            <h3 className="text-sm font-medium text-fg mb-2">Last 14 weeks</h3>
+            <div className="overflow-x-auto scroll-thin pb-1">
+              <div className="flex gap-1">
+                {grid.map((column, i) => (
+                  <div key={i} className="flex flex-col gap-1">
+                    {column.map((cell) => (
+                      <div
+                        key={cell.day}
+                        className={`w-3 h-3 rounded-[2px] ${HEAT[cell.level]}`}
+                        title={`${cell.day}: ${cell.count} solved${cell.xp !== undefined ? ` · ${cell.xp} XP` : ''}`}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-fg-muted mt-2">
+              {totals.active} active {totals.active === 1 ? 'day' : 'days'} · {totals.xp.toLocaleString()} XP · {totals.mistakes} wrong answers
+            </p>
+          </section>
+
+          <section>
+            <h3 className="text-sm font-medium text-fg mb-2">Most-missed questions</h3>
+            {data.misses.length === 0 ? (
+              <EmptyState>No wrong answers recorded.</EmptyState>
+            ) : (
+              <Table>
+                <thead>
+                  <tr>
+                    <th>Question</th>
+                    <th>Misses</th>
+                    <th>Most common wrong answer</th>
+                    <th>Last</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.misses.map((m) => (
+                    <tr key={m.challengeId}>
+                      <td className="cell-primary">{m.title}</td>
+                      <td className="cell-num">{m.count}</td>
+                      <td className="text-fg-secondary">{m.topWrong ?? '—'}</td>
+                      <td className="cell-mono text-fg-muted">{shortDate(m.lastAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </section>
+        </div>
+      )}
+    </Drawer>
+  );
+};
 
 /**
  * /admin/users. Every row comes from adminUserRow() in server/admin.js,
@@ -29,6 +159,8 @@ export const AdminUsers: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<AdminUserRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [learningFor, setLearningFor] = useState<AdminUserRow | null>(null);
+  const [resetFor, setResetFor] = useState<AdminUserRow | null>(null);
 
   const load = useCallback((q = '') => {
     adminApi
@@ -119,6 +251,8 @@ export const AdminUsers: React.FC = () => {
                 <th>Premium</th>
                 <th>XP</th>
                 <th>Level</th>
+                <th title="As the learner sees it today, freezes applied">Streak</th>
+                <th>Goal</th>
                 <th>Solved</th>
                 <th>Stages</th>
                 <th>Last login</th>
@@ -145,6 +279,11 @@ export const AdminUsers: React.FC = () => {
                       {u.hasPassword === false && (u.identities ?? []).length === 0 && (
                         <span className="text-xs text-fg-muted">—</span>
                       )}
+                      {u.activeResetLink && (
+                        <span title={`Works until ${new Date(u.activeResetLink.expiresAt).toLocaleString()}`}>
+                          <Badge tone="warning">Active reset link</Badge>
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td>
@@ -152,11 +291,42 @@ export const AdminUsers: React.FC = () => {
                   </td>
                   <td className="cell-num">{u.xp.toLocaleString()}</td>
                   <td className="cell-num">{u.level}</td>
+                  <td className="cell-num">{u.streak}</td>
+                  <td className="text-fg-secondary whitespace-nowrap">
+                    {u.goal ? (
+                      <span title={u.goal.chosen ? 'Chosen by the learner' : 'The default - the learner has not chosen'}>
+                        {u.goal.label}
+                        {u.goal.chosen ? '' : <span className="text-fg-muted"> (default)</span>}
+                      </span>
+                    ) : (
+                      <span className="text-fg-muted">—</span>
+                    )}
+                  </td>
                   <td className="cell-num">{u.completedChallenges}</td>
                   <td className="cell-num">{u.completedStages}</td>
                   <td className="cell-mono text-fg-muted">{shortDate(u.lastLoginAt)}</td>
                   <td className="cell-mono text-fg-muted">{u.lastActiveDay ?? '—'}</td>
-                  <td className="text-right">
+                  <td className="text-right whitespace-nowrap">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setLearningFor(u)}
+                      title="Learning activity"
+                      aria-label={`Learning activity of ${u.username}`}
+                      className="!text-fg-muted hover:!text-fg"
+                    >
+                      <Activity size={14} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setResetFor(u)}
+                      title="Reset link"
+                      aria-label={`Password reset link for ${u.username}`}
+                      className="!text-fg-muted hover:!text-fg"
+                    >
+                      <KeyRound size={14} />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -175,6 +345,10 @@ export const AdminUsers: React.FC = () => {
           </Table>
         )}
       </Card>
+
+      <LearningDrawer user={learningFor} onClose={() => setLearningFor(null)} onChanged={() => load(query)} />
+      {/* Refresh the list when a link is issued or revoked, for the "Active reset link" badge. */}
+      <PasswordResetDialog user={resetFor} onClose={() => setResetFor(null)} onChanged={() => load(query)} />
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}

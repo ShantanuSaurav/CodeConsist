@@ -65,6 +65,34 @@ export interface Blank {
   alternatives?: string[];
   /** Optional multiple-choice chips instead of free typing. */
   choices?: string[];
+  /**
+   * Common wrong answers and why each is wrong, shown when a learner gives
+   * one. Matched like the answer itself (whitespace folded, case ignored only
+   * for a single plain word). Never an accepted answer, and one of `choices`
+   * when the blank is a dropdown.
+   */
+  wrongAnswers?: WrongAnswer[];
+}
+
+/** A wrong answer to a blank, and the note a learner who gives it reads. */
+export interface WrongAnswer {
+  answer: string;
+  /** Why it is wrong - the misconception, never the right answer. */
+  feedback: string;
+}
+
+/**
+ * One "why" note to show after a check: under an option (`position` is the
+ * option's ORIGINAL index) or for a blank (`position` is the blank's index).
+ * `wrong` explains a wrong pick; `right` explains the correct option and is
+ * only ever shown once the answer is revealed. `leaks` marks a note that
+ * would give the answer away - it is held back until the answer is shown.
+ */
+export interface FeedbackNote {
+  position: number;
+  text: string;
+  kind: 'wrong' | 'right';
+  leaks: boolean;
 }
 
 export interface ExecutionResult {
@@ -77,6 +105,13 @@ export interface ExecutionResult {
   /** Which engine actually ran the code — never lie about this. */
   engine?: string;
   testResults?: TestResult[];
+  /** Why nothing ran, when the server says: 'runtime-unavailable' means it has no engine for this language. */
+  reason?: string;
+  /**
+   * Setup instructions for whoever runs the server (the Judge0 steps). Shown
+   * in development builds only; `stderr` is the sentence a learner reads.
+   */
+  devHint?: string;
 }
 
 /* ==========================================================================
@@ -156,6 +191,14 @@ export interface Challenge {
   options?: string[];
   correctIndex?: number;
   correctIndices?: number[];
+  /**
+   * One note per option, parallel to `options` (entry i is about option i;
+   * an empty string is no note). A wrong option's note says why a learner
+   * might pick it and why it is wrong, without naming the right answer; a
+   * correct option's note ("why this is right") shows only once the answer
+   * is revealed. Never used for grading.
+   */
+  optionFeedback?: string[];
 
   /* fill_blank — codeSnippet contains one `___` per blank, in order */
   blanks?: Blank[];
@@ -197,6 +240,16 @@ export interface Challenge {
    * learner in Learn mode reaches it. See the Concept model above.
    */
   concept?: Concept;
+
+  /**
+   * True only on a stub the server sent for a premium stage this viewer has
+   * not unlocked (server/content.js lockedStub). A stub carries its id,
+   * stage, type, title, difficulty, XP, language, `isStageTest` and tags -
+   * enough to list and count it - and NOTHING that answers it: `prompt` and
+   * `explanation` are missing and every option, blank, test and solution is
+   * absent. It is never opened; the practice session shows the unlock prompt.
+   */
+  locked?: boolean;
 }
 
 export interface Stage {
@@ -219,10 +272,58 @@ export interface Stage {
    * belongs to is decided by `LanguageTrack.stageIds`, not by this field.
    */
   language: SupportedLanguage;
-  /** The lessons. Does NOT include the stage test. */
+  /** The lessons, in unit order when the stage has units. Does NOT include the stage test. */
   challenges: Challenge[];
   /** The mandatory coding test for this stage, if it has one. */
   test?: Challenge;
+  /**
+   * The lessons grouped into short units (src/platform/progress/units.ts).
+   * Set by the session from the server's grouping, the cached one, or the
+   * default; absent on a stage straight from the bundle. The stage test is
+   * never in a unit.
+   */
+  units?: Unit[];
+}
+
+/* ==========================================================================
+   Units
+   ========================================================================== */
+
+/** Where a unit's grouping came from: the default rule, an admin's, or the leftovers unit. */
+export type UnitSource = 'default' | 'custom' | 'auto';
+
+/** A unit as the server stores and sends it: ids and names only. */
+export interface UnitDef {
+  /** `${stageId}:a1` (default), `${stageId}:m3` (made in the admin), `${stageId}:auto`. */
+  id: string;
+  name: string;
+  description?: string;
+  challengeIds: string[];
+  source?: UnitSource;
+}
+
+/** A unit resolved against its stage's lessons. */
+export interface Unit extends UnitDef {
+  stageId: string;
+  /** 0-based position in the stage. */
+  index: number;
+  challenges: Challenge[];
+  /** Expected minutes, from `settings.units.minutesByType`. */
+  estMinutes: number;
+  /** XP its questions pay on a first, clean solve. */
+  xp: number;
+  source: UnitSource;
+}
+
+/**
+ * The record that a unit was first completed - and whether that paid the
+ * perfect-unit bonus. NOT what makes a unit "done": that is always derived
+ * from `completedChallenges`.
+ */
+export interface UnitCompletion {
+  completedAt: string;
+  perfect: boolean;
+  bonusXp: number;
 }
 
 /* ==========================================================================
@@ -354,7 +455,256 @@ export interface ChallengeAttempt {
   score: number;
   attempts: number;
   hintsUsed: number;
+  /**
+   * When it was FIRST solved. Never overwritten by a re-solve (it used to be,
+   * which moved old lessons onto today in the heatmap and the badge dates).
+   */
   solvedAt: string;
+  /** The most recent solve. Absent on rows written before it existed. */
+  lastSolvedAt?: string;
+  /** How many times it has been solved. Absent on rows written before it existed. */
+  solves?: number;
+  /**
+   * The highest score the first solve could get, when it came after the
+   * answer was shown (`feedback.requeue.maxScoreAfterReveal`). A guest merge
+   * pays under it too. Absent on an ordinary solve.
+   */
+  scoreCap?: number;
+}
+
+/* ==========================================================================
+   Daily activity and failed attempts (src/platform/activity)
+   ========================================================================== */
+
+/** Where something happened: a lesson, a stage test, a review, the library, an assessment. */
+export type ActivityContext = 'lesson' | 'test' | 'review' | 'library' | 'assessment';
+
+/**
+ * One calendar day of a learner's activity, keyed by `yyyy-mm-dd` in THEIR
+ * time zone. Every counter defaults to 0 (see `normalizeDay`).
+ */
+export interface DayRecord {
+  /**
+   * XP credited that day: only what was actually awarded, so a 0-XP re-solve
+   * adds nothing. Solve XP plus any perfect-unit bonus.
+   */
+  xp: number;
+  /** First-time lesson solves. */
+  lessons: number;
+  /** First-time stage-test solves. */
+  tests: number;
+  /** Solves of something already solved before. */
+  reSolves: number;
+  /** Wrong answers recorded that day. */
+  mistakes: number;
+  /** Units first completed that day. */
+  units: number;
+  /** Perfect-unit bonus XP paid that day (already inside `xp`). */
+  perfectBonusXp: number;
+  /**
+   * The daily goal as it stood when it was met that day - a snapshot, so
+   * choosing another goal later never un-meets a day. Null until met.
+   */
+  goal: DayGoal | null;
+  /** The daily-goal bonus paid that day. NOT inside `xp` (the goal's own XP metric reads `xp`). */
+  goalBonusXp: number;
+  /** Correct answers in Practice sessions (review) that day. */
+  reviews: number;
+  /** Practice-session XP paid that day (already inside `xp`); `review.xp.dailyCap` bounds it. */
+  reviewXp: number;
+  firstAt: string | null;
+  lastAt: string | null;
+  /** How the row came to exist: a live event, the one-time backfill, or a guest merge. */
+  source: 'live' | 'backfill' | 'merge';
+}
+
+/* ==========================================================================
+   Daily goal and streak (src/platform/habits)
+   ========================================================================== */
+
+/** What a daily goal counts: XP credited that day, lessons finished, or units completed. */
+export type DailyGoalMetric = 'xp' | 'lessons' | 'units';
+
+/** One goal a learner can pick (`settings.goals.options`). */
+export interface DailyGoalOption {
+  /** A slug, `^[a-z0-9-]{1,32}$`. What a learner's `dailyGoalId` stores. */
+  id: string;
+  label: string;
+  blurb: string;
+  metric: DailyGoalMetric;
+  target: number;
+  /** Paid once per day, the first time the goal is met. */
+  bonusXp: number;
+  enabled: boolean;
+}
+
+/** A met goal, as recorded on the day it was met. */
+export interface DayGoal {
+  optionId: string;
+  metric: DailyGoalMetric;
+  target: number;
+  metAt: string;
+}
+
+/** A finished run of streak days, kept for the learner's streak history. */
+export interface StreakRun {
+  start: string;
+  end: string;
+  length: number;
+  /** How it ended: a day missed with no freeze, a progress reset, or an administrator. */
+  ended: 'missed' | 'reset' | 'admin';
+}
+
+/** An offer to win back a streak that just broke, by doing extra lessons in time. */
+export interface StreakRepair {
+  lostStreak: number;
+  lostRunStart: string | null;
+  /** The missed days the repair covers (they bridge the gap, they do not count). */
+  missedDays: string[];
+  /** The last day the repair can be completed on. */
+  expiresDay: string;
+  /** Lessons needed: `repair.lessonsPerMissedDay` for each missed day. */
+  required: number;
+  done: number;
+}
+
+/**
+ * Everything about a learner's streak besides the three numbers every
+ * progress row already has (`streak`, `bestStreak`, `lastActiveDay`):
+ * freezes, what has been settled, the open repair offer and past runs.
+ * Kept on the progress row (`progress.habit`), created lazily by
+ * `normalizeHabit`.
+ */
+export interface HabitState {
+  v: 1;
+  /** Streak freezes held. Each covers one missed day. */
+  freezes: number;
+  /** Goal days counted towards the next freeze. */
+  freezeProgress: number;
+  /** The last day whose outcome (active, frozen, missed) has been worked out. */
+  settledThrough: string | null;
+  /** Days a freeze covered. */
+  frozenDays: string[];
+  /** Days a completed repair covered. */
+  repairedDays: string[];
+  /** Days a repair was completed on (one per repair). */
+  repairedOn: string[];
+  repair: StreakRepair | null;
+  /** The first day of the current run (null with no run). */
+  runStart: string | null;
+  /** Past runs, newest last. */
+  runs: StreakRun[];
+}
+
+/**
+ * A wrong answer, reduced to indices and short text - never code, never more
+ * than the answer length cap. `lines` are indices into the correct order.
+ */
+export type MissAnswer =
+  | { kind: 'choice'; index: number }
+  | { kind: 'multi'; indices: number[] }
+  | { kind: 'blanks'; values: string[] }
+  | { kind: 'order'; lines: number[] }
+  | { kind: 'code'; passed: number; total: number };
+
+/** Everything known about one learner's misses on one challenge. */
+export interface MissSummary {
+  count: number;
+  firstAt: string;
+  lastAt: string;
+  lastDay: string;
+  /** Misses on `lastDay` - what the per-item daily cap counts. */
+  lastDayCount: number;
+  /** True from any miss until a clean review answer clears it (a later phase). */
+  open: boolean;
+  /** Final misses, where the answer was shown afterwards. */
+  revealed: number;
+  /** Wrong-answer keys (`o2`, `o0.3`, `b1:foo`, `order`) and how often, top five. */
+  keys: Record<string, number>;
+  lastAnswer: MissAnswer | null;
+  /** Only ever missed by failing tests - nothing to show but pass counts. */
+  codeOnly?: true;
+}
+
+export interface MissEntry {
+  challengeId: string;
+  at: string;
+  day: string;
+  context: ActivityContext;
+  answer: MissAnswer | null;
+  /** The answer was shown after this miss. */
+  final: boolean;
+  /** Present (false) only on a signed-in learner's miss the server has not taken yet. */
+  synced?: false;
+}
+
+/**
+ * A learner's activity log: per-day counters, per-challenge miss summaries
+ * and a capped log of recent misses. The server keeps one per account
+ * (`db.activity`); the browser keeps a mirror, tagged with `ownerId` exactly
+ * like `UserStats.ownerId`.
+ */
+export interface ActivityLog {
+  v: 1;
+  /** The latest day anything was recorded on - the day never moves backwards. */
+  lastDay: string | null;
+  /** When the one-time backfill from `attempts` ran (null = not yet). */
+  backfilledAt: string | null;
+  days: Record<string, DayRecord>;
+  misses: Record<string, MissSummary>;
+  /** Newest last, capped. */
+  missLog: MissEntry[];
+  ownerId?: string;
+}
+
+/* ==========================================================================
+   Practice sessions - review (src/platform/review)
+   ========================================================================== */
+
+/**
+ * How a question went the first time it was answered in a Practice session:
+ * right first time with no hint (`clean`), right after a wrong answer or a
+ * hint (`assisted`), or wrong to the end / right only after its answer was
+ * shown (`missed`).
+ */
+export type ReviewOutcome = 'clean' | 'assisted' | 'missed';
+
+/** Why a question is in a Practice session: an open mistake, due on its schedule, or a weak solve. */
+export type ReviewReason = 'mistake' | 'due' | 'weak';
+
+/**
+ * One question's place on the review schedule (`progress.review[id]`),
+ * written only once it has been reviewed or its answer shown. `box` indexes
+ * `review.intervalsDays`; `due` is the day it is next due.
+ */
+export interface ReviewItemState {
+  box: number;
+  /** `yyyy-mm-dd`, the learner's day. */
+  due: string;
+  /** When it was last reviewed or revealed (ISO) - the newer one wins a merge. */
+  last?: string;
+  /** The day review XP was last paid for it (once per question per day). */
+  paid?: string;
+}
+
+/** One question of a Practice session, and why it was picked. */
+export interface ReviewItem {
+  challengeId: string;
+  reason: ReviewReason;
+}
+
+/**
+ * A Practice-session answer made where the server could not take it (a
+ * guest, or offline): sent with the next merge, which prices it again.
+ */
+export interface ReviewEvent {
+  challengeId: string;
+  /** The session it was answered in (`local-<ts>` for one built in the browser). */
+  sessionId: string;
+  at: string;
+  day: string;
+  outcome: ReviewOutcome;
+  correct: boolean;
 }
 
 export interface UserStats {
@@ -373,6 +723,30 @@ export interface UserStats {
    */
   seenConcepts: string[];
   attempts: Record<string, ChallengeAttempt>;
+  /**
+   * Units whose first completion has been recorded, with the perfect-unit
+   * bonus that completion paid (0 when it was not perfect). Optional: an old
+   * save or an older server has none. Not what makes a unit "done".
+   */
+  unitsCompleted?: Record<string, UnitCompletion>;
+  /**
+   * Freezes, repair and streak history (src/platform/habits). `streak`,
+   * `bestStreak` and `lastActiveDay` above are the RAW stored values; what a
+   * screen shows is derived from them and this by `habitStatus` (the
+   * session's `habits`). Optional: an old save or an older server has none.
+   */
+  habit?: HabitState;
+  /**
+   * The Practice (review) schedule: an entry per question reviewed or
+   * revealed (the rest are derived from their solve - `reviewStateOf`).
+   * Optional: an old save or an older server has none.
+   */
+  review?: Record<string, ReviewItemState>;
+  /**
+   * Practice-session answers the server has not taken yet (a guest's, or
+   * made offline): sent with the next merge, then cleared.
+   */
+  unsynced?: { reviewLog: ReviewEvent[] };
   /** Lifetime licence (or the legacy Pro flag): every premium stage is open. Server-set, mirrored here. */
   isPremium?: boolean;
   /**
@@ -418,6 +792,22 @@ export interface UserProfile {
   hasPassword?: boolean;
   createdAt?: string | null;
   lastLoginAt?: string | null;
+  /**
+   * The learner's own settings, stored on the account. `timeZone` is the
+   * zone their days are counted in (null until the server has seen one).
+   * Optional because older servers, and profiles cached by older builds, have
+   * no such field.
+   */
+  preferences?: LearnerPreferences;
+}
+
+/** Account-level preferences. Every field is nullable: null means "use the default". */
+export interface LearnerPreferences {
+  timeZone?: string | null;
+  /** The chosen daily goal (`settings.goals.options[].id`); null = the default option. */
+  dailyGoalId?: string | null;
+  /** Sound effects on or off; null = the default (`celebrations.sound.defaultOn`). */
+  soundOn?: boolean | null;
 }
 
 /**

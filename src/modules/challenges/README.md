@@ -1,6 +1,6 @@
 # modules/challenges
 
-**Owns:** the challenge bank (244 challenges: 232 lessons + 12 stage tests, one folder per topic; `stages.ts` and `tracks.ts` are the metadata), the seven challenge types and their client-side grading (`challenge-types/registry.ts`), the beginner teaching walk-through (`components/lesson/`, shown once per `concept` in Learn mode), the Learn/Practice mode chooser, the practice modal and its session, the learning path with its track picker, and the library.
+**Owns:** the challenge bank (lessons plus one test per stage, one folder per topic; `stages.ts` and `tracks.ts` are the metadata - the current counts are in the root README, kept current by `npm run content:stats`), the seven challenge types and their client-side grading (`challenge-types/registry.ts`), the beginner teaching walk-through (`components/lesson/`, shown once per `concept` in Learn mode), the Learn/Practice mode chooser, the practice modal and its session, the learning path with its track picker, and the library.
 
 **Public API (`index.ts`):** `PracticeHost`, `LearnPage`, `ChallengesPage`, `CHALLENGE_TYPES` and the grading helpers.
 

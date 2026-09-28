@@ -138,7 +138,7 @@ Write-Ok "answering on 127.0.0.1:2358 (HTTP $code)"
 <# ----------------------------------------------------- 3. API + tunnel #>
 
 Write-Step 'API server and ngrok tunnel'
-& (Join-Path $PSScriptRoot 'start.ps1')
+& (Join-Path $PSScriptRoot 'start.ps1') -SkipAdminCheck
 
 Write-Host "   waiting for the API on port $port (the first start after a code change also rebuilds the site)..."
 $deadline = (Get-Date).AddMinutes(5)
@@ -150,6 +150,7 @@ while ((Get-HttpCode -Url "http://localhost:$port/api/health") -ne '200') {
     Start-Sleep -Seconds 3
 }
 Write-Ok "API answering on http://localhost:$port"
+Show-AdminBootstrapStatus
 
 <# ------------------------------------------------------------ 4. Checks #>
 

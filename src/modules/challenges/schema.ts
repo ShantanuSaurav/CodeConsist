@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import type { Challenge, ChallengeType, Difficulty, SupportedLanguage } from '@/types';
+import { checkBlank } from '@/platform/grading-engine/grading';
 
 export const CHALLENGE_TYPES = [
   'quiz',
@@ -44,11 +45,22 @@ export const TestCaseSchema = z
   })
   .strict();
 
+/** The longest a wrong-answer note (per option or per blank) may be. */
+export const FEEDBACK_MAX = 600;
+
+/** The kinds that may carry `optionFeedback` (one note per option). */
+export const OPTION_FEEDBACK_TYPES = ['quiz', 'output_prediction', 'multi_select'] as const satisfies readonly ChallengeType[];
+
+export const WrongAnswerSchema = z
+  .object({ answer: z.string().min(1), feedback: z.string().min(1).max(FEEDBACK_MAX) })
+  .strict();
+
 export const BlankSchema = z
   .object({
     answer: z.string().min(1),
     alternatives: z.array(z.string()).optional(),
-    choices: z.array(z.string()).optional()
+    choices: z.array(z.string()).optional(),
+    wrongAnswers: z.array(WrongAnswerSchema).max(8).optional()
   })
   .strict();
 
@@ -121,6 +133,7 @@ const Base = z
     options: z.array(z.string()).optional(),
     correctIndex: z.number().int().nonnegative().optional(),
     correctIndices: z.array(z.number().int().nonnegative()).optional(),
+    optionFeedback: z.array(z.string().max(FEEDBACK_MAX)).optional(),
     blanks: z.array(BlankSchema).optional(),
     pseudocodeLines: z.array(z.string()).optional(),
     starterCode: z.string().optional(),
@@ -179,6 +192,26 @@ export const ChallengeSchema: z.ZodType<Challenge> = Base.superRefine((c, ctx) =
       need(Boolean(c.solutionCode), 'needs solutionCode (the validator executes it)', ['solutionCode']);
       break;
   }
+  // Wrong-answer notes: one per option, and only where there are options. A
+  // blank's wrong answers must really be wrong (never accepted by the grader)
+  // and, on a dropdown, one of its choices - or the note could never show.
+  if (c.optionFeedback !== undefined) {
+    const optionType = (OPTION_FEEDBACK_TYPES as readonly string[]).includes(c.type);
+    need(optionType, `optionFeedback is only for ${OPTION_FEEDBACK_TYPES.join(', ')}`, ['optionFeedback']);
+    if (optionType) {
+      const options = c.options?.length ?? 0;
+      need(c.optionFeedback.length === options, `optionFeedback has ${c.optionFeedback.length} notes but there are ${options} options`, ['optionFeedback']);
+    }
+  }
+  c.blanks?.forEach((blank, i) => {
+    blank.wrongAnswers?.forEach((wrong, j) => {
+      const path = ['blanks', String(i), 'wrongAnswers', String(j)];
+      need(!checkBlank(wrong.answer, blank.answer, blank.alternatives ?? []), `"${wrong.answer}" is an accepted answer, so it cannot be a wrong answer`, path);
+      if (blank.choices?.length) {
+        need(blank.choices.some((choice) => checkBlank(wrong.answer, choice)), `"${wrong.answer}" is not one of this blank's choices`, path);
+      }
+    });
+  });
   if (c.isStageTest) {
     // A stage test is graded by really running the learner's code. That is
     // only possible where this build has an engine; a C or C++ stage test is
