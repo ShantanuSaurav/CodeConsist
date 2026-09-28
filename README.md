@@ -319,3 +319,13 @@ theme tokens. Dark mode is the `.dark` class on `<html>`.
 
 The `supabase/` directory is left over from an earlier hosted design and is not
 wired up — the local API replaced it.
+
+## Contributors
+
+- **Aditya Raj** ([@Aditya-raj11](https://github.com/Aditya-raj11))
+- [@HYERx-design](https://github.com/HYERx-design)
+- **Claude** (Anthropic's AI model, through Claude Code): pair programmer on
+  the admin console, billing, sign-in, the self-hosted server, the playground
+  runtimes and the learning-loop rebuild. Its commits carry a
+  `Co-Authored-By: Claude <noreply@anthropic.com>` line, which GitHub shows as
+  a co-author on each commit.
