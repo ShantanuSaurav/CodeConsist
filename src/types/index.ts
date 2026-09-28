@@ -65,6 +65,34 @@ export interface Blank {
   alternatives?: string[];
   /** Optional multiple-choice chips instead of free typing. */
   choices?: string[];
+  /**
+   * Common wrong answers and why each is wrong, shown when a learner gives
+   * one. Matched like the answer itself (whitespace folded, case ignored only
+   * for a single plain word). Never an accepted answer, and one of `choices`
+   * when the blank is a dropdown.
+   */
+  wrongAnswers?: WrongAnswer[];
+}
+
+/** A wrong answer to a blank, and the note a learner who gives it reads. */
+export interface WrongAnswer {
+  answer: string;
+  /** Why it is wrong - the misconception, never the right answer. */
+  feedback: string;
+}
+
+/**
+ * One "why" note to show after a check: under an option (`position` is the
+ * option's ORIGINAL index) or for a blank (`position` is the blank's index).
+ * `wrong` explains a wrong pick; `right` explains the correct option and is
+ * only ever shown once the answer is revealed. `leaks` marks a note that
+ * would give the answer away - it is held back until the answer is shown.
+ */
+export interface FeedbackNote {
+  position: number;
+  text: string;
+  kind: 'wrong' | 'right';
+  leaks: boolean;
 }
 
 export interface ExecutionResult {
@@ -163,6 +191,14 @@ export interface Challenge {
   options?: string[];
   correctIndex?: number;
   correctIndices?: number[];
+  /**
+   * One note per option, parallel to `options` (entry i is about option i;
+   * an empty string is no note). A wrong option's note says why a learner
+   * might pick it and why it is wrong, without naming the right answer; a
+   * correct option's note ("why this is right") shows only once the answer
+   * is revealed. Never used for grading.
+   */
+  optionFeedback?: string[];
 
   /* fill_blank — codeSnippet contains one `___` per blank, in order */
   blanks?: Blank[];
@@ -428,6 +464,12 @@ export interface ChallengeAttempt {
   lastSolvedAt?: string;
   /** How many times it has been solved. Absent on rows written before it existed. */
   solves?: number;
+  /**
+   * The highest score the first solve could get, when it came after the
+   * answer was shown (`feedback.requeue.maxScoreAfterReveal`). A guest merge
+   * pays under it too. Absent on an ordinary solve.
+   */
+  scoreCap?: number;
 }
 
 /* ==========================================================================
@@ -466,6 +508,10 @@ export interface DayRecord {
   goal: DayGoal | null;
   /** The daily-goal bonus paid that day. NOT inside `xp` (the goal's own XP metric reads `xp`). */
   goalBonusXp: number;
+  /** Correct answers in Practice sessions (review) that day. */
+  reviews: number;
+  /** Practice-session XP paid that day (already inside `xp`); `review.xp.dailyCap` bounds it. */
+  reviewXp: number;
   firstAt: string | null;
   lastAt: string | null;
   /** How the row came to exist: a live event, the one-time backfill, or a guest merge. */
@@ -611,6 +657,56 @@ export interface ActivityLog {
   ownerId?: string;
 }
 
+/* ==========================================================================
+   Practice sessions - review (src/platform/review)
+   ========================================================================== */
+
+/**
+ * How a question went the first time it was answered in a Practice session:
+ * right first time with no hint (`clean`), right after a wrong answer or a
+ * hint (`assisted`), or wrong to the end / right only after its answer was
+ * shown (`missed`).
+ */
+export type ReviewOutcome = 'clean' | 'assisted' | 'missed';
+
+/** Why a question is in a Practice session: an open mistake, due on its schedule, or a weak solve. */
+export type ReviewReason = 'mistake' | 'due' | 'weak';
+
+/**
+ * One question's place on the review schedule (`progress.review[id]`),
+ * written only once it has been reviewed or its answer shown. `box` indexes
+ * `review.intervalsDays`; `due` is the day it is next due.
+ */
+export interface ReviewItemState {
+  box: number;
+  /** `yyyy-mm-dd`, the learner's day. */
+  due: string;
+  /** When it was last reviewed or revealed (ISO) - the newer one wins a merge. */
+  last?: string;
+  /** The day review XP was last paid for it (once per question per day). */
+  paid?: string;
+}
+
+/** One question of a Practice session, and why it was picked. */
+export interface ReviewItem {
+  challengeId: string;
+  reason: ReviewReason;
+}
+
+/**
+ * A Practice-session answer made where the server could not take it (a
+ * guest, or offline): sent with the next merge, which prices it again.
+ */
+export interface ReviewEvent {
+  challengeId: string;
+  /** The session it was answered in (`local-<ts>` for one built in the browser). */
+  sessionId: string;
+  at: string;
+  day: string;
+  outcome: ReviewOutcome;
+  correct: boolean;
+}
+
 export interface UserStats {
   xp: number;
   level: number;
@@ -640,6 +736,17 @@ export interface UserStats {
    * session's `habits`). Optional: an old save or an older server has none.
    */
   habit?: HabitState;
+  /**
+   * The Practice (review) schedule: an entry per question reviewed or
+   * revealed (the rest are derived from their solve - `reviewStateOf`).
+   * Optional: an old save or an older server has none.
+   */
+  review?: Record<string, ReviewItemState>;
+  /**
+   * Practice-session answers the server has not taken yet (a guest's, or
+   * made offline): sent with the next merge, then cleared.
+   */
+  unsynced?: { reviewLog: ReviewEvent[] };
   /** Lifetime licence (or the legacy Pro flag): every premium stage is open. Server-set, mirrored here. */
   isPremium?: boolean;
   /**

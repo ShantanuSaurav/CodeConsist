@@ -14,7 +14,12 @@ import {
   HabitState,
   LeaderboardEntry,
   LearnerPreferences,
+  LearningMode,
   MissSummary,
+  ReviewEvent,
+  ReviewItem,
+  ReviewItemState,
+  ReviewOutcome,
   TestCase,
   UserProfile,
   UserStats
@@ -172,6 +177,8 @@ export interface ServerProgress {
   unitsCompleted?: UserStats['unitsCompleted'];
   /** Freezes, repair and streak history. Absent from an older server (and from a row nothing has written yet). */
   habit?: HabitState;
+  /** The Practice schedule (entries only for questions reviewed or revealed). Absent from an older server. */
+  review?: Record<string, ReviewItemState>;
 }
 
 /** A bonus paid on top of a solve's own XP. `awardedXp` never includes it. */
@@ -305,6 +312,40 @@ export interface MergeResponse {
    * this account has not unlocked. Absent when there were none.
    */
   skippedLocked?: string[];
+  /** Practice XP the merged review log paid (not in `awardedXp`). Absent from an older server. */
+  awardedReviewXp?: number;
+}
+
+/** What `POST /api/review/session` returns: a session, or nothing to practise and when to come back. */
+export interface ReviewSessionResponse {
+  sessionId: string | null;
+  items: ReviewItem[];
+  /** The day the next question falls due (null when none will). */
+  nextDueDay?: string | null;
+  xp?: { remainingToday: number };
+  expiresAt?: string;
+}
+
+/** What `POST /api/review/answer` returns. */
+export interface ReviewAnswerResponse {
+  correct: boolean;
+  outcome: ReviewOutcome;
+  awardedXp: number;
+  bonusXp: number;
+  /** The daily-goal bonus this answer paid, the first time today's goal was met. */
+  goalBonusXp?: number;
+  xpRemainingToday: number;
+  /** Answered right: the question is done in this session. */
+  resolved?: boolean;
+  /** Every question in the session is answered right. */
+  sessionComplete?: boolean;
+  /** The question was already answered right in this session: nothing was paid. */
+  replay?: boolean;
+  progress: ServerProgress;
+  today?: TodayRow;
+  habits?: HabitStatus;
+  habitEvents?: HabitEventsResponse | null;
+  settingsRevision?: number;
 }
 
 /** What `PATCH /api/me/preferences` accepts (any subset); `null` puts a default back - not for the zone. */
@@ -584,7 +625,17 @@ export const api = {
     challengeId: string,
     attempts: number,
     hintsUsed: number,
-    submission: { answer?: unknown; code?: string; context?: ActivityContext } = {}
+    submission: {
+      answer?: unknown;
+      code?: string;
+      context?: ActivityContext;
+      /** Learn or Practice: which score cap applies after a reveal. */
+      learningMode?: LearningMode | null;
+      /** Back at the end of the unit after a miss: completes below the pass mark. */
+      requeued?: boolean;
+      /** Its answer was shown first: the score is capped. */
+      revealed?: boolean;
+    } = {}
   ): Promise<SolveResponse> {
     return request('/progress/solve', {
       method: 'POST',
@@ -605,12 +656,15 @@ export const api = {
   async mergeProgress(
     progress: Partial<ServerProgress>,
     activity?: Pick<ActivityLog, 'days' | 'misses' | 'missLog'>,
-    preferences?: LearnerPreferences | null
+    preferences?: LearnerPreferences | null,
+    reviewLog?: ReviewEvent[] | null
   ): Promise<MergeResponse> {
     // A guest's own choices (sound on or off, their daily goal) go along; the
     // server adopts them only where the account has none. Their streak
-    // freezes and history ride in `progress.habit`.
-    const extra = preferences ? { preferences } : {};
+    // freezes and history ride in `progress.habit`, their Practice schedule
+    // in `progress.review`; Practice answers the server has not priced yet
+    // go in `reviewLog`.
+    const extra = { ...(preferences ? { preferences } : {}), ...(reviewLog && reviewLog.length ? { reviewLog } : {}) };
     try {
       return await request<MergeResponse>('/progress/merge', { method: 'POST', body: activity ? { progress, activity, ...extra } : { progress, ...extra } });
     } catch (err) {
@@ -644,6 +698,28 @@ export const api = {
   /** Record wrong answers (1-50). `keepalive` lets the request outlive a closing tab. */
   async recordMisses(misses: MissUpload[], options: { keepalive?: boolean } = {}): Promise<MissesResponse> {
     return request('/activity/misses', { method: 'POST', body: { misses }, keepalive: options.keepalive });
+  },
+
+  /** Start a Practice session (the whole bank, or one stage). */
+  async reviewSession(scope: { stageId?: string } = {}): Promise<ReviewSessionResponse> {
+    return request('/review/session', { method: 'POST', body: scope.stageId ? { stageId: scope.stageId } : {} });
+  },
+
+  /**
+   * Answer one question of a Practice session. The server checks the answer
+   * and prices it; a 404 with `reason: 'expired'` means the session is over
+   * (start a new one).
+   */
+  async reviewAnswer(body: {
+    sessionId: string;
+    challengeId: string;
+    answer?: unknown;
+    code?: string;
+    attempts: number;
+    hintsUsed: number;
+    revealed?: boolean;
+  }): Promise<ReviewAnswerResponse> {
+    return request('/review/answer', { method: 'POST', body });
   },
 
   async resetProgress(): Promise<{ progress: ServerProgress; habits?: HabitStatus }> {

@@ -85,6 +85,55 @@ blanks: [{ answer: 'map', alternatives: ['flatMap'] }]
 
 Use `choices` when free-typing would be cruel (many valid spellings).
 
+## Wrong-answer notes (`optionFeedback`, `wrongAnswers`)
+
+A wrong answer should teach, not hand over the answer. Before a learner's
+last try only their own pick is marked wrong; the right answer, and the
+`explanation`, appear once their tries run out (settings section
+`feedback`: two tries on a single-choice question in Practice mode, three on
+the others, one in Learn mode). A note says why THAT answer is wrong:
+
+```ts
+options: ['var', 'let', 'const'],
+correctIndex: 2,
+// One per option, same order; '' for none.
+optionFeedback: [
+  'var can be redeclared and reassigned - nothing stops the value changing.',
+  'let stops redeclaration, but the value can still be reassigned.',
+  'A const binding cannot be reassigned once it is set.' // a correct option's note: shown only with the answer
+],
+```
+
+```ts
+codeSnippet: 'const n = items.___;',
+blanks: [{
+  answer: 'length',
+  // Answers learners often give, matched like the answer (whitespace folded,
+  // case ignored for a single plain word), each with why it is wrong.
+  wrongAnswers: [{ answer: 'size', feedback: 'Arrays have no size property - Set and Map do.' }]
+}]
+```
+
+- `optionFeedback` is for `quiz`, `output_prediction` and `multi_select`
+  only, and has exactly one entry per option (the schema checks).
+- A wrong answer to a blank must really be wrong - never accepted by the
+  grader (`answer` or `alternatives`) - and, on a dropdown blank, one of its
+  `choices`. At most 8 per blank; each note at most 600 characters.
+- **Never name the right answer in a note for a wrong answer.** Describe the
+  misconception ("that copies the reference, not the array"), not the fix
+  ("use slice()"). A note that quotes a correct option (8+ characters) or
+  names a blank's answer is held back until the answer is shown, and
+  `npm run content:lint` reports it as `feedback-leak`. The lint also flags
+  `feedback-thin` (under 20 characters) and `feedback-restates-option` (a
+  note that mostly repeats its own option), and prints how many questions
+  have notes at all.
+- Notes never affect grading, XP or unlocking.
+
+An administrator can write notes on any question in the console (the
+question wizard, or Learning > Answer feedback, which can also draft them
+with Gemini for review). On a built-in question they are stored beside it -
+see "Edited in the admin console" below.
+
 ## Beginner teaching (`concept`)
 
 A lesson may carry a `concept`: a short guided sequence shown **once**, before
@@ -114,6 +163,43 @@ console.log(age);', language: 'javascript',
   server's honest "needs a Judge0 endpoint" message unless one is configured.
 - The challenge that carries the concept *is* its quick check. Its `explanation`
   must explain the mechanism - in Learn mode a wrong answer shows it immediately.
+- Learn mode works on every lesson, not only those with a concept: the reading
+  panel opens by default and a wrong answer is explained straight away. So
+  every `explanation` should teach, not just restate the answer.
+
+### Teaching cards written in the console
+
+An administrator can do the same without touching the source, under
+Learning > Teaching (`/admin/teaching`):
+
+- **Edit a built-in card.** The edit is stored beside the bank under the
+  concept's own id; the card stays on its lesson. Revert puts the shipped
+  version back.
+- **Write a new card** for a lesson that has none: before a lesson, at the
+  start of a stage (its first lesson) or at the start of a unit (its first
+  lesson, however the stage is grouped into units at the time). One concept
+  per lesson - a lesson that already has one is edited instead.
+- **Hide** a card (built in or written) to stop showing it; **Delete** one
+  written in the console.
+- **"Show it again to learners who already saw it"** gives the card a new id
+  (`<key>-r<N>`), so everyone sees the new version once. Without it, only
+  learners who have not seen the card yet get the edit.
+
+Cards are checked against the same schema as a `concept` in a `.ts` file
+(the line of every callout must exist in its example). A card whose lesson
+is hidden, or whose lesson already has another card, is never shown - the
+Teaching page lists it with the reason. Learners get changes the next time
+their lessons load; the offline copy of the app has only the built-in cards.
+
+## Practice sessions (review)
+
+Practice sessions go back over what a learner solved: questions they got
+wrong on an earlier day, questions due again on their review schedule, and
+lessons solved with a low score or many hints. They use the answer-graded
+kinds (settings section `review`, `itemTypes`) and never a stage test, so
+every quiz, fill-in-the-blank and ordering question you write can come back
+there - another reason for notes and explanations that teach. Nothing is
+authored for sessions themselves.
 
 ## Language tracks and stage tests without an engine
 
@@ -183,6 +269,14 @@ validated that one (same zod schema, solution executed) when it was saved. To
 get the original back, revert it from the console; deleting the db.json entry
 by hand does the same. If you later change the `.ts` file, the console's
 replacement still wins until it is reverted.
+
+Changing only a built-in question's wording, hints, tags, XP, difficulty or
+wrong-answer notes does NOT freeze it like that: those are layered on top
+(`contentOverrides.challenges`), so the question keeps following the `.ts`
+file. Wrong-answer notes are stored with the options (or blanks) they were
+written for; if you change those options in source, the notes stop showing
+and the console marks them "out of date" to be written again, rather than
+pointing at options that no longer exist.
 
 ## Checking your work
 

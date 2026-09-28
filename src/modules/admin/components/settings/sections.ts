@@ -16,6 +16,8 @@ import { UnitsSection } from './UnitsSection';
 import { GoalsSection } from './GoalsSection';
 import { StreakSection } from './StreakSection';
 import { RemindersSection } from './RemindersSection';
+import { FeedbackSection } from './FeedbackSection';
+import { ReviewSection } from './ReviewSection';
 
 export interface SectionEntry extends Pick<SectionMeta, 'id' | 'title' | 'description' | 'audience'> {
   Component?: React.FC<SectionProps>;
@@ -31,6 +33,10 @@ const CUSTOM: Partial<Record<string, React.FC<SectionProps>>> = {
   reminders: RemindersSection,
   // Units, with how many there are and the most the perfect bonus can pay.
   units: UnitsSection,
+  // Answer feedback & retries, with what the numbers mean for one question.
+  feedback: FeedbackSection,
+  // Practice sessions, with what the schedule and the XP mean at these values.
+  review: ReviewSection,
   // Site copy, grouped by where it appears, with previews in the real counts.
   copy: CopySection,
   // Limits & access, with the live status card (proxy diagnostic, limiter, CORS).

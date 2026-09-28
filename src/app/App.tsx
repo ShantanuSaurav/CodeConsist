@@ -176,9 +176,9 @@ const Shell: React.FC = () => {
         <ScrollToTop />
         {/* The practice modal and its session wrap the routes so every page can open it. */}
         <PracticeHost
-          readingSlot={(challenge, close) => (
+          readingSlot={(challenge, close, { defaultOpen }) => (
             <Suspense fallback={null}>
-              <ReadingPanel challenge={challenge} onNavigate={close} />
+              <ReadingPanel challenge={challenge} onNavigate={close} defaultOpen={defaultOpen} />
             </Suspense>
           )}
         >

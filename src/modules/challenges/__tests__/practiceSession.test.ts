@@ -79,6 +79,14 @@ describe('a unit run', () => {
     expect(runSummary(EMPTY_COUNTS)).toEqual({ accuracy: null, flawless: false });
   });
 
+  it('counts the questions fixed on retry - got right after coming back (Phase 4)', () => {
+    let counts = countSolve(EMPTY_COUNTS, { attempts: 1, hints: 0, outcome: outcome() });
+    // Missed twice, the answer shown, then right when it came back: 3 tries in all.
+    counts = countSolve(counts, { attempts: 3, hints: 0, outcome: outcome({ solveXp: 6, totalXp: 6 }), requeued: true });
+    expect(counts).toMatchObject({ questions: 2, firstTry: 1, fixedOnRetry: 1, xp: 16 });
+    expect(runSummary(counts).accuracy).toBe(50);
+  });
+
   it('toasts a level crossed only when the run closes before its end screen', () => {
     // Closed mid-unit after crossing level 4 -> 5: the end screen never said it.
     expect(levelToAnnounceOnClose({ finished: false, levelBefore: 4, level: 5 })).toBe(5);

@@ -1,6 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowUp, Bug, Check, CheckSquare, Code2, Eye, ListOrdered, MonitorSmartphone, Plus, TextCursorInput, Trash2, X } from 'lucide-react';
-import { AdminApiError, AdminChallengeRow, AdminStageRow, QuestionCheck, QuestionInput, QuestionIssue, SolutionRun, adminApi } from '../services/adminApi';
+import { AdminApiError, AdminChallengeRow, AdminStageRow, QuestionCheck, QuestionInput, QuestionIssue, SolutionRun, BlankWrongAnswer, adminApi } from '../services/adminApi';
+import { MAX_WRONG_ANSWERS, NOTE_MAX, alignNotes, builtInPatch, feedbackIssues, leakWarnings, wrongChoicesOf } from '../services/questionFeedback';
 import { Badge, Button, CodeArea, ConfirmDialog, Drawer, ErrorText, Field, NumberField, SelectField, TextArea, TextField, Toggle } from './ui';
 
 /* ------------------------------------------------------------------ kinds */
@@ -211,7 +213,7 @@ const stageLabel = (stages: AdminStageRow[], stageId: string) => {
 };
 
 const EMPTY_TEST = { input: '', expected: '', hidden: false, description: '' };
-const EMPTY_BLANK = { answer: '', alternatives: [] as string[], choices: [] as string[] };
+const EMPTY_BLANK = { answer: '', alternatives: [] as string[], choices: [] as string[], wrongAnswers: [] as BlankWrongAnswer[] };
 const EMPTY_EXAMPLE = { input: '', output: '', explanation: '' };
 const MAX_EXAMPLES = 6;
 const MAX_CONSTRAINTS = 10;
@@ -230,6 +232,7 @@ function blank(stageId: string): QuestionInput {
     tags: [],
     codeSnippet: '',
     options: ['', '', '', ''],
+    optionFeedback: [],
     correctIndex: undefined,
     correctIndices: [],
     blanks: [],
@@ -259,9 +262,15 @@ function fromRow(row: AdminChallengeRow): QuestionInput {
     tags: row.tags ?? [],
     codeSnippet: row.codeSnippet ?? '',
     options: row.options ?? ['', '', '', ''],
+    optionFeedback: alignNotes(row.optionFeedback, (row.options ?? []).length),
     correctIndex: row.correctIndex,
     correctIndices: row.correctIndices ?? [],
-    blanks: (row.blanks ?? []).map((b) => ({ answer: b.answer, alternatives: b.alternatives ?? [], choices: b.choices ?? [] })),
+    blanks: (row.blanks ?? []).map((b) => ({
+      answer: b.answer,
+      alternatives: b.alternatives ?? [],
+      choices: b.choices ?? [],
+      wrongAnswers: (b.wrongAnswers ?? []).map((w) => ({ answer: w.answer, feedback: w.feedback }))
+    })),
     pseudocodeLines: row.pseudocodeLines ?? ['', '', ''],
     starterCode: row.starterCode ?? '',
     entryFunction: row.entryFunction ?? '',
@@ -308,10 +317,14 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({ stages, stageId,
     const meta = KINDS.find((k) => k.kind === initialKind);
     return meta ? { ...blank(stageId), type: meta.type, ...meta.preset } : blank(stageId);
   });
-  // Built-in questions are edited as a replacement stored under the same id;
-  // a stage test on top of that has rules of its own (see validateLocally).
+  // Built-in questions are edited as a replacement stored under the same id -
+  // unless only their wording, XP, difficulty or notes changed (see
+  // `builtInPatch`); a stage test on top of that has rules of its own (see
+  // validateLocally).
   const authored = Boolean(existing && !existing.custom);
   const stageTest = Boolean(existing?.isStageTest);
+  // The form as it opened, to tell what the admin changed.
+  const [initial] = useState<QuestionInput | null>(() => (existing ? fromRow(existing) : null));
   // The type in force before "Change type", so the picker can be backed out of without losing edits.
   const [lastKind, setLastKind] = useState<Kind | null>(null);
   const [issues, setIssues] = useState<QuestionIssue[]>([]);
@@ -358,10 +371,19 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({ stages, stageId,
 
   // Problems shown next to fields. Local checks give instant feedback; the
   // server's verdict replaces them once it has looked.
-  const localIssues = useMemo(() => validateLocally(q, { stageTest, authoredStageId: authored ? existing?.stageId : undefined }), [q, stageTest, authored, existing?.stageId]);
+  const localIssues = useMemo(
+    () => [...validateLocally(q, { stageTest, authoredStageId: authored ? existing?.stageId : undefined }), ...feedbackIssues(q)],
+    [q, stageTest, authored, existing?.stageId]
+  );
   const shown = showIssues ? [...localIssues, ...issues.filter((i) => !localIssues.some((l) => l.path === i.path))] : [];
   const errorAt = (path: string) => shown.find((i) => i.path === path)?.message;
   const unplaced = shown.filter((i) => !KNOWN_PATHS.test(i.path));
+  // Notes that give the answer away: a warning next to the note, never a block.
+  const leaks = useMemo(() => leakWarnings(q), [q]);
+  const warnAt = (path: string) => leaks[path];
+  // A built-in question (not already replaced here) whose logic is untouched
+  // is saved by layering the changes on it - it stays live from source.
+  const patchPlan = authored && existing && !existing.modified && initial ? builtInPatch(q, initial, existing) : null;
 
   const runCheck = async () => {
     setShowIssues(true);
@@ -392,11 +414,23 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({ stages, stageId,
     setBusy('save');
     setError(null);
     try {
+      if (existing && patchPlan) {
+        // Only wording, XP, difficulty or notes changed on a built-in question:
+        // layered on top, so the question is not frozen as a modified copy.
+        if (Object.keys(patchPlan).length) await adminApi.updateChallenge(existing.id, patchPlan);
+        const listed = await adminApi.challenges(existing.stageId);
+        onSaved(listed.challenges.find((row) => row.id === existing.id) ?? existing);
+        return;
+      }
       // The server answers with the complete list row (custom/modified/hidden/original).
       const result = existing ? await adminApi.replaceQuestion(existing.id, q) : await adminApi.createQuestion(q);
       onSaved(result.challenge);
     } catch (err: any) {
-      if (err instanceof AdminApiError && err.status === 422 && Array.isArray((err.payload as any)?.issues)) {
+      if (err instanceof AdminApiError && err.status === 400 && Array.isArray((err.payload as any)?.issues)) {
+        // The notes route's own checks (a PATCH): shown next to their fields.
+        setIssues((err.payload as { issues: QuestionIssue[] }).issues);
+        setError('Not saved yet - fix the points marked below.');
+      } else if (err instanceof AdminApiError && err.status === 422 && Array.isArray((err.payload as any)?.issues)) {
         const payload = err.payload as { issues: QuestionIssue[]; verification: QuestionCheck['verification'] };
         setIssues(payload.issues);
         setCheck({ ok: false, issues: payload.issues, verification: payload.verification });
@@ -465,14 +499,25 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({ stages, stageId,
           <div>
             {authored && (
               <div className="notice notice-info mb-4" role="note">
-                This question comes from CodeConsist's built-in bank. Saving keeps your edited version here - learners see it straight away, and
-                you can put the original back from the list at any time.
+                {patchPlan
+                  ? "This question comes from CodeConsist's built-in bank. Changes to its wording, hints, tags, XP, difficulty or wrong-answer notes are laid over it when you save, so it keeps following the built-in version. Changing its answers, options or code saves your own version instead. Learners see your changes straight away."
+                  : existing?.modified
+                    ? "This question comes from CodeConsist's built-in bank and your own version of it is saved here. Saving updates your version; you can put the original back from the list at any time."
+                    : "This question comes from CodeConsist's built-in bank. You have changed its answers, options or code, so saving keeps your own version in its place - learners see it straight away, and you can put the original back from the list at any time."}
                 {existing?.concept != null && ' Its Learn-mode teaching steps are kept exactly as they are.'}
                 {stageTest &&
                   (EXECUTABLE.has(existing?.language ?? '')
                     ? " This is the stage's final test, so it must stay a code question."
                     : " This is the stage's final test, so its type is fixed - this language has no code engine here, so it stays answer-graded.")}
               </div>
+            )}
+            {existing && !stageTest && (
+              <p className="text-xs text-fg-muted mb-4">
+                Learn mode's teaching card for this lesson is edited under Teaching:{' '}
+                <Link to={`/admin/teaching?stageId=${encodeURIComponent(existing.stageId)}`} className="link-btn">
+                  {existing.conceptKey ? 'Edit teaching card' : 'Add a teaching card'}
+                </Link>
+              </p>
             )}
             <p className="text-xs text-fg-muted mb-4">
               Every field marked <span className="text-error">*</span> is required. Learners see exactly what you type here, so write it the
@@ -614,10 +659,17 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({ stages, stageId,
               )}
             </Section>
 
-            {(kind === 'quiz' || kind === 'multi_select' || kind === 'output_prediction') && (
-              <OptionsEditor q={q} patch={patch} multi={kind === 'multi_select'} errorAt={errorAt} />
+            {existing?.feedbackStale && (
+              <div className="notice notice-warn mb-4" role="note">
+                <Badge tone="warning">Notes out of date</Badge> Wrong-answer notes were saved for this question, but its options (or blanks) have
+                changed in the built-in bank since, so learners no longer see them. Write them again below, or review them on the Answer feedback
+                page.
+              </div>
             )}
-            {kind === 'fill_blank' && <BlanksEditor q={q} patch={patch} errorAt={errorAt} />}
+            {(kind === 'quiz' || kind === 'multi_select' || kind === 'output_prediction') && (
+              <OptionsEditor q={q} patch={patch} multi={kind === 'multi_select'} errorAt={errorAt} warnAt={warnAt} />
+            )}
+            {kind === 'fill_blank' && <BlanksEditor q={q} patch={patch} errorAt={errorAt} warnAt={warnAt} />}
             {kind === 'pseudocode_order' && <StepsEditor q={q} patch={patch} errorAt={errorAt} />}
             {(kind === 'code_runner' || kind === 'debug' || kind === 'frontend') && (
               <CodeEditorSection q={q} patch={patch} kind={kind} errorAt={errorAt} check={check} />
@@ -632,7 +684,7 @@ export const QuestionWizard: React.FC<QuestionWizardProps> = ({ stages, stageId,
                 onChange={(v) => patch({ explanation: v })}
                 rows={3}
                 placeholder={'e.g. `var` declarations are hoisted and start as undefined, so the first log prints "undefined"; after the assignment it holds a number.'}
-                hint="Shown when the learner gets it right, or after their second try (in Learn mode, after any answer). Explain WHY the right answer is right, not just what it is."
+                hint="Shown when the learner gets it right, or once their tries run out and the answer is shown (straight away in Learn mode; the number of tries is set under Rules & rewards). Explain WHY the right answer is right, not just what it is."
                 error={errorAt('explanation')}
               />
               <HintsEditor value={q.hints} onChange={(hints) => patch({ hints })} />
@@ -725,6 +777,40 @@ const PROMPT_PLACEHOLDER: Record<Kind, string> = {
 type Patch = (p: Partial<QuestionInput>) => void;
 type ErrorAt = (path: string) => string | undefined;
 
+/**
+ * A "why" note under an option or for a wrong answer: collapsed to a link
+ * until there is something in it. `warning` names a note that gives the
+ * answer away (saved, but held back from learners until the answer shows).
+ */
+const NoteField: React.FC<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  addLabel: string;
+  error?: string;
+  warning?: string;
+}> = ({ label, value, onChange, placeholder, addLabel, error, warning }) => {
+  const [open, setOpen] = useState(Boolean(value));
+  if (!open && !value && !error) {
+    return (
+      <button type="button" className="link-btn text-xs mt-1" onClick={() => setOpen(true)}>
+        {addLabel}
+      </button>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <TextArea label={label} value={value} onChange={onChange} rows={2} maxLength={NOTE_MAX} placeholder={placeholder} error={error} />
+      {warning && !error && (
+        <p className="field-hint text-warning" role="note">
+          {warning}
+        </p>
+      )}
+    </div>
+  );
+};
+
 const RowButtons: React.FC<{ onRemove?: () => void; onUp?: () => void; onDown?: () => void; removeLabel: string }> = ({ onRemove, onUp, onDown, removeLabel }) => (
   <span className="flex items-center gap-1 shrink-0">
     {onUp && (
@@ -745,9 +831,10 @@ const RowButtons: React.FC<{ onRemove?: () => void; onUp?: () => void; onDown?: 
   </span>
 );
 
-/** Options with one (radio) or several (checkbox) correct answers. Indices are remapped when rows move or go. */
-const OptionsEditor: React.FC<{ q: QuestionInput; patch: Patch; multi: boolean; errorAt: ErrorAt }> = ({ q, patch, multi, errorAt }) => {
+/** Options with one (radio) or several (checkbox) correct answers. Indices - and notes - are remapped when rows move or go. */
+const OptionsEditor: React.FC<{ q: QuestionInput; patch: Patch; multi: boolean; errorAt: ErrorAt; warnAt: ErrorAt }> = ({ q, patch, multi, errorAt, warnAt }) => {
   const options = q.options ?? [];
+  const notes = alignNotes(q.optionFeedback, options.length);
   const correctSet = new Set(multi ? q.correctIndices ?? [] : q.correctIndex === undefined ? [] : [q.correctIndex]);
 
   const setCount = (n: number) => {
@@ -756,16 +843,19 @@ const OptionsEditor: React.FC<{ q: QuestionInput; patch: Patch; multi: boolean; 
     while (next.length < count) next.push('');
     patch({
       options: next,
+      optionFeedback: alignNotes(q.optionFeedback, count),
       correctIndex: q.correctIndex !== undefined && q.correctIndex < count ? q.correctIndex : undefined,
       correctIndices: (q.correctIndices ?? []).filter((i) => i < count)
     });
   };
   const setText = (i: number, text: string) => patch({ options: options.map((o, j) => (j === i ? text : o)) });
+  const setNote = (i: number, text: string) => patch({ optionFeedback: notes.map((n, j) => (j === i ? text : n)) });
   const remove = (i: number) => {
     const next = options.filter((_, j) => j !== i);
     const shift = (idx: number) => (idx > i ? idx - 1 : idx);
     patch({
       options: next,
+      optionFeedback: notes.filter((_, j) => j !== i),
       correctIndex: q.correctIndex === undefined || q.correctIndex === i ? undefined : shift(q.correctIndex),
       correctIndices: (q.correctIndices ?? []).filter((idx) => idx !== i).map(shift)
     });
@@ -788,7 +878,8 @@ const OptionsEditor: React.FC<{ q: QuestionInput; patch: Patch; multi: boolean; 
       </div>
       <p className="text-xs text-fg-muted mb-3">
         Learners see the options in a shuffled order, so avoid "all of the above" or "both A and B".
-        {!multi && ' Exactly one must be marked correct.'}
+        {!multi && ' Exactly one must be marked correct.'} A note under a wrong option is shown to a learner who picks it - say why it
+        looks right and why it is not, without naming the right answer.
       </p>
       {errorAt('options') && <ErrorText>{errorAt('options')}</ErrorText>}
       {(errorAt('correctIndex') || errorAt('correctIndices')) && <ErrorText>{errorAt('correctIndex') ?? errorAt('correctIndices')}</ErrorText>}
@@ -813,6 +904,16 @@ const OptionsEditor: React.FC<{ q: QuestionInput; patch: Patch; multi: boolean; 
                     {err}
                   </span>
                 )}
+                <NoteField
+                  key={`${i}:${correctSet.has(i)}`}
+                  label={correctSet.has(i) ? `Why option ${letter(i)} is right (optional)` : `Why a learner might pick option ${letter(i)}, and why it is wrong`}
+                  addLabel={correctSet.has(i) ? '+ Add why this is right' : '+ Add a note for this wrong option'}
+                  placeholder={correctSet.has(i) ? 'Shown once the answer is revealed.' : 'e.g. It looks like it copies the array, but it only copies the reference.'}
+                  value={notes[i] ?? ''}
+                  onChange={(v) => setNote(i, v)}
+                  error={errorAt(`optionFeedback.${i}`)}
+                  warning={warnAt(`optionFeedback.${i}`)}
+                />
               </div>
               <label className="option-correct">
                 <input
@@ -838,8 +939,112 @@ const OptionsEditor: React.FC<{ q: QuestionInput; patch: Patch; multi: boolean; 
   );
 };
 
+/**
+ * A blank's common wrong answers, each with why it is wrong. A dropdown
+ * blank gets one row per wrong choice (the answer fixed); a typed blank gets
+ * free rows. Rows without a note are not saved.
+ */
+const WrongAnswersEditor: React.FC<{
+  blank: NonNullable<QuestionInput['blanks']>[number];
+  index: number;
+  onChange: (rows: BlankWrongAnswer[]) => void;
+  errorAt: ErrorAt;
+  warnAt: ErrorAt;
+}> = ({ blank, index, onChange, errorAt, warnAt }) => {
+  const rows = blank.wrongAnswers ?? [];
+  const choices = wrongChoicesOf(blank);
+  const dropdown = blank.choices.length > 0;
+  const noteFor = (answer: string) => rows.find((r) => r.answer.trim() === answer.trim())?.feedback ?? '';
+
+  if (dropdown) {
+    // One row per wrong choice; the saved rows follow the choices.
+    const setChoiceNote = (answer: string, feedback: string) =>
+      onChange(choices.map((c) => ({ answer: c, feedback: c === answer ? feedback : noteFor(c) })).filter((r) => r.feedback));
+    return (
+      <Field label="Common wrong answers (optional)" hint="Shown to a learner who picks that choice: why it is wrong, without naming the right answer.">
+        {choices.length === 0 ? (
+          <p className="text-xs text-fg-muted">Every choice is accepted - there is no wrong choice to explain.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {choices.map((choice) => {
+              const j = rows.findIndex((r) => r.answer.trim() === choice.trim());
+              const path = `blanks.${index}.wrongAnswers.${Math.max(0, j)}`;
+              return (
+                <div key={choice} className="min-w-0">
+                  <div className="text-xs text-fg-secondary">
+                    If they pick <code className="font-mono">{choice}</code>:
+                  </div>
+                  <NoteField
+                    label={`Why "${choice}" is wrong`}
+                    addLabel="+ Add a note"
+                    placeholder="e.g. That method belongs to strings, not arrays."
+                    value={noteFor(choice)}
+                    onChange={(v) => setChoiceNote(choice, v)}
+                    error={j >= 0 ? errorAt(path) : undefined}
+                    warning={j >= 0 ? warnAt(path) : undefined}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Field>
+    );
+  }
+
+  const set = (j: number, p: Partial<BlankWrongAnswer>) => onChange(rows.map((r, k) => (k === j ? { ...r, ...p } : r)));
+  return (
+    <Field label="Common wrong answers (optional)" hint="An answer learners often type by mistake, and why it is wrong - shown when they type it, without naming the right answer." error={errorAt(`blanks.${index}.wrongAnswers`)}>
+      <div className="flex flex-col gap-2">
+        {rows.map((row, j) => {
+          const path = `blanks.${index}.wrongAnswers.${j}`;
+          return (
+            <div key={j} className="grid grid-cols-1 sm:grid-cols-[10rem_1fr_auto] gap-2 items-start">
+              <input
+                type="text"
+                className={`w-full font-mono ${errorAt(path) ? 'is-invalid' : ''}`.trim()}
+                value={row.answer}
+                placeholder="e.g. size"
+                aria-label={`Blank ${index + 1}, wrong answer ${j + 1}`}
+                onChange={(e) => set(j, { answer: e.target.value })}
+              />
+              <div className="min-w-0">
+                <textarea
+                  className={`w-full ${errorAt(path) ? 'is-invalid' : ''}`.trim()}
+                  rows={2}
+                  maxLength={NOTE_MAX}
+                  value={row.feedback}
+                  placeholder="Why it is wrong, e.g. Arrays have no size property - that is Set and Map."
+                  aria-label={`Blank ${index + 1}, why wrong answer ${j + 1} is wrong`}
+                  onChange={(e) => set(j, { feedback: e.target.value })}
+                />
+                {errorAt(path) && (
+                  <span className="field-hint text-error" role="alert">
+                    {errorAt(path)}
+                  </span>
+                )}
+                {!errorAt(path) && warnAt(path) && (
+                  <span className="field-hint text-warning" role="note">
+                    {warnAt(path)}
+                  </span>
+                )}
+              </div>
+              <RowButtons onRemove={() => onChange(rows.filter((_, k) => k !== j))} removeLabel={`Remove wrong answer ${j + 1}`} />
+            </div>
+          );
+        })}
+        {rows.length < MAX_WRONG_ANSWERS && (
+          <Button variant="ghost" size="sm" type="button" onClick={() => onChange([...rows, { answer: '', feedback: '' }])}>
+            <Plus size={13} /> Add a wrong answer
+          </Button>
+        )}
+      </div>
+    </Field>
+  );
+};
+
 /** Blanks are derived from the ___ markers in the snippet, so the count can never drift. */
-const BlanksEditor: React.FC<{ q: QuestionInput; patch: Patch; errorAt: ErrorAt }> = ({ q, patch, errorAt }) => {
+const BlanksEditor: React.FC<{ q: QuestionInput; patch: Patch; errorAt: ErrorAt; warnAt: ErrorAt }> = ({ q, patch, errorAt, warnAt }) => {
   const holes = (q.codeSnippet?.match(/___/g) ?? []).length;
   const blanks = q.blanks ?? [];
 
@@ -893,6 +1098,7 @@ const BlanksEditor: React.FC<{ q: QuestionInput; patch: Patch; errorAt: ErrorAt 
                 hint="Separated by commas. Leave empty and the learner types the answer; fill it and they pick from these - so the correct answer must be one of them, spelled the same way."
                 error={errorAt(`blanks.${i}.choices`)}
               />
+              <WrongAnswersEditor blank={b} index={i} onChange={(wrongAnswers) => setBlank(i, { wrongAnswers })} errorAt={errorAt} warnAt={warnAt} />
             </li>
           ))}
         </ol>
@@ -1278,7 +1484,7 @@ const HintsEditor: React.FC<{ value: string[]; onChange: (v: string[]) => void }
 /* ------------------------------------------------------- local validation */
 
 const KNOWN_PATHS =
-  /^(stageId|difficulty|xpReward|title|prompt|language|codeSnippet|explanation|options(\.\d+)?|correctIndex|correctIndices|blanks(\.\d+\.(answer|alternatives|choices))?|pseudocodeLines(\.\d+)?|starterCode|entryFunction|solutionCode|testCases(\.\d+\.(input|expected))?|examples(\.\d+\.(input|output))?|constraints)$/;
+  /^(stageId|difficulty|xpReward|title|prompt|language|codeSnippet|explanation|options(\.\d+)?|optionFeedback\.\d+|correctIndex|correctIndices|blanks(\.\d+\.(answer|alternatives|choices|wrongAnswers(\.\d+)?))?|pseudocodeLines(\.\d+)?|starterCode|entryFunction|solutionCode|testCases(\.\d+\.(input|expected))?|examples(\.\d+\.(input|output))?|constraints)$/;
 
 /**
  * The same rules the server applies first (server/custom-challenges.js), so

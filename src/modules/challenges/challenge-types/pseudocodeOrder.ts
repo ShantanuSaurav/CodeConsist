@@ -22,5 +22,7 @@ export const pseudocodeOrder: AnswerTypeDefinition = {
     const correct = c.pseudocodeLines ?? [];
     const given = (answer as string[]) ?? [];
     return given.map((line, i) => (line === correct[i] ? -1 : i)).filter((i) => i >= 0);
-  }
+  },
+  // The rows marked right or wrong are the feedback; there are no notes to write.
+  feedback: () => []
 };

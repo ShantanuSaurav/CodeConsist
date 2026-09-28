@@ -10,7 +10,7 @@
  *   without importing the challenges module.
  */
 import { createTypedEventBus, useBusEvent } from './bus';
-import type { Challenge, LearningMode, UserProfile } from '@/types';
+import type { ActivityContext, Challenge, LearningMode, UserProfile } from '@/types';
 
 export type AppEvents = {
   /* ---------------------------------------------------------- facts */
@@ -22,6 +22,16 @@ export type AppEvents = {
     hintsUsed: number;
     firstTime: boolean;
   };
+  /**
+   * A wrong answer was recorded (never a correct one). `final`: the answer
+   * was shown after it - the question goes back on the Practice schedule.
+   */
+  'challenge:missed': { challenge: Challenge; context: ActivityContext; final: boolean };
+  /**
+   * A Practice session reached its end screen: `correct` of its `total`
+   * questions answered right, and the review XP it paid (bonus included).
+   */
+  'review:completed': { correct: number; total: number; xp: number };
   /** Every lesson and the test of a stage are solved. */
   'stage:completed': { stageId: string };
   /**
@@ -56,6 +66,8 @@ export type AppEvents = {
   'practice:openUnit': { stageId: string; unitId: string };
   /** Open a stage's mandatory coding test. */
   'practice:openTest': { stageId: string };
+  /** Start a Practice session: mistakes, due questions and weak solves - of one stage, or all. */
+  'review:open': { stageId?: string };
   'account:openAuth': Record<string, never>;
   /**
    * Open the unlock modal. `stageId` highlights the stage that was locked

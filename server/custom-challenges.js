@@ -24,6 +24,10 @@ export const MAX_LINES = 20;
 export const MAX_BLANKS = 12;
 export const MAX_EXAMPLES = 6;
 export const MAX_CONSTRAINTS = 10;
+/** The longest one wrong-answer note may be (src/modules/challenges/schema.ts FEEDBACK_MAX). */
+export const FEEDBACK_MAX = 600;
+/** Wrong answers with a note, per blank. */
+export const MAX_WRONG_ANSWERS = 8;
 
 /**
  * Fields the console's wizard does not manage. When an authored question is
@@ -54,6 +58,50 @@ const trimmed = (v) => str(v).trim();
 const list = (v) => (Array.isArray(v) ? v : []);
 const strings = (v) => list(v).map(trimmed).filter(Boolean);
 const bool = (v) => v === true || v === 'true';
+const optionLetter = (i) => String.fromCharCode(65 + i);
+
+/**
+ * One note per option, lined up with the options: padded with '' or cut to
+ * their number, each trimmed. Undefined when no option has a note, so a
+ * question without notes carries no field at all.
+ */
+export function alignOptionFeedback(raw, optionCount) {
+  const given = list(raw).map(trimmed);
+  const notes = Array.from({ length: Math.max(0, optionCount) }, (_, i) => given[i] ?? '');
+  return notes.some(Boolean) ? notes : undefined;
+}
+
+/** A blank's wrong answers as the form sent them: only rows with both an answer and a note are kept. */
+export function wrongAnswerRows(raw) {
+  return list(raw)
+    .map((row) => ({ answer: trimmed(row?.answer), feedback: trimmed(row?.feedback) }))
+    .filter((row) => row.answer && row.feedback);
+}
+
+/**
+ * The friendly checks for one blank's wrong answers, in the form's words:
+ * a wrong answer the grader would accept, one a dropdown cannot produce, a
+ * repeat, a note that is too long, too many rows. `i` is the blank's index.
+ */
+export function wrongAnswerIssues(blank, i) {
+  const issues = [];
+  const rows = blank.wrongAnswers ?? [];
+  if (rows.length > MAX_WRONG_ANSWERS) issues.push({ path: `blanks.${i}.wrongAnswers`, message: `Blank ${i + 1}: at most ${MAX_WRONG_ANSWERS} wrong answers.` });
+  const accepted = [blank.answer, ...(blank.alternatives ?? [])].filter(Boolean);
+  const seen = [];
+  rows.forEach((row, j) => {
+    const path = `blanks.${i}.wrongAnswers.${j}`;
+    if (accepted.some((a) => blankMatches(row.answer, a))) {
+      issues.push({ path, message: `Blank ${i + 1}: "${row.answer}" is an accepted answer, so it cannot be a wrong answer.` });
+    } else if (blank.choices?.length && !blank.choices.some((c) => blankMatches(row.answer, c) || blankMatches(c, row.answer))) {
+      issues.push({ path, message: `Blank ${i + 1}: "${row.answer}" is not one of its dropdown choices, so no learner can give it.` });
+    }
+    if (seen.some((s) => blankMatches(row.answer, s))) issues.push({ path, message: `Blank ${i + 1}: "${row.answer}" is listed twice.` });
+    seen.push(row.answer);
+    if (row.feedback.length > FEEDBACK_MAX) issues.push({ path, message: `Blank ${i + 1}: the note for "${row.answer}" is too long (max ${FEEDBACK_MAX} characters).` });
+  });
+  return issues;
+}
 
 /**
  * Build the candidate challenge from a request body. Returns
@@ -137,6 +185,13 @@ export function normalizeChallengeInput(body, { stageIds, id, preserve }) {
         seen.add(o);
       });
       candidate.options = options;
+      // A note per option ("why a learner might pick this, and why it is
+      // wrong"), lined up with the options whatever the form sent.
+      const optionFeedback = alignOptionFeedback(b.optionFeedback, options.length);
+      optionFeedback?.forEach((note, i) =>
+        need(note.length <= FEEDBACK_MAX, `optionFeedback.${i}`, `The note on option ${optionLetter(i)} is too long (max ${FEEDBACK_MAX} characters).`)
+      );
+      if (optionFeedback) candidate.optionFeedback = optionFeedback;
       if (type === 'multi_select') {
         const correct = [...new Set(list(b.correctIndices).map(Number).filter((n) => Number.isInteger(n)))].sort((a, c) => a - c);
         need(correct.length >= 1, 'correctIndices', 'Tick every option that is correct (at least one).');
@@ -163,6 +218,8 @@ export function normalizeChallengeInput(body, { stageIds, id, preserve }) {
         if (alternatives.length) blank.alternatives = alternatives;
         const choices = strings(raw?.choices);
         if (choices.length) blank.choices = choices;
+        const wrongAnswers = wrongAnswerRows(raw?.wrongAnswers);
+        if (wrongAnswers.length) blank.wrongAnswers = wrongAnswers;
         return blank;
       });
       need(blanks.length === holes, 'blanks', `The code has ${holes} blank${holes === 1 ? '' : 's'} (___) but ${blanks.length} answer${blanks.length === 1 ? '' : 's'} - give exactly one answer per blank.`);
@@ -173,6 +230,7 @@ export function normalizeChallengeInput(body, { stageIds, id, preserve }) {
           need(blank.choices.some((c) => accepted.some((a) => blankMatches(c, a))), `blanks.${i}.choices`, `Blank ${i + 1}: the correct answer must be one of its dropdown choices (spelled the same way), or the blank can never be solved.`);
           need(blank.choices.length >= 2, `blanks.${i}.choices`, `Blank ${i + 1}: a dropdown needs at least two choices (leave it empty for a typed answer).`);
         }
+        issues.push(...wrongAnswerIssues(blank, i));
       });
       candidate.blanks = blanks;
       break;

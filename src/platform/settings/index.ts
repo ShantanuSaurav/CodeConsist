@@ -6,6 +6,7 @@
  */
 export type {
   AccessSettings,
+  AnswerChallengeType,
   BadgeFamily,
   BadgeMetric,
   BadgeSettings,
@@ -13,6 +14,8 @@ export type {
   CopySettings,
   CorsMode,
   DayRule,
+  FeedbackNoteContext,
+  FeedbackSettings,
   GateMode,
   GoalSettings,
   LevelSettings,
@@ -22,6 +25,7 @@ export type {
   RateRule,
   ReminderSettings,
   RetentionSettings,
+  ReviewSettings,
   Settings,
   SettingsIssue,
   SettingsOverrides,
@@ -35,11 +39,13 @@ export type {
 export { DEFAULT_SETTINGS } from './defaults';
 export {
   ADMIN_ONLY_SECTIONS,
+  ANSWER_KINDS,
   BADGE_METRICS,
   COPY_MAX_LENGTH,
   COPY_SAMPLE,
   DAY_RULES,
   GOAL_METRIC_LABELS,
+  NOTE_CONTEXTS,
   QUESTION_KINDS,
   RATE_LIMIT_BUCKETS,
   REMINDER_SAMPLE,
@@ -71,6 +77,15 @@ export {
 } from './merge';
 export type { PatchResult } from './merge';
 export { fillCopy, tokensIn } from './copy';
+export {
+  ANSWER_CHALLENGE_TYPES,
+  DEFAULT_FEEDBACK_SETTINGS,
+  effectiveAttemptBudget,
+  noteContextFor,
+  revealCap,
+  wrongAnswerNotesAllowed
+} from './budget';
+export type { BudgetSettings } from './budget';
 export { getCopy, getSettingsRevision, getSettingsSnapshot, setSettingsSnapshot, subscribe } from './store';
 export { useCopy } from './useCopy';
 export type { CopyVars } from './useCopy';

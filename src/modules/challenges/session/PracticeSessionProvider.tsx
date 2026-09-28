@@ -1,31 +1,84 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import type { Challenge, LearningMode, Stage, Unit } from '@/types';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { Challenge, LearningMode, ReviewItem, Stage, Unit } from '@/types';
 import { useSession } from '@/platform/session';
 import { isPremiumLocked, stageStatus, unitStates } from '@/platform/progress';
 import { eventBus, intents, useAppEvent } from '@/platform/events';
 import { useToast } from '@/ui';
+import { describeNextReview } from '@/platform/review';
+import { dropSolved, initialSlots, noteSlotLeft, reachableSlotIndex, requeue, slotKey, solvedThisRun } from './queue';
+import type { ItemHistory, Slot } from './queue';
 
-export type PracticeMode = 'lessons' | 'test';
+export type PracticeMode = 'lessons' | 'test' | 'review';
+
+/** The Practice session (review) open in the modal. */
+export interface ActiveReview {
+  sessionId: string;
+  items: ReviewItem[];
+  /** Built in this browser (a guest, or offline): priced here and again on the next sync. */
+  local: boolean;
+  /** "Practice this stage" - else the whole path. */
+  stageId: string | null;
+  /** Practice XP still payable today when it started. */
+  remainingToday: number;
+}
 
 export interface PracticeSessionType {
+  /** The stage being walked (a Practice session of one stage has it too; one over the whole path has none). */
   activeStage: Stage | null;
-  /** 'lessons' walks one unit's challenges; 'test' holds only the stage test. */
+  /** 'lessons' walks one unit's challenges; 'test' holds only the stage test; 'review' a Practice session. */
   activeMode: PracticeMode;
+  /** The open Practice session, in 'review' mode. */
+  activeReview: ActiveReview | null;
+  /** The modal is showing something (a stage, or a Practice session). */
+  isOpen: boolean;
   /** The unit being walked in lesson mode (null for the test, or a stage without units). */
   activeUnit: Unit | null;
   /** Where that unit sits in its stage: "Unit 2 of 4". */
   unitPosition: { index: number; count: number } | null;
   /** The unit after the active one, or null at the end of the stage. */
   nextUnit: Unit | null;
-  /** The challenges the open session is walking through: the unit's, or the test. */
+  /**
+   * The challenges the open session is walking through: the unit's, or the
+   * test - one per slot, so a question that came back after a miss is in it
+   * twice (see session/queue.ts).
+   */
   activeChallenges: Challenge[];
   activeChallengeIndex: number;
+  /** The run's slots, parallel to `activeChallenges`: which question, and which time round. */
+  slots: Slot[];
+  /** The slot on screen, or null when nothing is open. */
+  activeSlot: Slot | null;
+  /** Slots moved past after their answer was shown (`slotKey`s). */
+  deferred: ReadonlySet<string>;
+  /** Per question: the tries and hints of the slots already left, and whether its answer was shown. */
+  history: Readonly<Record<string, ItemHistory>>;
   /**
-   * The furthest lesson the learner may open: the first unsolved one (every
-   * lesson before it is solved), or the last lesson once all are solved.
-   * Lessons are taken in order - a later one cannot be opened or skipped to.
+   * The questions answered right in this run: in a Practice session, those
+   * answered right in it; in a unit, those solved since it began (a replayed
+   * unit's questions were solved on an earlier visit - see `solvedThisRun`).
+   */
+  solvedInRun: ReadonlySet<string>;
+  /**
+   * The furthest slot the learner may open: the first unsolved one that was
+   * not deferred (every slot before it is solved or was moved past), or the
+   * last slot once all are passed. Lessons are taken in order - a later one
+   * cannot be opened or skipped to; only a missed one can be stepped over,
+   * and it comes back at the end.
    */
   reachableIndex: number;
+  /**
+   * Leave the slot on screen without solving it: its tries, hints and
+   * whether its answer was shown go into the question's history, the slot
+   * is deferred, and - with `requeue` and rounds left - the question is
+   * added again at the end. Then moves on to the next slot - which the
+   * lesson order would not allow yet, as this one is unsolved. `outcome` is
+   * 'requeued' when the question comes back, 'kept' when it stays unsolved
+   * (no rounds left, or requeue off); `next` is the slot moved to, or null
+   * when this was the last one (the run is over).
+   */
+  deferCurrent: (left: { attempts: number; hints: number; revealed: boolean; requeue: boolean }) => { outcome: 'requeued' | 'kept'; next: number | null };
+  /** Start the run over (a replay): no extra slots, nothing deferred, no history. */
+  resetRun: () => void;
   /** The learner's Learn/Practice preference (owned by the platform session; re-exposed for the modal). */
   learningMode: LearningMode | null;
   setLearningMode: (mode: LearningMode) => void;
@@ -35,6 +88,16 @@ export interface PracticeSessionType {
   openUnit: (stageId: string, unitId: string) => void;
   /** Open a stage's mandatory test. Refuses (with a toast) until every lesson is solved. */
   openStageTest: (stageId: string) => void;
+  /**
+   * Start a Practice session (mistakes, due questions, weak solves) over the
+   * whole path or one stage. Nothing to practise: a toast says when to come
+   * back. Resolves once it is open (or refused).
+   */
+  openReview: (scope?: { stageId?: string }) => Promise<void>;
+  /** A question of the Practice session was answered right: a slot of it still to come is dropped. */
+  noteReviewResolved: (challengeId: string) => void;
+  /** The most times one question comes back in this run (the unit's rule, or the session's). */
+  maxRounds: number;
   closePractice: () => void;
   /** Move within the open unit. An index past `reachableIndex` is refused with a toast. */
   goToChallenge: (index: number) => void;
@@ -122,18 +185,41 @@ const PracticeSessionContext = createContext<PracticeSessionType | undefined>(un
  * from here.
  */
 export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { stages, learnerStages, stats, contentReady, learningMode, setLearningMode, reloadContent } = useSession();
+  const { stages, learnerStages, stats, contentReady, learningMode, setLearningMode, reloadContent, settings, startReview, challengeById, todayKey } = useSession();
   const { notify } = useToast();
 
   const [activeStageId, setActiveStageId] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<PracticeMode>('lessons');
   const [activeUnitId, setActiveUnitId] = useState<string | null>(null);
   const [activeChallengeIndex, setActiveChallengeIndex] = useState(0);
+  // The run's requeue state (session/queue.ts), in memory only: the slots
+  // added after a miss, the slots moved past, and what each question took.
+  const [extraSlots, setExtraSlots] = useState<Slot[]>([]);
+  const [deferred, setDeferred] = useState<ReadonlySet<string>>(() => new Set());
+  const [history, setHistory] = useState<Record<string, ItemHistory>>({});
+  // What was solved when the run began: a replayed unit's questions were
+  // solved long ago, so only a solve made in this run drops a requeued slot.
+  const [solvedBefore, setSolvedBefore] = useState<ReadonlySet<string>>(() => new Set());
+  // The Practice session, and the questions answered right in it (they were
+  // all solved long ago, so "solved in this run" is tracked here instead).
+  const [activeReview, setActiveReview] = useState<ActiveReview | null>(null);
+  const [reviewResolved, setReviewResolved] = useState<ReadonlySet<string>>(() => new Set());
+  const completedRef = useRef(stats.completedChallenges);
+  completedRef.current = stats.completedChallenges;
+
+  const resetRun = useCallback(() => {
+    setExtraSlots([]);
+    setDeferred(new Set());
+    setHistory({});
+    setSolvedBefore(new Set(completedRef.current));
+    setReviewResolved(new Set());
+  }, []);
 
   const activeStage = useMemo(
     () => (activeStageId ? stages.find((s) => s.id === activeStageId) ?? null : null),
     [activeStageId, stages]
   );
+  const isReview = activeMode === 'review' && activeReview !== null;
 
   const activeUnit = useMemo<Unit | null>(() => {
     if (!activeStage || activeMode === 'test' || !activeUnitId) return null;
@@ -149,13 +235,42 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
     [activeStage, activeUnit]
   );
 
-  const activeChallenges = useMemo<Challenge[]>(() => {
+  /** The questions of the run, once each, in order. */
+  const baseChallenges = useMemo<Challenge[]>(() => {
+    // A Practice session: its questions, as far as this bank still has them
+    // (a question hidden since, or now behind a lock, is left out).
+    if (isReview && activeReview) {
+      return activeReview.items.map((item) => challengeById(item.challengeId)).filter((c): c is Challenge => Boolean(c && !c.locked));
+    }
     if (!activeStage) return [];
     if (activeMode === 'test') return activeStage.test ? [activeStage.test] : [];
     // A unit regrouped away while it was open (an admin's change arrived)
     // falls back to the whole stage rather than an empty lesson.
     return activeUnit?.challenges ?? activeStage.challenges;
-  }, [activeStage, activeMode, activeUnit]);
+  }, [activeStage, activeMode, activeUnit, isReview, activeReview, challengeById]);
+
+  /**
+   * One slot per question, then the questions that came back after a miss.
+   * A slot still to come for a question solved in this run since - in its
+   * own place, or after going back to it - is left out (`dropSolved`). An
+   * extra slot for a question no longer in the run (regrouped away) is left
+   * out too.
+   */
+  const solvedInRun = useMemo<ReadonlySet<string>>(
+    () => (isReview ? reviewResolved : new Set(solvedThisRun(stats.completedChallenges, solvedBefore))),
+    [isReview, reviewResolved, stats.completedChallenges, solvedBefore]
+  );
+  const slots = useMemo<Slot[]>(() => {
+    const ids = new Set(baseChallenges.map((c) => c.id));
+    const all = [...initialSlots(baseChallenges), ...extraSlots.filter((s) => ids.has(s.challengeId))];
+    return dropSolved(all, activeChallengeIndex, [...solvedInRun]);
+  }, [baseChallenges, extraSlots, activeChallengeIndex, solvedInRun]);
+
+  const activeChallenges = useMemo<Challenge[]>(() => {
+    const byId = new Map(baseChallenges.map((c) => [c.id, c]));
+    return slots.map((s) => byId.get(s.challengeId)).filter((c): c is Challenge => Boolean(c));
+  }, [baseChallenges, slots]);
+  const activeSlot = slots[activeChallengeIndex] ?? null;
 
   /** Premium or stubbed: offer the unlock (and fetch the bank again when the two disagree). Returns true when it did. */
   const refusePremium = useCallback(
@@ -198,11 +313,13 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       if (landing.notice) notify(landing.notice, 'info');
 
       setActiveMode('lessons');
+      setActiveReview(null);
       setActiveStageId(target.id);
       setActiveUnitId(landing.unitId);
       setActiveChallengeIndex(landing.index);
+      resetRun();
     },
-    [stages, learnerStages, stats.completedChallenges, notify, contentReady, setLearningMode, refusePremium]
+    [stages, learnerStages, stats.completedChallenges, notify, contentReady, setLearningMode, refusePremium, resetRun]
   );
 
   const openUnit = useCallback(
@@ -231,12 +348,14 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       }
       const unit = units[at];
       setActiveMode('lessons');
+      setActiveReview(null);
       setActiveStageId(target.id);
       setActiveUnitId(unit.id);
       // A finished unit is a replay from its start; otherwise its first unsolved lesson.
       setActiveChallengeIndex(states[at].state === 'done' ? 0 : reachableLessonIndex(unit.challenges, stats.completedChallenges));
+      resetRun();
     },
-    [stages, stats.completedChallenges, notify, contentReady, refusePremium, openPractice]
+    [stages, stats.completedChallenges, notify, contentReady, refusePremium, openPractice, resetRun]
   );
 
   /**
@@ -261,19 +380,69 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
         return;
       }
       setActiveMode('test');
+      setActiveReview(null);
       setActiveStageId(target.id);
       setActiveUnitId(null);
       setActiveChallengeIndex(0);
+      resetRun();
     },
-    [stages, stats, notify, refusePremium]
+    [stages, stats, notify, refusePremium, resetRun]
   );
+
+  /**
+   * A Practice session: built by the server (signed in) or here (a guest,
+   * offline). No lesson order and no unit - the questions were all solved.
+   */
+  const openingReview = useRef(false);
+  const openReview = useCallback(
+    async (scope: { stageId?: string } = {}) => {
+      if (openingReview.current) return;
+      if (!contentReady) {
+        notify('Still loading the lessons - one moment.', 'info');
+        return;
+      }
+      openingReview.current = true;
+      try {
+        const started = await startReview(scope);
+        if (started.error) {
+          notify(started.error, 'info');
+          return;
+        }
+        // Only the questions this bank can show (a stale copy may lack one).
+        const items = started.items.filter((item) => {
+          const c = challengeById(item.challengeId);
+          return Boolean(c && !c.locked);
+        });
+        if (!started.sessionId || items.length === 0) {
+          const when = describeNextReview(started.nextDueDay, todayKey);
+          notify(when ? `Nothing to practise right now. Your next review is ${when}.` : 'Nothing to practise right now. Solve a few lessons first, then come back.', 'info');
+          return;
+        }
+        setActiveReview({ sessionId: started.sessionId, items, local: started.local, stageId: scope.stageId ?? null, remainingToday: started.remainingToday });
+        setActiveMode('review');
+        setActiveStageId(scope.stageId ?? null);
+        setActiveUnitId(null);
+        setActiveChallengeIndex(0);
+        resetRun();
+      } finally {
+        openingReview.current = false;
+      }
+    },
+    [contentReady, startReview, challengeById, todayKey, notify, resetRun]
+  );
+
+  const noteReviewResolved = useCallback((challengeId: string) => {
+    setReviewResolved((prev) => (prev.has(challengeId) ? prev : new Set([...prev, challengeId])));
+  }, []);
 
   const closePractice = useCallback(() => {
     setActiveStageId(null);
+    setActiveReview(null);
     setActiveMode('lessons');
     setActiveUnitId(null);
     setActiveChallengeIndex(0);
-  }, []);
+    resetRun();
+  }, [resetRun]);
 
   // The bank was fetched again while a stage was open (a sign-out, a revoked
   // purchase) and it is stubs now: there is nothing left to show, so close
@@ -285,10 +454,34 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
     }
   }, [activeStage, activeChallenges, activeChallengeIndex, closePractice]);
 
-  // The stage test is a single item, so the rule only applies to lessons.
+  // The stage test is a single item, so the rule only applies to lessons. A
+  // Practice session goes over solved questions: any of them, in any order.
   const reachableIndex = useMemo(
-    () => (activeMode === 'test' ? 0 : reachableLessonIndex(activeChallenges, stats.completedChallenges)),
-    [activeMode, activeChallenges, stats.completedChallenges]
+    () => (activeMode === 'test' ? 0 : isReview ? Math.max(0, slots.length - 1) : reachableSlotIndex(slots, stats.completedChallenges, deferred)),
+    [activeMode, isReview, slots, stats.completedChallenges, deferred]
+  );
+
+  // A missed question comes back once in a Practice session (review.requeueMissed).
+  const maxRounds = isReview ? (settings.review.requeueMissed ? 1 : 0) : settings.feedback.requeue.maxRounds;
+  const deferCurrent = useCallback<PracticeSessionType['deferCurrent']>(
+    (left) => {
+      const slot = slots[activeChallengeIndex];
+      if (!slot) return { outcome: 'kept', next: null };
+      const id = slot.challengeId;
+      const again = left.requeue ? requeue(slots, id, maxRounds, activeChallengeIndex) : null;
+      setHistory((prev) => {
+        const next = noteSlotLeft(prev[id], left);
+        return { ...prev, [id]: again ? { ...next, rounds: next.rounds + 1 } : next };
+      });
+      setDeferred((prev) => new Set([...prev, slotKey(slot)]));
+      // The slots beyond the first pass, as the requeue left them.
+      if (again) setExtraSlots(again.filter((s) => s.round > 0));
+      const after = again ?? slots;
+      const next = activeChallengeIndex + 1 < after.length ? activeChallengeIndex + 1 : null;
+      if (next !== null) setActiveChallengeIndex(next);
+      return { outcome: again ? 'requeued' : 'kept', next };
+    },
+    [slots, activeChallengeIndex, maxRounds]
   );
 
   const goToChallenge = useCallback(
@@ -306,43 +499,70 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
   useAppEvent('practice:open', useCallback((p) => openPractice(p.stageId, p.challengeId, p.mode), [openPractice]));
   useAppEvent('practice:openUnit', useCallback((p) => openUnit(p.stageId, p.unitId), [openUnit]));
   useAppEvent('practice:openTest', useCallback((p) => openStageTest(p.stageId), [openStageTest]));
+  useAppEvent('review:open', useCallback((p) => void openReview(p ?? {}), [openReview]));
   useAppEvent('progress:reset', closePractice);
 
   // Signing out mid-session closes the modal rather than leaving a stale stage open.
   useEffect(() => eventBus.on('auth:signedOut', closePractice), [closePractice]);
 
+  const isOpen = Boolean(activeStage) || isReview;
   const value = useMemo<PracticeSessionType>(
     () => ({
       activeStage,
       activeMode,
+      activeReview: isReview ? activeReview : null,
+      isOpen,
       activeUnit,
       unitPosition,
       nextUnit,
       activeChallenges,
       activeChallengeIndex,
+      slots,
+      activeSlot,
+      deferred,
+      history,
+      solvedInRun,
       reachableIndex,
+      deferCurrent,
+      resetRun,
       learningMode,
       setLearningMode,
       openPractice,
       openUnit,
       openStageTest,
+      openReview,
+      noteReviewResolved,
+      maxRounds,
       closePractice,
       goToChallenge
     }),
     [
       activeStage,
       activeMode,
+      isReview,
+      activeReview,
+      isOpen,
       activeUnit,
       unitPosition,
       nextUnit,
       activeChallenges,
       activeChallengeIndex,
+      slots,
+      activeSlot,
+      deferred,
+      history,
+      solvedInRun,
       reachableIndex,
+      deferCurrent,
+      resetRun,
       learningMode,
       setLearningMode,
       openPractice,
       openUnit,
       openStageTest,
+      openReview,
+      noteReviewResolved,
+      maxRounds,
       closePractice,
       goToChallenge
     ]
@@ -357,17 +577,29 @@ export function usePracticeSession(): PracticeSessionType {
     return {
       activeStage: null,
       activeMode: 'lessons',
+      activeReview: null,
+      isOpen: false,
       activeUnit: null,
       unitPosition: null,
       nextUnit: null,
       activeChallenges: [],
       activeChallengeIndex: 0,
+      slots: [],
+      activeSlot: null,
+      deferred: new Set(),
+      history: {},
+      solvedInRun: new Set(),
       reachableIndex: 0,
+      deferCurrent: () => ({ outcome: 'kept', next: null }),
+      resetRun: () => {},
       learningMode: null,
       setLearningMode: () => {},
       openPractice: (stageId, challengeId, mode) => intents.openPractice(stageId, challengeId, mode),
       openUnit: (stageId, unitId) => intents.openUnit(stageId, unitId),
       openStageTest: (stageId) => intents.openStageTest(stageId),
+      openReview: async (scope) => intents.openReview(scope ?? {}),
+      noteReviewResolved: () => {},
+      maxRounds: 0,
       closePractice: () => {},
       goToChallenge: () => {}
     };

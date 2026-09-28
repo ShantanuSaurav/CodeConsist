@@ -165,6 +165,20 @@ describe('GET /analytics/challenges/:id/misses', () => {
   });
 });
 
+describe('GET /analytics: practice', () => {
+  it('counts who practised in the last 7 days, and the Practice XP it paid', async () => {
+    const today = learningDeps.activity.todayFor(store.findUserById('u1'));
+    const at = new Date().toISOString();
+    const u1 = store.findUserById('u1');
+    learningDeps.activity.recordReview(u1, { challengeId: 'q-quiz', answered: true, xp: 5, day: today, at });
+    learningDeps.activity.recordReview(u1, { challengeId: null, answered: false, xp: 5, day: lib.addDays(today, -3), at });
+    // Eight days ago: outside the window.
+    learningDeps.activity.recordReview(store.findUserById('u2'), { challengeId: 'q-quiz', answered: true, xp: 2, day: lib.addDays(today, -8), at });
+    const { json } = await get('/analytics');
+    expect(json.practice).toEqual({ learners7d: 1, xp7d: 10 });
+  });
+});
+
 describe('GET /users/:id/learning', () => {
   it("shows one learner's zone, days and most-missed questions", async () => {
     const { status, json } = await get('/users/u1/learning');

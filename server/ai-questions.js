@@ -19,15 +19,20 @@ import { rankSimilar, textOf } from './ai.js';
 import {
   DIFFICULTIES,
   EXECUTABLE_LANGUAGES,
+  FEEDBACK_MAX,
   LANGUAGES,
   MAX_BLANKS,
+  MAX_WRONG_ANSWERS,
   MAX_CODE,
   MAX_CONSTRAINTS,
   MAX_EXAMPLES,
   MAX_LINES,
   MAX_OPTIONS,
   MAX_TEST_CASES,
-  MAX_TEXT
+  MAX_TEXT,
+  alignOptionFeedback,
+  blankMatches,
+  wrongAnswerRows
 } from './custom-challenges.js';
 
 /** A request the assistant cannot act on (bad kind, unknown stage) - answered with 400. */
@@ -101,6 +106,7 @@ export function emptyDraft(stageId) {
     tags: [],
     codeSnippet: '',
     options: ['', '', '', ''],
+    optionFeedback: [],
     correctIndex: undefined,
     correctIndices: [],
     blanks: [],
@@ -156,6 +162,10 @@ FIELDS EVERY KIND HAS
 - language: the language the question is about. The app can only RUN javascript, typescript and python, so code_runner and debug questions must use one of those; a frontend question is always html. Non-code kinds may also be about java, c, cpp, go, sql, css or bash.
 - Set every field that does not apply to the kind to null.
 
+WRONG-ANSWER NOTES (they teach; they must never hand over the answer)
+- optionFeedback (quiz, multi_select, output_prediction only): one note per option, in the SAME order as options. For a WRONG option: 1-2 plain sentences on why a learner might pick it and what makes it wrong - name the misconception, never name or quote the correct option. For a CORRECT option: one sentence on why it is right (it is shown only after the answer is revealed). Use "" for an option with nothing useful to say.
+- blanks[].wrongAnswers (fill_blank only): 0-3 answers a learner is likely to give by mistake, each { answer: exactly what they would type or pick - never an accepted answer, and one of the blank's choices when it has choices, feedback: 1-2 plain sentences on why it is wrong, never naming the right answer }.
+
 THE EIGHT KINDS
 1. quiz (multiple choice): options = 2-8 short, distinct, plausible answer texts with exactly ONE correct; correctIndex = the 0-based position of the correct option. codeSnippet is optional - a short program the question refers to. No correctIndices.
 2. multi_select (select all that apply): options = 2-8 texts; correctIndices = the 0-based positions of EVERY correct option (at least one, normally two or more). No correctIndex.
@@ -177,6 +187,11 @@ const KIND_MENU = KINDS.map((k, i) => `${i + 1}. ${k} - ${KIND_TITLE[k]}`).join(
 const STRING = { type: 'STRING' };
 const NSTRING = { type: 'STRING', nullable: true };
 const NSTRINGS = { type: 'ARRAY', items: STRING, nullable: true };
+const WRONG_ANSWERS = {
+  type: 'ARRAY',
+  nullable: true,
+  items: { type: 'OBJECT', properties: { answer: STRING, feedback: STRING }, required: ['answer', 'feedback'] }
+};
 
 const DRAFT_SCHEMA = {
   type: 'OBJECT',
@@ -193,10 +208,11 @@ const DRAFT_SCHEMA = {
     options: NSTRINGS,
     correctIndex: { type: 'INTEGER', nullable: true },
     correctIndices: { type: 'ARRAY', items: { type: 'INTEGER' }, nullable: true },
+    optionFeedback: NSTRINGS,
     blanks: {
       type: 'ARRAY',
       nullable: true,
-      items: { type: 'OBJECT', properties: { answer: STRING, alternatives: NSTRINGS, choices: NSTRINGS }, required: ['answer'] }
+      items: { type: 'OBJECT', properties: { answer: STRING, alternatives: NSTRINGS, choices: NSTRINGS, wrongAnswers: WRONG_ANSWERS }, required: ['answer'] }
     },
     pseudocodeLines: NSTRINGS,
     starterCode: NSTRING,
@@ -329,16 +345,21 @@ function coerceDraft(raw, { kind, preset, stageId, stage }) {
       const correct = int(r.correctIndex);
       draft.correctIndex = inRange(correct) ? correct : undefined;
     }
+    // One note per option, lined up with the options kept above.
+    draft.optionFeedback = alignOptionFeedback(list(r.optionFeedback).map((n) => trimmed(n, FEEDBACK_MAX)), draft.options.length) ?? [];
   }
 
   if (kind === 'fill_blank') {
     draft.blanks = list(r.blanks)
       .slice(0, MAX_BLANKS)
-      .map((b) => ({
-        answer: trimmed(b?.answer, SHORT),
-        alternatives: strings(b?.alternatives, 8, SHORT),
-        choices: strings(b?.choices, 8, SHORT)
-      }));
+      .map((b) => {
+        const blank = {
+          answer: trimmed(b?.answer, SHORT),
+          alternatives: strings(b?.alternatives, 8, SHORT),
+          choices: strings(b?.choices, 8, SHORT)
+        };
+        return { ...blank, wrongAnswers: usableWrongAnswers(blank, b?.wrongAnswers) };
+      });
   }
 
   if (kind === 'pseudocode_order') {
@@ -381,6 +402,118 @@ function languageFor(kind, preset, suggested, stageLanguage) {
   }
   if (LANGUAGES.includes(wanted)) return wanted;
   return LANGUAGES.includes(stageLanguage) ? stageLanguage : preset.language;
+}
+
+/**
+ * The wrong answers worth keeping for a blank: both fields filled, trimmed
+ * and capped, never an accepted answer, one of the choices on a dropdown,
+ * no repeats, at most MAX_WRONG_ANSWERS. Anything else is dropped silently -
+ * the admin reviews what is left before saving.
+ */
+function usableWrongAnswers(blank, raw) {
+  const accepted = [blank.answer, ...(blank.alternatives ?? [])].filter(Boolean);
+  const kept = [];
+  for (const row of wrongAnswerRows(list(raw).map((w) => ({ answer: trimmed(w?.answer, SHORT), feedback: trimmed(w?.feedback, FEEDBACK_MAX) })))) {
+    if (accepted.some((a) => blankMatches(row.answer, a))) continue;
+    if (blank.choices?.length && !blank.choices.some((c) => blankMatches(row.answer, c) || blankMatches(c, row.answer))) continue;
+    if (kept.some((k) => blankMatches(row.answer, k.answer))) continue;
+    kept.push(row);
+    if (kept.length === MAX_WRONG_ANSWERS) break;
+  }
+  return kept;
+}
+
+/* ------------------------------------------------------ feedback drafts */
+
+/** The kinds that take wrong-answer notes: a note per option, or wrong answers per blank. */
+export const FEEDBACK_KINDS = ['quiz', 'output_prediction', 'multi_select', 'fill_blank'];
+/** Questions per "Draft with Gemini" request, and per Gemini call. */
+export const MAX_FEEDBACK_IDS = 10;
+export const FEEDBACK_BATCH = 5;
+
+const FEEDBACK_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    items: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          id: STRING,
+          optionFeedback: NSTRINGS,
+          blanks: { type: 'ARRAY', nullable: true, items: { type: 'OBJECT', properties: { wrongAnswers: WRONG_ANSWERS } } }
+        },
+        required: ['id']
+      }
+    }
+  },
+  required: ['items']
+};
+
+const FEEDBACK_SYSTEM = `You write wrong-answer notes for practice questions in CodeConsist, an app that teaches programming through short interactive lessons. A learner who picks a wrong option (or types a wrong answer into a blank) reads the note for THAT answer, while they still get another try - so a note explains the mistake and must never give the right answer away.
+
+For each question you are given its id, kind, prompt, code, and its options (the correct ones marked) or its blanks (with the accepted answers and any dropdown choices).
+
+- Option questions (quiz, multi_select, output_prediction): optionFeedback = one note per option, in the SAME order as the options. A WRONG option's note: 1-2 plain sentences on why a learner might pick it and what makes it wrong - name the misconception (for output questions, trace what the code really does at that point). Never name, quote or hint at which option is correct. A CORRECT option's note: one sentence on why it is right - it is shown only after the answer is revealed. Use "" when there is nothing useful to say.
+- Fill-in-the-blank questions: blanks = one entry per blank, in order, each { wrongAnswers: 0-3 answers a learner is likely to give by mistake, each { answer: exactly what they would type or pick - never an accepted answer, and one of the blank's choices when it has choices, feedback: 1-2 plain sentences on why it is wrong, never naming the right answer } }.
+- Plain, friendly, second person, no emoji, no markdown. Answer with the JSON object only, one item per question, by id.`;
+
+/** One question as the notes prompt shows it: enough to write the notes, correct answers marked. */
+function feedbackQuestionText(c) {
+  const lines = [`id: ${c.id}`, `kind: ${c.type} | language: ${c.language ?? '?'}`, `title: ${clip(c.title, TITLE_MAX)}`, `prompt: ${clip(c.prompt, 600)}`];
+  if (c.codeSnippet) lines.push(`code:\n${str(c.codeSnippet, 2000)}`);
+  if (Array.isArray(c.options)) {
+    const correct = new Set(c.type === 'multi_select' ? c.correctIndices ?? [] : [c.correctIndex]);
+    c.options.forEach((o, i) => lines.push(`option ${i + 1}${correct.has(i) ? ' (CORRECT)' : ''}: ${clip(o, 400)}`));
+  }
+  (c.blanks ?? []).forEach((b, i) => {
+    const accepted = [b.answer, ...(b.alternatives ?? [])].map((a) => JSON.stringify(a)).join(', ');
+    lines.push(`blank ${i + 1}: accepted ${accepted}${b.choices?.length ? `; dropdown choices ${b.choices.map((ch) => JSON.stringify(ch)).join(', ')}` : '; typed'}`);
+  });
+  return lines.join('\n');
+}
+
+/**
+ * Gemini's notes for up to MAX_FEEDBACK_IDS questions, FEEDBACK_BATCH per
+ * call. Each draft is coerced onto its question - the notes lined up with
+ * its options, only usable wrong answers per blank - and `leaks` (the shared
+ * `feedbackLeaks` rule) flags any note that names the answer. Nothing is
+ * saved. A question Gemini skipped comes back with no notes and `empty`.
+ */
+export async function draftFeedback({ ai, challenges, leaks }) {
+  const questions = list(challenges).filter((c) => c && typeof c === 'object' && FEEDBACK_KINDS.includes(c.type));
+  if (!questions.length) throw new AiInputError('Pick at least one question with options or blanks.');
+  if (questions.length > MAX_FEEDBACK_IDS) throw new AiInputError(`At most ${MAX_FEEDBACK_IDS} questions per draft.`);
+
+  const answered = new Map();
+  for (let i = 0; i < questions.length; i += FEEDBACK_BATCH) {
+    const batch = questions.slice(i, i + FEEDBACK_BATCH);
+    const user = `Write the notes for these ${batch.length} question${batch.length === 1 ? '' : 's'}:\n\n${batch.map(feedbackQuestionText).join('\n\n')}`;
+    const raw = await ai.generateJson({ system: FEEDBACK_SYSTEM, user, schema: FEEDBACK_SCHEMA, temperature: 0.4 });
+    for (const item of list(raw?.items)) {
+      const id = trimmed(item?.id, 200);
+      if (id && !answered.has(id) && batch.some((c) => c.id === id)) answered.set(id, item);
+    }
+  }
+
+  const drafts = questions.map((c) => {
+    const item = answered.get(c.id);
+    const draft = { id: c.id };
+    const withNotes = { ...c };
+    if (c.type === 'fill_blank') {
+      const blanks = list(item?.blanks);
+      draft.blankFeedback = (c.blanks ?? []).map((blank, i) => ({ wrongAnswers: usableWrongAnswers(blank, blanks[i]?.wrongAnswers) }));
+      withNotes.blanks = (c.blanks ?? []).map((blank, i) => ({ ...blank, wrongAnswers: draft.blankFeedback[i].wrongAnswers }));
+    } else {
+      draft.optionFeedback = (c.options ?? []).map((_, i) => trimmed(list(item?.optionFeedback)[i], FEEDBACK_MAX));
+      withNotes.optionFeedback = draft.optionFeedback;
+    }
+    const empty = c.type === 'fill_blank' ? draft.blankFeedback.every((b) => b.wrongAnswers.length === 0) : draft.optionFeedback.every((n) => !n);
+    draft.leaks = typeof leaks === 'function' ? [...leaks(withNotes)] : [];
+    if (empty) draft.empty = true;
+    return draft;
+  });
+  return { drafts };
 }
 
 /* ---------------------------------------------------------- duplicates */

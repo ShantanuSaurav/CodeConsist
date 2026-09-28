@@ -37,8 +37,13 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
  *       into units), `users[].preferences` in its full shape (every field
  *       null until chosen), and - lazily, on first read - progress
  *       `unitsCompleted`.
+ *   5 - `conceptCards` (an admin's teaching cards) and `reviewSessions`
+ *       (each learner's open Practice session), plus - lazily, on first
+ *       read - progress `review`. `contentOverrides.challenges[id]` may
+ *       now carry `optionFeedback`, `blankFeedback` and `feedbackBasis`
+ *       (wrong-answer notes on a built-in question - server/content.js).
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const EMPTY = {
   version: SCHEMA_VERSION,
@@ -129,7 +134,20 @@ const EMPTY = {
    * itself is shown to the admin once and then exists nowhere on this server
    * (server/password-reset.js). Deleted with the account.
    */
-  passwordResets: {}
+  passwordResets: {},
+  /**
+   * Teaching cards an administrator wrote or edited, keyed by card key:
+   * `{ key, concept, anchor, hidden?, createdAt, updatedAt }`. A key equal to
+   * a built-in concept's id replaces that concept; any other key is a card
+   * the admin created (server/concept-cards.js).
+   */
+  conceptCards: {},
+  /**
+   * Each learner's one open Practice (review) session, keyed by user id:
+   * `{ id, createdAt, stageId?, items, answered, bonusPaid }`. A new session
+   * replaces the old one. Deleted with the account.
+   */
+  reviewSessions: {}
 };
 
 let state = null;
@@ -251,6 +269,8 @@ function migrate(loaded) {
   next.pricing = plainObject(loaded.pricing);
   next.drafts = plainObject(loaded.drafts);
   next.passwordResets = plainObject(loaded.passwordResets);
+  next.conceptCards = plainObject(loaded.conceptCards);
+  next.reviewSessions = plainObject(loaded.reviewSessions);
   next.users = (loaded.users ?? []).map((u) => {
     // `role` was a field from the old, retired admin-via-user-account
     // system. It is no longer read anywhere - administrators now live
@@ -416,6 +436,8 @@ export function deleteUser(id) {
   deleteActivity(id);
   // And any reset link issued for them - it names the account.
   deletePasswordResetsForUser(id);
+  // And their open Practice session.
+  deleteReviewSession(id);
 
   forgetBillingIdentity(db(), id);
 
@@ -595,7 +617,14 @@ export const EMPTY_PROGRESS = {
    * unit's first completion was seen and what bonus it paid. Never what makes
    * a unit "done" (that is derived from `completedChallenges`).
    */
-  unitsCompleted: {}
+  unitsCompleted: {},
+  /**
+   * `{ [challengeId]: { box, due, last?, paid? } }` - the Practice (review)
+   * schedule, written only for an item that was reviewed or revealed. An item
+   * without an entry has a state derived from its solve
+   * (src/platform/review/schedule.ts `reviewStateOf`).
+   */
+  review: {}
 };
 
 /**
@@ -606,7 +635,12 @@ export const EMPTY_PROGRESS = {
  */
 export function normalizeProgress(row) {
   const src = plainObject(row);
-  return { ...clone(EMPTY_PROGRESS), ...src, unitsCompleted: { ...plainObject(src.unitsCompleted) } };
+  return {
+    ...clone(EMPTY_PROGRESS),
+    ...src,
+    unitsCompleted: { ...plainObject(src.unitsCompleted) },
+    review: { ...plainObject(src.review) }
+  };
 }
 
 export function getProgress(userId) {
@@ -738,6 +772,29 @@ export function deleteActivity(userId) {
   const id = String(userId ?? '');
   if (!Object.hasOwn(db().activity, id)) return false;
   delete db().activity[id];
+  persist();
+  return true;
+}
+
+/* --------------------------------------------------------- review sessions */
+
+/** A learner's open Practice session, or null. Own-property lookup only. */
+export function getReviewSession(userId) {
+  return ownEntry(db().reviewSessions, String(userId ?? ''));
+}
+
+/** Store a learner's Practice session, replacing the one they had. */
+export function putReviewSession(userId, record) {
+  defineEntry(db().reviewSessions, String(userId), record);
+  persist();
+  return record;
+}
+
+export function deleteReviewSession(userId) {
+  const sessions = db().reviewSessions;
+  const id = String(userId ?? '');
+  if (!sessions || !Object.hasOwn(sessions, id)) return false;
+  delete sessions[id];
   persist();
   return true;
 }
@@ -912,6 +969,37 @@ export function deleteCustomChallenge(id) {
   if (!existed) return false;
   delete db().customChallenges[id];
   if (Object.hasOwn(db().contentOverrides.challenges, id)) delete db().contentOverrides.challenges[id];
+  persist();
+  return true;
+}
+
+/* ------------------------------------------------------------ concept cards */
+
+/** Every teaching card an administrator wrote or edited (server/concept-cards.js), in creation order. */
+export function allConceptCards() {
+  return Object.values(plainObject(db().conceptCards));
+}
+
+/** One card by key, or null. Own-property lookup only. */
+export function getConceptCard(key) {
+  return ownEntry(db().conceptCards, String(key ?? '')) ?? null;
+}
+
+/** Insert or replace one card (validated by the caller); keeps its creation time. */
+export function putConceptCard(record) {
+  const existing = getConceptCard(record.key);
+  const now = new Date().toISOString();
+  const saved = { ...record, createdAt: existing?.createdAt ?? record.createdAt ?? now, updatedAt: now };
+  defineEntry(db().conceptCards, String(record.key), saved);
+  persist();
+  return saved;
+}
+
+export function deleteConceptCard(key) {
+  const cards = db().conceptCards;
+  const id = String(key ?? '');
+  if (!cards || !Object.hasOwn(cards, id)) return false;
+  delete cards[id];
   persist();
   return true;
 }

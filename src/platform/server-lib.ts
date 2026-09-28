@@ -13,10 +13,25 @@ export * from './settings/meta';
 export * from './settings/merge';
 export * from './settings/copy';
 export * from './settings/schema';
+export * from './settings/budget';
 export * from './time/days';
 export * from './activity/log';
 export * from './grading-engine/misses';
 export { gradeAnswer } from './grading-engine/grading';
+// Wrong-answer notes and the attempt budget (Phase 4): the admin's leak
+// warnings, and the score cap after a reveal, use the rules the practice
+// modal and the content lint use.
+export {
+  blankNoteKey,
+  blankNotes,
+  blankNoteLeaks,
+  feedbackCoverage,
+  feedbackLeaks,
+  normalizeForLeak,
+  optionNoteKey,
+  optionNoteLeaks,
+  optionNotes
+} from './grading-engine/feedback';
 export * from './xp-leveling/leveling';
 export { DEFAULT_RANKS, rankTitle, nextRankLevel } from './xp-leveling/insights';
 // Units and the perfect-unit bonus (Phase 2): the server groups a stage's
@@ -26,3 +41,6 @@ export * from './xp-leveling/rewards';
 // Daily goal, streak, freezes and repair (Phase 3): the server settles and
 // counts a learner's streak with the same engine the browser runs.
 export * from './habits';
+// Practice sessions (Phase 4): the review schedule, the session builder and
+// what an answer pays - the same code a guest's session runs in the browser.
+export * from './review';

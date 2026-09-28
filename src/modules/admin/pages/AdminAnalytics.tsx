@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AnalyticsSummary, ChallengeMisses, MostMissedRow, adminApi } from '../services/adminApi';
-import { AdminPageHeader, Badge, Card, Drawer, EmptyState, ErrorText, Spinner, Table } from '../components/ui';
+import { Pencil } from 'lucide-react';
+import { AdminChallengeRow, AdminStageRow, AnalyticsSummary, ChallengeMisses, MostMissedRow, adminApi } from '../services/adminApi';
+import { AdminPageHeader, Badge, Button, Card, Drawer, EmptyState, ErrorText, Spinner, Table } from '../components/ui';
+import { QuestionWizard } from '../components/QuestionWizard';
 import { ProgressBar } from '@/ui';
 
 const LANGUAGE_LABEL: Record<string, string> = { javascript: 'JavaScript', python: 'Python', c: 'C', cpp: 'C++' };
@@ -119,6 +121,9 @@ export const AdminAnalytics: React.FC = () => {
   const [data, setData] = useState<AnalyticsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<MostMissedRow | null>(null);
+  // "Edit feedback": the question wizard, on the question a row names.
+  const [editing, setEditing] = useState<{ row: AdminChallengeRow; stages: AdminStageRow[] } | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
     adminApi
@@ -126,6 +131,18 @@ export const AdminAnalytics: React.FC = () => {
       .then(setData)
       .catch((err) => setError(err.message ?? 'Failed to load analytics.'));
   }, []);
+
+  const editFeedback = async (m: MostMissedRow) => {
+    setEditError(null);
+    try {
+      const [{ challenges }, { stages }] = await Promise.all([adminApi.challenges(m.stageId), adminApi.stages()]);
+      const row = challenges.find((c) => c.id === m.id);
+      if (!row) throw new Error('That question is no longer in the bank.');
+      setEditing({ row, stages });
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Could not open the question.');
+    }
+  };
 
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!data) return <Spinner label="Loading analytics…" />;
@@ -153,6 +170,31 @@ export const AdminAnalytics: React.FC = () => {
               })}
             </div>
           )}
+        </Card>
+
+        <Card>
+          <h2 className="text-sm font-medium text-fg mb-2">Practice (7 days)</h2>
+          {data.practice ? (
+            <div className="flex flex-wrap gap-8">
+              <div>
+                <div className="text-2xl font-semibold text-fg tabular-nums">{data.practice.learners7d}</div>
+                <div className="text-xs text-fg-muted">learners practised</div>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold text-fg tabular-nums">{data.practice.xp7d.toLocaleString()}</div>
+                <div className="text-xs text-fg-muted">Practice XP paid</div>
+              </div>
+            </div>
+          ) : (
+            <EmptyState>Practice numbers appear once the server has started fully.</EmptyState>
+          )}
+          <p className="text-xs text-fg-muted mt-3">
+            Sessions over learners' mistakes and questions due for review. Their rules are under{' '}
+            <Link to="/admin/rules/review" className="underline">
+              Rules &amp; rewards › Practice sessions
+            </Link>
+            .
+          </p>
         </Card>
 
         <Card>
@@ -186,6 +228,11 @@ export const AdminAnalytics: React.FC = () => {
             </p>
           </div>
         </div>
+        {editError && (
+          <div className="px-4 pt-3">
+            <ErrorText>{editError}</ErrorText>
+          </div>
+        )}
         {data.mostMissed.length === 0 ? (
           <EmptyState>Not enough wrong answers yet to surface anything.</EmptyState>
         ) : (
@@ -197,6 +244,9 @@ export const AdminAnalytics: React.FC = () => {
                 <th>Miss rate</th>
                 <th>Wrong answers</th>
                 <th>Most common wrong answer</th>
+                <th>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -224,6 +274,21 @@ export const AdminAnalytics: React.FC = () => {
                     {m.revealed > 0 && <span className="text-xs text-fg-muted"> · {m.revealed} shown</span>}
                   </td>
                   <td className="text-fg-secondary truncate max-w-xs">{m.topWrong[0]?.label ?? '—'}</td>
+                  <td className="text-right">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        // The row opens the wrong answers; this opens the question itself.
+                        e.stopPropagation();
+                        void editFeedback(m);
+                      }}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      aria-label={`Edit the feedback on ${m.title}`}
+                    >
+                      <Pencil size={13} /> Edit feedback
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -232,6 +297,16 @@ export const AdminAnalytics: React.FC = () => {
       </Card>
 
       <MissesDrawer row={open} onClose={() => setOpen(null)} />
+
+      {editing && (
+        <QuestionWizard
+          stages={editing.stages}
+          stageId={editing.row.stageId}
+          existing={editing.row}
+          onClose={() => setEditing(null)}
+          onSaved={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 };

@@ -181,7 +181,7 @@ export function retryMinutes(retryAfterSeconds) {
  * (`message(minutes)`, the admin-editable `copy.limits.tooMany`), a machine
  * reason, the wait in seconds, and a `Retry-After` header.
  */
-export function sendTooMany(res, retryAfterSeconds, message = (minutes) => `Too many attempts - try again in ${minutes} minutes.`) {
+export function sendTooMany(res, retryAfterSeconds, message = (minutes) => `Too many attempts - wait ${minutes} min and try again.`) {
   const seconds = Math.max(1, Math.ceil(Number(retryAfterSeconds) || 1));
   res.set('Retry-After', String(seconds));
   return res.status(429).json({ error: message(retryMinutes(seconds)), reason: 'rate-limited', retryAfterSeconds: seconds });

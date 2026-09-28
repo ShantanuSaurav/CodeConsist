@@ -10,6 +10,8 @@ interface ReadingPanelProps {
   challenge: Challenge;
   /** Called before navigating to the full article, so the modal can close. */
   onNavigate?: () => void;
+  /** Start open (Learn mode opens the reading, `feedback.learnOpensReading`). */
+  defaultOpen?: boolean;
 }
 
 /**
@@ -17,12 +19,13 @@ interface ReadingPanelProps {
  * challenge is testing, collapsible above the prompt. Reading is never
  * penalised; it is the lesson, and the challenge is the exercise.
  */
-export const ReadingPanel: React.FC<ReadingPanelProps> = ({ challenge, onNavigate }) => {
+export const ReadingPanel: React.FC<ReadingPanelProps> = ({ challenge, onNavigate, defaultOpen = false }) => {
   const match = sectionFor(challenge);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
 
-  // A new challenge collapses the panel so the prompt is what you see first.
-  useEffect(() => setOpen(false), [challenge.id]);
+  // A new challenge starts the panel as the mode asks: collapsed, so the
+  // prompt is what you see first - or, in Learn mode, open on the reading.
+  useEffect(() => setOpen(defaultOpen), [challenge.id, defaultOpen]);
 
   if (!match) return null;
   const { article, section } = match;

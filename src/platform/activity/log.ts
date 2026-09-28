@@ -99,7 +99,22 @@ export function emptyActivityLog(): ActivityLog {
 }
 
 export function emptyDay(source: DayRecord['source'] = 'live'): DayRecord {
-  return { xp: 0, lessons: 0, tests: 0, reSolves: 0, mistakes: 0, units: 0, perfectBonusXp: 0, goal: null, goalBonusXp: 0, firstAt: null, lastAt: null, source };
+  return {
+    xp: 0,
+    lessons: 0,
+    tests: 0,
+    reSolves: 0,
+    mistakes: 0,
+    units: 0,
+    perfectBonusXp: 0,
+    goal: null,
+    goalBonusXp: 0,
+    reviews: 0,
+    reviewXp: 0,
+    firstAt: null,
+    lastAt: null,
+    source
+  };
 }
 
 const GOAL_METRICS: readonly string[] = ['xp', 'lessons', 'units'];
@@ -128,6 +143,8 @@ export function normalizeDay(raw: unknown): DayRecord {
     perfectBonusXp: count(src.perfectBonusXp),
     goal: normalizeDayGoal(src.goal),
     goalBonusXp: count(src.goalBonusXp),
+    reviews: count(src.reviews),
+    reviewXp: count(src.reviewXp),
     firstAt: isoOrNull(src.firstAt),
     lastAt: isoOrNull(src.lastAt),
     source
@@ -275,6 +292,21 @@ export type ActivityEvent =
     }
   | {
       /**
+       * A Practice-session answer (src/platform/review): `answered` counts a
+       * right answer in the day's `reviews`; its XP (and a session bonus,
+       * which has no question) goes in `reviewXp` and `xp` - the daily
+       * goal's XP metric counts it. A clean answer closes the question's
+       * open mistake (`misses[id].open`).
+       */
+      type: 'review';
+      challengeId: string | null;
+      answered: boolean;
+      xp: number;
+      /** First try, no hint, answer not shown: the mistake is fixed. */
+      clean?: boolean;
+    }
+  | {
+      /**
        * The daily goal was met (src/platform/habits): its snapshot goes on the
        * day - once; a day already met keeps its first snapshot - and the goal
        * bonus is counted in `goalBonusXp`, never in `xp` (which the goal's own
@@ -338,6 +370,15 @@ export function applyActivityEvent(log: ActivityLog, event: ActivityEvent, ctx: 
     };
     if (event.synced === false) entry.synced = false;
     next.missLog = capLog([...next.missLog, entry].sort(byTime), rules.missLogCap);
+  } else if (event.type === 'review') {
+    if (event.answered) row.reviews += 1;
+    const xp = count(event.xp);
+    row.reviewXp += xp;
+    row.xp += xp;
+    const id = event.challengeId;
+    if (event.clean && id && hasOwn(next.misses, id) && next.misses[id].open) {
+      define(next.misses, id, { ...next.misses[id], keys: { ...next.misses[id].keys }, open: false });
+    }
   } else if (event.type === 'goal') {
     // Once per day: a day that is already met keeps its first snapshot and bonus.
     const goal = normalizeDayGoal(event.goal);
@@ -518,6 +559,9 @@ function mergeSummaries(a: MissSummary, b: MissSummary, today: string): MissSumm
  * once, so a retried or repeated sign-in never double counts.
  *   - XP, lessons and tests come only from `credits` (priced by the server).
  *   - Re-solves and mistakes take the larger of the two per day.
+ *   - Practice answers (`reviews`) and review XP are never read: the daily
+ *     goal counts `reviews`, so both come only from the review log the
+ *     merge prices itself (server/review-routes.js `mergeFor`).
  *   - Miss summaries: count max, first time min, last time max, through
  *     `acceptMiss`.
  *   - The miss log is a union keyed by (challenge, time), through `acceptEntry`.

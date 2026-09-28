@@ -20,6 +20,8 @@ vi.mock('../db.js', () => {
     getContentOverrides: () => ({ stages: {}, challenges: {}, languages: {} }),
     allCustomChallenges: () => [],
     getCustomChallenge: () => null,
+    allConceptCards: () => [],
+    getConceptCard: () => null,
     appendAudit: (entry) => {
       auditLog.push(entry);
       return entry;

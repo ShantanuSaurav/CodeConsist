@@ -32,7 +32,8 @@ import {
   applyLearnerOverrides,
   applyChallengeOverride,
   allChallenges,
-  lockedStub
+  lockedStub,
+  setUnitFirstLessonResolver
 } from './content.js';
 import { compileTsModule } from './build.js';
 import { createAdminRouter } from './admin.js';
@@ -59,6 +60,7 @@ import { createProgressRouter, habitsForUser, recalcForUser } from './progress-r
 import { createUnitsService } from './units.js';
 import { createHabitsService } from './habits.js';
 import { createPreferencesRouter, publicPreferences } from './preferences-routes.js';
+import { createReviewRouter, createReviewService } from './review-routes.js';
 import {
   JUDGE0_LANGUAGE_IDS,
   JUDGE0_STDIN_LIMIT,
@@ -124,7 +126,7 @@ let gradingPath;
  * question assistant. Filled in by bootstrap() below; the router reads them
  * per request, so mounting it before bootstrap is fine.
  */
-const adminDeps = { validateChallenge: null, runSolution: null, ai: null, billing: billingDeps, learning: null };
+const adminDeps = { validateChallenge: null, validateConcept: null, runSolution: null, ai: null, billing: billingDeps, learning: null };
 
 /**
  * The learning-loop services, filled in by bootstrap():
@@ -138,10 +140,13 @@ const adminDeps = { validateChallenge: null, runSolution: null, ai: null, billin
  *   habits   - server/habits.js: streaks, freezes, repair and the daily goal
  *              (the same engine the browser runs), for the solve and merge
  *              pipelines, the leaderboard and the admin's user drawer;
+ *   review   - server/review-routes.js: Practice sessions, the review
+ *              schedule's "answer shown" reset, the merge's review step and
+ *              the admin's Practice numbers;
  *   runtimeInfo - which engines this server has, for the admin's rules page.
  * Routers read it per request, so mounting them before bootstrap is fine.
  */
-const learningDeps = { lib: null, settings: null, activity: null, units: null, habits: null, runtimeInfo: null };
+const learningDeps = { lib: null, settings: null, activity: null, units: null, habits: null, review: null, runtimeInfo: null };
 adminDeps.learning = learningDeps;
 
 /**
@@ -188,7 +193,7 @@ adminDeps.access = { limiter, slots, cors: corsPolicy, hops: trustedHops, booted
 
 /** The friendly 429 sentence (`copy.limits.tooMany`). */
 function tooManyMessage(minutes) {
-  return copyText('limits.tooMany', { minutes }, `Too many attempts - try again in ${minutes} minutes.`);
+  return copyText('limits.tooMany', { minutes }, `Too many attempts - wait ${minutes} min and try again.`);
 }
 
 /** The live rule for a bucket (`access.rateLimit.<key>`), or null (no limit) before bootstrap. */
@@ -252,6 +257,17 @@ async function bootstrap() {
     settings: learningDeps.settings,
     activity: learningDeps.activity
   });
+  learningDeps.review = createReviewService({
+    lib: learningDeps.lib,
+    store,
+    settings: learningDeps.settings,
+    activity: learningDeps.activity,
+    habits: learningDeps.habits,
+    getChallengeMerged
+  });
+  // A teaching card anchored to "the start of a unit" lands on that unit's
+  // first lesson, as the units service groups the stage (server/content.js).
+  setUnitFirstLessonResolver((unitId) => learningDeps.units?.firstLessonOf(unitId) ?? null);
   learningDeps.runtimeInfo = () => ({
     pythonVerifiable: Boolean(findPython()),
     judge0Languages: JUDGE0_CONFIGURED ? Object.keys(JUDGE0_LANGUAGE_IDS) : []
@@ -261,11 +277,17 @@ async function bootstrap() {
   // authored TypeScript is validated with, so a question written in the
   // browser can never be something the renderer or grader would choke on.
   const schemaPath = await compileTsModule(path.join(ROOT, 'src', 'modules', 'challenges', 'schema.ts'), 'challenge-schema.mjs');
-  const { ChallengeSchema } = await import(pathToFileURL(schemaPath).href);
+  const { ChallengeSchema, ConceptSchema } = await import(pathToFileURL(schemaPath).href);
   adminDeps.validateChallenge = (candidate) => {
     const result = ChallengeSchema.safeParse(candidate);
     if (result.success) return { ok: true, challenge: result.data, issues: [] };
     return { ok: false, challenge: null, issues: result.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) };
+  };
+  // Teaching cards are checked against the same schema an authored concept is.
+  adminDeps.validateConcept = (candidate) => {
+    const result = ConceptSchema.safeParse(candidate);
+    if (result.success) return { ok: true, concept: result.data, issues: [] };
+    return { ok: false, concept: null, issues: result.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) };
   };
   adminDeps.runSolution = runSolutionAgainstTests;
 
@@ -864,7 +886,8 @@ async function verifySubmission(challenge, body) {
  * list the client counts against.
  */
 function completedStagesFor(completedIds) {
-  const merged = applyLearnerOverrides(contentSnapshot(), store.getContentOverrides());
+  // Which lessons exist, not what they teach: the teaching cards are not needed.
+  const merged = applyLearnerOverrides(contentSnapshot(), store.getContentOverrides(), { concepts: false });
   const solved = new Set(completedIds);
   return merged.stages
     .filter((stage) => {
@@ -913,6 +936,43 @@ app.use(
 app.use(
   '/api',
   createActivityRouter({ requireAuth, learningDeps, gradeAnswer, getChallengeMerged, writeLimit: limitBy('write.account', byAccount) })
+);
+
+/* ------------------------------------------------------------------ review */
+
+/**
+ * What a learner may practise: the bank they are served (hidden stages and
+ * questions left out, admin edits and teaching cards applied) minus premium
+ * stages they have not unlocked - with the gate in 'log' mode nothing is
+ * withheld, as in /api/content. Stage tests and kinds outside
+ * `review.itemTypes` are left out by the review router.
+ */
+function visibleBankFor(user) {
+  const snapshot = contentSnapshot();
+  if (!snapshot) return { stageIds: [], challenges: [] };
+  const overrides = store.getContentOverrides();
+  const view = applyLearnerOverrides(snapshot, overrides);
+  const enforcing = setting('access.premiumGate', 'enforce') !== 'log';
+  const locked = new Set(enforcing ? stageAccessFor(user ?? null, { snapshot, overrides }).lockedStageIds : []);
+  return {
+    stageIds: view.stages.filter((s) => !locked.has(s.id)).map((s) => s.id),
+    challenges: view.challenges.filter((c) => !locked.has(c.stageId))
+  };
+}
+
+// POST /api/review/session and /api/review/answer: Practice sessions over
+// mistakes, due questions and weak solves (server/review-routes.js). An
+// answer is verified like a solve and priced by the server.
+app.use(
+  '/api',
+  createReviewRouter({
+    requireAuth,
+    learningDeps,
+    visibleBankFor,
+    verifySubmission: (challenge, body) => verifySubmission(challenge, body),
+    getChallengeMerged,
+    writeLimit: limitBy('write.account', byAccount)
+  })
 );
 
 /* ------------------------------------------------------------- preferences */

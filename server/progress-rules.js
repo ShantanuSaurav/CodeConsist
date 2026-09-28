@@ -37,7 +37,12 @@ export function clampCounts(attempts, hintsUsed, xp) {
   };
 }
 
-/** Everything the solve route reads from its body, cleaned. */
+/**
+ * Everything the solve route reads from its body, cleaned. `requeued` (the
+ * question came back at the end of the unit after a miss) and `revealed`
+ * (its answer was shown before this solve) count only when they are exactly
+ * `true` - anything else is a plain solve, as before they existed.
+ */
 export function parseSolveBody(body, xp) {
   const src = plainObject(body);
   const { attempts, hintsUsed } = clampCounts(src.attempts, src.hintsUsed, xp);
@@ -46,8 +51,21 @@ export function parseSolveBody(body, xp) {
     attempts,
     hintsUsed,
     context: SOLVE_CONTEXTS.includes(src.context) ? src.context : 'lesson',
-    learningMode: LEARNING_MODES.includes(src.learningMode) ? src.learningMode : null
+    learningMode: LEARNING_MODES.includes(src.learningMode) ? src.learningMode : null,
+    requeued: src.requeued === true,
+    revealed: src.revealed === true
   };
+}
+
+/**
+ * The highest score this solve can get: 100, or - when the answer was shown
+ * before it - `feedback.requeue.maxScoreAfterReveal` for the learning mode
+ * (no mode counts as Practice, the stricter one). The browser prices its
+ * optimistic XP with the same rule (src/platform/settings/budget.ts).
+ */
+export function scoreCapFor(input, feedback, lib) {
+  if (!input.revealed || !feedback) return 100;
+  return lib.revealCap(input.learningMode, feedback);
 }
 
 /**
@@ -59,12 +77,13 @@ export function parseSolveBody(body, xp) {
  * (server/habits.js recordSolveHabits, pipeline step 11), after the day row
  * it reads has been written.
  */
-export function applySolveCore({ progress, challenge, attempts, hintsUsed, now, lib, xp, levels, completedStagesFor }) {
+export function applySolveCore({ progress, challenge, attempts, hintsUsed, now, lib, xp, levels, completedStagesFor, cap = 100 }) {
   const challengeId = challenge.id;
   const previous = ownEntry(progress.attempts, challengeId);
-  const score = lib.scoreSolve(attempts, hintsUsed, xp);
+  // `cap` limits the score (and so the XP) of a solve made after the answer was shown.
+  const score = lib.scoreSolve(attempts, hintsUsed, xp, cap);
   const firstSolve = !progress.completedChallenges.includes(challengeId);
-  const awarded = firstSolve ? lib.xpForSolve(challenge.xpReward, attempts, hintsUsed, xp) : 0;
+  const awarded = firstSolve ? lib.xpForSolve(challenge.xpReward, attempts, hintsUsed, xp, cap) : 0;
   const at = now.toISOString();
 
   const next = {
@@ -180,19 +199,23 @@ export function mergeCore({
     const challenge = getChallengeMerged(id);
     const a = plainObject(ownEntry(incomingAttempts, id));
     const { attempts: tries, hintsUsed: hints } = clampCounts(a.attempts, a.hintsUsed, xp);
+    // A solve the guest made after its answer was shown carries the cap it
+    // was paid under. It can only lower the price, so it is taken as sent.
+    const cap = typeof a.scoreCap === 'number' && Number.isFinite(a.scoreCap) ? Math.max(0, Math.min(100, a.scoreCap)) : 100;
     // Same maths as a live solve, so a guest is paid exactly what they would
     // have been paid signed in - no more for having been offline.
-    const paid = lib.xpForSolve(challenge.xpReward, tries, hints, xp);
+    const paid = lib.xpForSolve(challenge.xpReward, tries, hints, xp, cap);
     awarded += paid;
     const solvedAt = validSolvedAt(a.solvedAt, nowMs, keepDays);
     attempts[id] = {
       challengeId: id,
-      score: lib.scoreSolve(tries, hints, xp),
+      score: lib.scoreSolve(tries, hints, xp, cap),
       attempts: tries,
       hintsUsed: hints,
       solvedAt,
       lastSolvedAt: solvedAt,
-      solves: 1
+      solves: 1,
+      ...(cap < 100 ? { scoreCap: cap } : {})
     };
     const day = lib.dayKeyIn(zone, new Date(solvedAt));
     credits.push({ challengeId: id, day: day > today ? today : day, at: solvedAt, isTest: Boolean(challenge.isStageTest), awardedXp: paid });
@@ -242,7 +265,7 @@ export function mergeCore({
  * later writes leak into it.
  */
 export function resetProgress(emptyProgress) {
-  return { ...emptyProgress, attempts: {}, completedChallenges: [], completedStages: [], unitsCompleted: {} };
+  return { ...emptyProgress, attempts: {}, completedChallenges: [], completedStages: [], unitsCompleted: {}, review: {} };
 }
 
 /**

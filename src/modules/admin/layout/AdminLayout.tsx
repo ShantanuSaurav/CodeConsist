@@ -6,11 +6,13 @@ import {
   CreditCard,
   FileSpreadsheet,
   Gauge,
+  GraduationCap,
   Languages,
   LayoutDashboard,
   ListChecks,
   LogOut,
   Menu,
+  MessageSquareText,
   ScrollText,
   ShieldCheck,
   SlidersHorizontal,
@@ -64,7 +66,11 @@ const GROUPS: Array<{ label: string; items: NavItem[] }> = [
         label: 'Rules & rewards',
         path: '/admin/rules',
         activeWhen: (pathname) => underPath(pathname, '/admin/rules') && !OWN_RULE_PAGES.some((own) => underPath(pathname, own))
-      }
+      },
+      // Learn mode's teaching cards (concepts), per lesson, stage start or unit start.
+      { icon: <GraduationCap size={ICON} />, label: 'Teaching', path: '/admin/teaching' },
+      // The notes a learner reads after a wrong answer (the tries themselves are a Rules section).
+      { icon: <MessageSquareText size={ICON} />, label: 'Answer feedback', path: '/admin/feedback' }
     ]
   },
   {

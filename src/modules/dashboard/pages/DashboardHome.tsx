@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRight, Check, Lock, Snowflake } from 'lucide-react';
+import { ArrowRight, Check, Dumbbell, Lock, Snowflake } from 'lucide-react';
 import { useLeveling, useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
@@ -8,6 +8,7 @@ import { isPremiumLocked, stageStatus } from '@/platform/progress';
 import { achievements, badgeProgress, dayOf, greeting, nextBadge, relativeDay } from '@/platform/xp-leveling/insights';
 import { activityGridFromLog } from '@/platform/activity/log';
 import { describeGoalProgress, describeGoalTarget } from '@/platform/habits';
+import { describeNextReview, describeReviewSummary } from '@/platform/review';
 import { fillCopy } from '@/platform/settings';
 import { formatDayLabel } from '@/platform/time/days';
 import { Button, ButtonLink, ChoiceCards, ProgressBar, ProgressRing, Stat, StreakStrip } from '@/ui';
@@ -143,6 +144,46 @@ const DailyGoalCard: React.FC = () => {
           <span className="text-xs text-fg-muted">Best {plural(habits.bestStreak, 'day')}</span>
         </div>
         <StreakStrip days={strip} formatDay={(d) => formatDayLabel(d)} legend />
+      </div>
+    </section>
+  );
+};
+
+/**
+ * Practice (review): what the next session holds - "6 to practise: 2
+ * mistakes, 4 due" - or "All caught up" and when the next question is due.
+ * Reads the session's summary, so the dashboard never needs the challenges
+ * module; the button asks for a session through `intents.openReview`.
+ */
+const PracticeCard: React.FC = () => {
+  const { reviewSummary, todayKey } = useSession();
+  if (!reviewSummary.enabled) return null;
+  const line = describeReviewSummary(reviewSummary);
+  const next = describeNextReview(reviewSummary.nextDueDay, todayKey);
+  return (
+    <section aria-labelledby="practice-heading" className="pb-8 mb-8 border-b border-border-subtle">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h2 id="practice-heading" className="eyebrow">
+            Practice
+          </h2>
+          <h3 className="text-xl font-semibold text-fg tracking-tight flex items-center gap-2">
+            <Dumbbell size={18} className="text-accent shrink-0" aria-hidden="true" />
+            {line ?? (next ? 'All caught up' : 'Nothing to practise yet')}
+          </h3>
+          <p className="text-fg-secondary mt-1 max-w-2xl">
+            {line
+              ? 'A short session over the questions you missed and the ones due for another look.'
+              : next
+                ? `Nothing to practise right now. Your next review is ${next}.`
+                : 'Solve a few lessons first - the ones worth another look will show up here.'}
+          </p>
+        </div>
+        {line && (
+          <Button variant="secondary" onClick={() => intents.openReview()}>
+            Practise now <ArrowRight size={15} />
+          </Button>
+        )}
       </div>
     </section>
   );
@@ -284,6 +325,9 @@ export const DashboardHome: React.FC = () => {
           </div>
         )}
       </section>
+
+      {/* ----------------------------------------------------------- practice */}
+      <PracticeCard />
 
       {/* -------------------------------------------------------------- stats */}
       <section aria-label="Your numbers" className="pb-8 mb-8 border-b border-border-subtle">

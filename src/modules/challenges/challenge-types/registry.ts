@@ -6,7 +6,7 @@
  * table instead of switching on `challenge.type`. The `satisfies` clause makes
  * a missing entry a compile error the moment ChallengeType grows.
  */
-import type { Challenge, ChallengeType } from '@/types';
+import type { Challenge, ChallengeType, FeedbackNote } from '@/types';
 import type { Answer } from '@/platform/grading-engine/answers';
 import type { AnswerTypeDefinition, ChallengeTypeDefinition } from './types';
 import { quiz, outputPrediction, multiSelect } from './options';
@@ -58,4 +58,9 @@ export function checkAnswer(challenge: Challenge, answer: Answer): boolean {
 
 export function wrongPositions(challenge: Challenge, answer: Answer): number[] {
   return answerDef(challenge)?.wrongPositions(challenge, answer) ?? [];
+}
+
+/** The "why" notes for an answer (none for code, which shows its test results instead). */
+export function feedbackNotes(challenge: Challenge, answer: Answer, reveal: boolean): FeedbackNote[] {
+  return answerDef(challenge)?.feedback(challenge, answer, reveal) ?? [];
 }

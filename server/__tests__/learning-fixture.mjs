@@ -18,6 +18,7 @@ import { createActivityRouter } from '../activity-routes.js';
 import { createProgressRouter } from '../progress-routes.js';
 import { createHabitsService } from '../habits.js';
 import { createPreferencesRouter, publicPreferences } from '../preferences-routes.js';
+import { createReviewRouter, createReviewService } from '../review-routes.js';
 
 export { lib };
 
@@ -86,11 +87,13 @@ export function createLearningDeps(store, { env = {}, serverZone = () => 'UTC', 
   const settings = createSettingsService({ store, lib, env });
   const activity = createActivityService({ lib, store, settings, getChallengeMerged: getChallenge, gradeAnswer: lib.gradeAnswer, serverZone });
   const habits = createHabitsService({ lib, store, settings, activity });
+  const review = createReviewService({ lib, store, settings, activity, habits, getChallengeMerged: getChallenge });
   return {
     lib,
     settings,
     activity,
     habits,
+    review,
     units: units ? createFixtureUnits(settings) : null,
     runtimeInfo: () => ({ pythonVerifiable: false, judge0Languages: [] })
   };
@@ -103,6 +106,8 @@ export function resetStore(store, userIds = ['u1', 'u2']) {
   state.progress = {};
   state.drafts = {};
   state.activity = {};
+  state.reviewSessions = {};
+  state.conceptCards = {};
   state.settings = { overrides: {}, revision: 0, updatedAt: null, updatedBy: null };
   state.auditLog = [];
   for (const id of userIds) store.insertUser({ id, email: `${id}@example.com`, username: id, passwordHash: 'x', isPremium: false, identities: {} });
@@ -143,6 +148,19 @@ export async function startLearnerApp(store, options = {}) {
   app.use(
     '/api',
     createActivityRouter({ requireAuth, learningDeps, gradeAnswer: lib.gradeAnswer, getChallengeMerged: getChallenge, ...(options.activity ?? {}) })
+  );
+  // POST /api/review/session and /answer: the whole fixture bank is visible
+  // (its stage test and code lesson are left out by the router's kinds).
+  app.use(
+    '/api',
+    createReviewRouter({
+      requireAuth,
+      learningDeps,
+      visibleBankFor: () => ({ stageIds: ['stage-1'], challenges: Object.values(CHALLENGES) }),
+      verifySubmission,
+      getChallengeMerged: getChallenge,
+      ...(options.review ?? {})
+    })
   );
   // PATCH /api/me/preferences, with the goal options and the zone cooldown from the settings.
   const publicUser = (user) => ({ id: user.id, username: user.username, preferences: publicPreferences(store.normalizePreferences(user.preferences)) });

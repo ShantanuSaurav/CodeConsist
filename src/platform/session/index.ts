@@ -8,6 +8,7 @@ export type {
   LanguageTrackProgress,
   MissSubmission
 } from './SessionProvider';
+export type { ReviewAnswerOptions, ReviewAnswerOutcome, ReviewStart } from './useReview';
 export { useLeveling } from './useLeveling';
 export type { Leveling } from './useLeveling';
 export { groupIntoStages, makeBundle, loadFromApi, withUnits } from './content';

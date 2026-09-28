@@ -366,7 +366,7 @@ describe('site copy defaults', () => {
   it('can be read through getCopy, with or without the section prefix', () => {
     setSettingsSnapshot(publicSettings(DEFAULT_SETTINGS), null);
     expect(getCopy('copy.landing.pathLine', { stages: 12 })).toBe('12 stages, in order, each ending in a coding test.');
-    expect(getCopy('limits.tooMany', { minutes: 3 })).toBe('Too many attempts - try again in 3 minutes.');
+    expect(getCopy('limits.tooMany', { minutes: 3 })).toBe('Too many attempts - wait 3 min and try again.');
     expect(getCopy('copy.nothing.here')).toBe('');
   });
 });

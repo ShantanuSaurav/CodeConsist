@@ -201,7 +201,7 @@ export interface AdminChallengeRow {
   /** An authored question whose full replacement was saved here (modified) - it can be reverted. */
   modified: boolean;
   /** The AUTHORED version's presentational fields (the row's own, for a created question). */
-  original: { title: string; prompt: string; explanation: string; xpReward: number; difficulty: string };
+  original: { title: string; prompt: string; explanation: string; xpReward: number; difficulty: string; hints?: string[]; tags?: string[] };
   /** Present only when the authored original carries Learn-mode teaching steps; the console never edits them. */
   concept?: unknown;
   /* The question's own fields, returned in full so any question can be re-opened for editing. */
@@ -209,7 +209,9 @@ export interface AdminChallengeRow {
   options?: string[];
   correctIndex?: number;
   correctIndices?: number[];
-  blanks?: { answer: string; alternatives?: string[]; choices?: string[] }[];
+  /** One "why" note per option, as learners get them (an admin's notes on a built-in question included). */
+  optionFeedback?: string[];
+  blanks?: { answer: string; alternatives?: string[]; choices?: string[]; wrongAnswers?: BlankWrongAnswer[] }[];
   pseudocodeLines?: string[];
   starterCode?: string;
   entryFunction?: string;
@@ -219,6 +221,50 @@ export interface AdminChallengeRow {
   /* Stage tests show these instead of hints. */
   examples?: { input: string; output: string; explanation?: string }[];
   constraints?: string[];
+  /**
+   * Notes saved for this built-in question's options (or blanks) that have
+   * since changed in source: learners do not see them. `staleFeedback`
+   * holds them, to look at and save again.
+   */
+  feedbackStale?: boolean;
+  staleFeedback?: { optionFeedback: string[] | null; blankFeedback: BlankFeedback[] | null };
+  /** The id of the teaching card (concept) this lesson carries, or null. */
+  conceptKey?: string | null;
+}
+
+/** A blank's wrong answer and why it is wrong. */
+export interface BlankWrongAnswer {
+  answer: string;
+  feedback: string;
+}
+
+/** One blank's wrong answers, as the notes routes take them (one entry per blank, in order). */
+export interface BlankFeedback {
+  wrongAnswers: BlankWrongAnswer[];
+}
+
+/** A note that would give the answer away (it waits until the answer is shown): a warning, never a refusal. */
+export interface FeedbackWarning {
+  /** `optionFeedback.<i>` or `blanks.<i>.wrongAnswers.<j>`. */
+  path: string;
+  message: string;
+}
+
+/** Notes to save for one question (Answer feedback's "Save accepted"). */
+export interface FeedbackItem {
+  id: string;
+  optionFeedback?: string[] | null;
+  blankFeedback?: BlankFeedback[] | null;
+}
+
+/** Gemini's draft notes for one question. `leaks` are the keys (`o<i>`, `b<i>.<j>`) of notes that name the answer. */
+export interface FeedbackDraft {
+  id: string;
+  optionFeedback?: string[];
+  blankFeedback?: BlankFeedback[];
+  leaks: string[];
+  /** Gemini wrote nothing usable for it. */
+  empty?: boolean;
 }
 
 /** What the question wizard sends. The server tidies it and validates it against the content schema. */
@@ -237,7 +283,9 @@ export interface QuestionInput {
   options?: string[];
   correctIndex?: number;
   correctIndices?: number[];
-  blanks?: { answer: string; alternatives: string[]; choices: string[] }[];
+  /** One note per option (empty for none); lined up with `options` by the server. */
+  optionFeedback?: string[];
+  blanks?: { answer: string; alternatives: string[]; choices: string[]; wrongAnswers?: BlankWrongAnswer[] }[];
   pseudocodeLines?: string[];
   starterCode?: string;
   entryFunction?: string;
@@ -476,6 +524,72 @@ export interface AnalyticsSummary {
   byStage: { stageId: string; name: string; language: string; challengeCount: number; totalSolves: number }[];
   challengesByLanguage: Record<string, number>;
   mostMissed: MostMissedRow[];
+  /** Practice sessions over the last 7 days: learners who practised, and the review XP it paid. Null on an older server. */
+  practice?: { learners7d: number; xp7d: number } | null;
+}
+
+/* ------------------------------------------------------------ teaching cards */
+
+/** Where a teaching card goes: before a lesson, at the start of a stage, or at the start of a unit. */
+export type ConceptAnchor =
+  | { kind: 'lesson'; challengeId: string }
+  | { kind: 'stage'; stageId: string }
+  | { kind: 'unit'; unitId: string; stageId?: string };
+
+/** One example in a card: code, its language, and notes on single lines. */
+export interface ConceptExampleInput {
+  code: string;
+  language: string;
+  callouts?: { line: number; text: string }[];
+}
+
+/** A teaching card as the editor sends it (the server gives it its id). */
+export interface ConceptInput {
+  title: string;
+  summary: string;
+  intro: string;
+  example: ConceptExampleInput;
+  why: string;
+  secondExample?: ConceptExampleInput;
+  tryIt?: { instructions: string; starterCode: string; language: string; ui?: boolean };
+  explainDifferently?: string;
+}
+
+/** One concept on the Teaching page. */
+export interface ConceptRow {
+  key: string;
+  anchor: ConceptAnchor;
+  concept: (ConceptInput & { id: string }) | null;
+  /** As shipped, a built-in one edited here, or a card written here. */
+  source: 'authored' | 'modified' | 'created';
+  hidden: boolean;
+  /** Times it was re-shown to learners who had seen it ("show it again"). */
+  revision: number;
+  lessonId: string | null;
+  lessonTitle: string | null;
+  stageId: string | null;
+  /** Learners do not get it: its lesson is hidden or gone, or the lesson has another concept. */
+  orphaned: boolean;
+  problem: 'anchor-missing' | 'lesson-has-concept' | null;
+  updatedAt: string | null;
+}
+
+/** One lesson of a stage, and the concept it carries (if any). */
+export interface ConceptLesson {
+  id: string;
+  title: string;
+  type: string;
+  hidden: boolean;
+  concept: { key: string; source: ConceptRow['source']; hidden: boolean; title: string } | null;
+}
+
+export interface ConceptsView {
+  rows: ConceptRow[];
+  /** Per stage: the lessons learners see, and how many carry a concept. */
+  coverage: { stageId: string; name: string; lessons: number; withConcept: number }[];
+  /** With a stage: its lessons and units (for placing a card). */
+  lessons?: ConceptLesson[];
+  units?: { id: string; name: string; firstLessonId: string | null }[];
 }
 
 /** One question's wrong answers across every learner - answers only, never who. */
@@ -503,6 +617,10 @@ export interface AdminDayRecord {
   goal: DayGoal | null;
   /** The daily-goal bonus paid that day (NOT inside `xp`). */
   goalBonusXp: number;
+  /** Right answers in Practice sessions that day (Phase 4). */
+  reviews: number;
+  /** Practice-session XP paid that day (already inside `xp`). */
+  reviewXp: number;
   firstAt: string | null;
   lastAt: string | null;
   source: 'live' | 'backfill' | 'merge';
@@ -884,6 +1002,13 @@ export const adminApi = {
     return request(`/admin/content/challenges/${id}`, { method: 'DELETE' });
   },
 
+  /**
+   * Change a question without replacing it: the presentational fields, hidden,
+   * and the wrong-answer notes. On a built-in question the source logic stays
+   * live (it is not marked modified); notes are stored with the options they
+   * were written for. `null` puts a field back. A 400 carries `issues`;
+   * `warnings` name notes that give the answer away (saved all the same).
+   */
   async updateChallenge(
     id: string,
     patch: Partial<{
@@ -895,9 +1020,58 @@ export const adminApi = {
       xpReward: number | null;
       difficulty: 'easy' | 'medium' | 'hard' | null;
       hidden: boolean;
+      optionFeedback: string[] | null;
+      blankFeedback: BlankFeedback[] | null;
     }>
-  ): Promise<{ override: unknown }> {
+  ): Promise<{ override: unknown; warnings?: FeedbackWarning[] }> {
     return request(`/admin/content/challenges/${id}`, { method: 'PATCH', body: patch });
+  },
+
+  /** Save the notes for up to 50 questions. Each is saved on its own: `rows` saved, `issues` (by id) refused. */
+  async saveFeedbackBulk(
+    items: FeedbackItem[]
+  ): Promise<{ rows: AdminChallengeRow[]; issues: Array<QuestionIssue & { id: string }>; warnings: Array<FeedbackWarning & { id: string }> }> {
+    return request('/admin/content/challenges/feedback', { method: 'POST', body: { items } });
+  },
+
+  /** Gemini drafts notes for 1-10 questions. Nothing is saved. 503 with `notConfigured` when there is no key. */
+  async aiFeedback(ids: string[]): Promise<{ drafts: FeedbackDraft[] }> {
+    return request('/admin/ai/feedback', { method: 'POST', body: { ids } });
+  },
+
+  /* Teaching cards (concepts): the built-in ones and the admin's own. */
+
+  async concepts(stageId?: string): Promise<ConceptsView> {
+    return request(`/admin/content/concepts${stageId ? `?stageId=${encodeURIComponent(stageId)}` : ''}`);
+  },
+
+  /** Check a card without saving it. */
+  async validateConcept(concept: ConceptInput, anchor?: ConceptAnchor): Promise<{ ok: boolean; issues: QuestionIssue[] }> {
+    return request('/admin/content/concepts/validate', { method: 'POST', body: anchor ? { concept, anchor } : { concept } });
+  },
+
+  /** A new card. 409 when the lesson already has one (`payload.existingKey` names it). */
+  async createConcept(anchor: ConceptAnchor, concept: ConceptInput): Promise<{ card: ConceptRow }> {
+    return request('/admin/content/concepts', { method: 'POST', body: { anchor, concept } });
+  },
+
+  /** Replace a card's text (a built-in one stays on its lesson). `showAgain` re-shows it to learners who saw it. */
+  async replaceConcept(key: string, body: { concept: ConceptInput; anchor?: ConceptAnchor; showAgain?: boolean }): Promise<{ card: ConceptRow }> {
+    return request(`/admin/content/concepts/${encodeURIComponent(key)}`, { method: 'PUT', body });
+  },
+
+  /** A built-in concept back as it shipped. */
+  async revertConcept(key: string): Promise<{ card: ConceptRow }> {
+    return request(`/admin/content/concepts/${encodeURIComponent(key)}/revert`, { method: 'POST' });
+  },
+
+  async setConceptHidden(key: string, hidden: boolean): Promise<{ card: ConceptRow }> {
+    return request(`/admin/content/concepts/${encodeURIComponent(key)}`, { method: 'PATCH', body: { hidden } });
+  },
+
+  /** Delete a card written here (a built-in one is hidden or reverted instead). */
+  async deleteConcept(key: string): Promise<{ ok: true }> {
+    return request(`/admin/content/concepts/${encodeURIComponent(key)}`, { method: 'DELETE' });
   },
 
   /* Gemini question assistant. The key lives only in the API server's .env; a 503 with `notConfigured` in the payload means it is unset. */

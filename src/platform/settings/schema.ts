@@ -118,9 +118,22 @@ export function schemaForMeta(meta: SettingMeta): z.ZodTypeAny {
     case 'intList':
       schema = listBounds(intSchema(meta.min, meta.max), meta);
       break;
-    case 'stringList':
-      schema = listBounds(stringSchema(meta.minLength ?? 1, meta.maxLength), meta);
+    case 'stringList': {
+      // A list chosen from fixed values (the kinds a Practice session uses):
+      // only those values, each once.
+      const allowed = meta.values;
+      schema = allowed
+        ? listBounds(stringSchema(1), meta).superRefine((list, ctx) => {
+            const seen = new Set<string>();
+            list.forEach((value, index) => {
+              if (!allowed.includes(value)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index], message: `"${value}" is not one of: ${allowed.join(', ')}.` });
+              else if (seen.has(value)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index], message: `"${value}" is listed twice.` });
+              seen.add(value);
+            });
+          })
+        : listBounds(stringSchema(meta.minLength ?? 1, meta.maxLength), meta);
       break;
+    }
     case 'origins':
       schema = listBounds(originSchema, meta).superRefine((list, ctx) => {
         const seen = new Set<string>();
@@ -248,6 +261,22 @@ const REFINEMENTS: Partial<Record<string, Refiner>> = {
         }
       }
     });
+  },
+  review: (review, add) => {
+    const intervals: unknown = review?.intervalsDays;
+    if (Array.isArray(intervals)) {
+      const at = strictlyAscending(intervals.map(Number));
+      if (at !== -1) add(`intervalsDays.${at}`, 'Each interval must be longer than the one before.');
+      const boxes = intervals.length;
+      const inRange = (path: string, value: unknown) => {
+        if (typeof value === 'number' && value >= boxes) add(path, `Must be less than the number of intervals (${boxes}) - boxes count from 0.`);
+      };
+      inRange('wrongResetsToBox', review?.wrongResetsToBox);
+      inRange('initialBox.clean', review?.initialBox?.clean);
+      inRange('initialBox.assisted', review?.initialBox?.assisted);
+    }
+    const { min, max } = review?.sessionSize ?? {};
+    if (typeof min === 'number' && typeof max === 'number' && min > max) add('sessionSize.min', `Must be at most the largest session (${max}).`);
   },
   units: (units, add) => {
     const { minSize, targetSize, maxSize } = units ?? {};

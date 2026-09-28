@@ -15,6 +15,8 @@ vi.mock('../db.js', () => {
     auditLog: [],
     contentOverrides: { stages: {}, challenges: {}, languages: {} },
     customChallenges: {},
+    conceptCards: {},
+    reviewSessions: {},
     excelSync: { rowIndexByUserId: {}, lastSyncedAtByUser: {}, lastFullSyncAt: null, failures: [] }
   });
   let state = EMPTY();
@@ -63,6 +65,26 @@ vi.mock('../db.js', () => {
       delete state.contentOverrides.challenges[id];
       return true;
     },
+    allConceptCards: () => Object.values(state.conceptCards),
+    getConceptCard: (key) => (typeof key === 'string' && Object.hasOwn(state.conceptCards, key) ? state.conceptCards[key] : null),
+    putConceptCard: (record) => {
+      const existing = state.conceptCards[record.key];
+      const now = new Date().toISOString();
+      state.conceptCards[record.key] = { ...record, createdAt: existing?.createdAt ?? now, updatedAt: now };
+      return state.conceptCards[record.key];
+    },
+    deleteConceptCard: (key) => {
+      if (!Object.hasOwn(state.conceptCards, key)) return false;
+      delete state.conceptCards[key];
+      return true;
+    },
+    getReviewSession: (id) => (Object.hasOwn(state.reviewSessions, id) ? state.reviewSessions[id] : null),
+    putReviewSession: (id, record) => (state.reviewSessions[id] = record),
+    deleteReviewSession: (id) => {
+      if (!Object.hasOwn(state.reviewSessions, id)) return false;
+      delete state.reviewSessions[id];
+      return true;
+    },
     appendAudit: (entry) => {
       const row = { id: `audit-${state.auditLog.length}`, at: new Date().toISOString(), ...entry };
       state.auditLog.push(row);
@@ -107,8 +129,11 @@ import {
   applyLearnerOverrides
 } from '../content.js';
 import { ChallengeSchema } from '../../src/modules/challenges/schema.ts';
+import { feedbackLeaks } from '../../src/platform/grading-engine/feedback.ts';
 
 const deps = {
+  // The shared leak rule, as server/index.js hands it over in learningDeps.lib.
+  learning: { lib: { feedbackLeaks } },
   validateChallenge: (candidate) => {
     const result = ChallengeSchema.safeParse(candidate);
     if (result.success) return { ok: true, challenge: result.data, issues: [] };
@@ -201,6 +226,20 @@ describe('GET /content/challenges', () => {
     expect(json.challenges.every((r) => r.custom === false && r.modified === false && r.hidden === false)).toBe(true);
     expect(countByType(json.challenges)).toEqual(countByType(authored));
     expect(json.challenges.map((r) => r.id)).toEqual(authored.map((c) => c.id));
+  });
+
+  it('names the teaching card each lesson carries: a built-in concept, or an admin’s card', async () => {
+    const key = 'concept-test-card-0000';
+    store.putConceptCard({
+      key,
+      anchor: { kind: 'lesson', challengeId: 'stage-1-a03' },
+      concept: { id: key, title: 'A test card', summary: 'For the question list.', intro: 'Intro.', example: { code: 'let x = 1;', language: 'javascript', callouts: [] }, why: 'Why.' }
+    });
+    const { json } = await api('GET', `/content/challenges?stageId=${STAGE}`);
+    const keyOf = (id) => json.challenges.find((r) => r.id === id)?.conceptKey;
+    expect(keyOf('stage-1-a00')).toBe('variables-let');
+    expect(keyOf('stage-1-a03')).toBe(key);
+    expect(keyOf('stage-1-a01')).toBeNull();
   });
 });
 
@@ -423,5 +462,179 @@ describe('POST /content/challenges/validate', () => {
     const created = (await api('POST', '/content/challenges', newQuiz(STAGE))).json.challenge;
     const { json } = await api('POST', `/content/challenges/validate?id=${created.id}`, { ...newQuiz(STAGE), prompt: 'A different prompt, still long enough.' });
     expect(json.ok).toBe(true);
+  });
+});
+
+/* --------------------------------------------------------- wrong-answer notes */
+
+describe('wrong-answer notes on a built-in question (PATCH)', () => {
+  const quiz = () => authoredQuiz();
+  const notesFor = (c, byIndex) => (c.options ?? []).map((_, i) => byIndex[i] ?? '');
+
+  it('stores the notes with the basis they were written against, serves them, and does not mark the question modified', async () => {
+    const q = quiz();
+    const wrong = [0, 1, 2, 3].find((i) => i !== q.correctIndex);
+    const optionFeedback = notesFor(q, { [wrong]: '  A string in quotes is a value, not a name.  ' });
+    const { status, json } = await api('PATCH', `/content/challenges/${q.id}`, { optionFeedback });
+    expect(status).toBe(200);
+    expect(json.override.optionFeedback[wrong]).toBe('A string in quotes is a value, not a name.');
+    expect(json.override.feedbackBasis).toBe(JSON.stringify([q.options, [q.correctIndex]]));
+    expect(json.warnings).toEqual([]);
+    expect(isModifiedChallenge(q.id)).toBe(false);
+
+    const row = (await api('GET', `/content/challenges?stageId=${q.stageId}`)).json.challenges.find((r) => r.id === q.id);
+    expect(row).toMatchObject({ modified: false, custom: false, feedbackStale: false, conceptKey: q.concept?.id ?? null });
+    expect(row.optionFeedback[wrong]).toBe('A string in quotes is a value, not a name.');
+    const served = applyLearnerOverrides(contentSnapshot(), store.getContentOverrides()).challenges.find((c) => c.id === q.id);
+    expect(served.optionFeedback).toEqual(row.optionFeedback);
+    // Grading reads none of it.
+    expect(served.options).toEqual(q.options);
+    expect(served.correctIndex).toBe(q.correctIndex);
+    // The audit row says how many notes, never their words.
+    expect(store.listAudit()[0]).toMatchObject({ action: 'content.challenge.update', details: { optionNotes: 1 } });
+
+    // null takes the notes and their basis away again.
+    const cleared = await api('PATCH', `/content/challenges/${q.id}`, { optionFeedback: null });
+    expect(cleared.json.override).toBeNull();
+    expect(store.getContentOverrides().challenges[q.id]).toBeUndefined();
+  });
+
+  it('warns - but saves - a note that names the right answer', async () => {
+    const body = { ...newQuiz(STAGE), options: ['declare it with var', 'declare it with let', 'write a function', 'use this'], correctIndex: 1 };
+    const created = (await api('POST', '/content/challenges', body)).json.challenge;
+    const leaking = ['Not this one - declare it with let instead.', '', 'A function is not a variable.', ''];
+    const { status, json } = await api('PATCH', `/content/challenges/${created.id}`, { optionFeedback: leaking });
+    expect(status).toBe(200);
+    expect(json.warnings).toEqual([
+      { path: 'optionFeedback.0', message: 'The note on option A contains the right answer - learners see it only once the answer is shown.' }
+    ]);
+    expect(getChallenge(created.id).optionFeedback).toEqual(leaking);
+  });
+
+  it('refuses a length that does not match the options, a note that is too long, and the wrong kind - saving nothing', async () => {
+    const q = quiz();
+    const short = await api('PATCH', `/content/challenges/${q.id}`, { optionFeedback: ['only one'], title: 'Should not save' });
+    expect(short.status).toBe(400);
+    expect(short.json.issues[0].path).toBe('optionFeedback');
+    const long = await api('PATCH', `/content/challenges/${q.id}`, { optionFeedback: notesFor(q, { 0: 'x'.repeat(601) }) });
+    expect(long.status).toBe(400);
+    expect(long.json.issues).toEqual([{ path: 'optionFeedback.0', message: 'The note on option A is too long (max 600 characters).' }]);
+    const blanks = await api('PATCH', `/content/challenges/${q.id}`, { blankFeedback: [] });
+    expect(blanks.status).toBe(400);
+    expect(store.getContentOverrides().challenges[q.id]).toBeUndefined();
+  });
+
+  it("checks a blank's wrong answers the way the grader would", async () => {
+    const fill = allChallenges().find((c) => c.type === 'fill_blank' && c.blanks.length === 2 && c.blanks.every((b) => b.choices?.length >= 3));
+    const [first, second] = fill.blanks;
+    const wrongChoice = first.choices.find((choice) => choice !== first.answer);
+
+    const accepted = await api('PATCH', `/content/challenges/${fill.id}`, {
+      blankFeedback: [{ wrongAnswers: [{ answer: first.answer, feedback: 'nope' }] }, { wrongAnswers: [] }]
+    });
+    expect(accepted.status).toBe(400);
+    expect(accepted.json.issues[0].path).toBe('blanks.0.wrongAnswers.0');
+    const notAChoice = await api('PATCH', `/content/challenges/${fill.id}`, {
+      blankFeedback: [{ wrongAnswers: [{ answer: 'zzz-not-offered', feedback: 'nope' }] }, { wrongAnswers: [] }]
+    });
+    expect(notAChoice.status).toBe(400);
+    expect((await api('PATCH', `/content/challenges/${fill.id}`, { blankFeedback: [{ wrongAnswers: [] }] })).status).toBe(400);
+
+    const ok = await api('PATCH', `/content/challenges/${fill.id}`, {
+      blankFeedback: [{ wrongAnswers: [{ answer: wrongChoice, feedback: 'That one does something else here.' }] }, { wrongAnswers: [] }]
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.json.override.feedbackBasis).toBe(JSON.stringify(fill.blanks.map((b) => [b.answer, b.alternatives ?? [], b.choices ?? []])));
+    const served = applyLearnerOverrides(contentSnapshot(), store.getContentOverrides()).challenges.find((c) => c.id === fill.id);
+    expect(served.blanks[0]).toEqual({ ...first, wrongAnswers: [{ answer: wrongChoice, feedback: 'That one does something else here.' }] });
+    expect(served.blanks[1]).toEqual(second);
+    expect(ChallengeSchema.safeParse(served).success).toBe(true);
+  });
+
+  it("sets the notes aside, flagged stale, once the question's options no longer match their basis", async () => {
+    const q = quiz();
+    const optionFeedback = notesFor(q, { 0: 'Written for options that have since changed.' });
+    // What an older save looks like after the authored options changed in source.
+    store.setChallengeOverride(q.id, { optionFeedback, feedbackBasis: JSON.stringify([['old', 'options'], [0]]) });
+
+    const row = (await api('GET', `/content/challenges?stageId=${q.stageId}`)).json.challenges.find((r) => r.id === q.id);
+    expect(row.feedbackStale).toBe(true);
+    expect(row.staleFeedback).toEqual({ optionFeedback, blankFeedback: null });
+    expect(row).not.toHaveProperty('optionFeedback');
+    const served = applyLearnerOverrides(contentSnapshot(), store.getContentOverrides()).challenges.find((c) => c.id === q.id);
+    expect(served).not.toHaveProperty('optionFeedback');
+
+    // Saving them again against today's options makes them current.
+    await api('PATCH', `/content/challenges/${q.id}`, { optionFeedback });
+    const again = (await api('GET', `/content/challenges?stageId=${q.stageId}`)).json.challenges.find((r) => r.id === q.id);
+    expect(again.feedbackStale).toBe(false);
+    expect(again.optionFeedback).toEqual(optionFeedback);
+  });
+
+  it('PUT clears the notes, their basis and the other overrides, keeping hidden - the body carries the notes itself', async () => {
+    const q = quiz();
+    const optionFeedback = notesFor(q, { 0: 'A note saved through PATCH first.' });
+    await api('PATCH', `/content/challenges/${q.id}`, { optionFeedback, hidden: true });
+    expect(store.getContentOverrides().challenges[q.id]).toMatchObject({ hidden: true, optionFeedback });
+
+    const { status, json } = await api('PUT', `/content/challenges/${q.id}`, bodyFrom(q, { optionFeedback }));
+    expect(status).toBe(200);
+    expect(store.getContentOverrides().challenges[q.id]).toEqual({ hidden: true });
+    expect(json.challenge).toMatchObject({ modified: true, optionFeedback, feedbackStale: false });
+    expect(getChallenge(q.id).optionFeedback).toEqual(optionFeedback);
+  });
+
+  it("keeps a created question's notes in its own record", async () => {
+    const created = (await api('POST', '/content/challenges', newQuiz(STAGE))).json.challenge;
+    const optionFeedback = ['var is function-scoped, not block-scoped.', '', 'function declares a function.', 'this is not a declaration.'];
+    const { status } = await api('PATCH', `/content/challenges/${created.id}`, { optionFeedback });
+    expect(status).toBe(200);
+    expect(getChallenge(created.id).optionFeedback).toEqual(optionFeedback);
+    expect(store.getContentOverrides().challenges[created.id]).toBeUndefined();
+  });
+});
+
+describe('POST /content/challenges/feedback (bulk)', () => {
+  it('saves built-in and created questions in one go and reports the ones it refused', async () => {
+    const q = authoredQuiz();
+    const created = (await api('POST', '/content/challenges', newQuiz(STAGE))).json.challenge;
+    const quizNotes = q.options.map((_, i) => (i === q.correctIndex ? 'Why this is right.' : ''));
+    const createdNotes = ['var ignores blocks.', '', '', ''];
+
+    const { status, json } = await api('POST', '/content/challenges/feedback', {
+      items: [
+        { id: q.id, optionFeedback: quizNotes },
+        { id: created.id, optionFeedback: createdNotes },
+        { id: 'nope-1', optionFeedback: ['x'] },
+        { id: stageTest().id, optionFeedback: ['x'] }
+      ]
+    });
+    expect(status).toBe(200);
+    expect(json.rows.map((r) => r.id)).toEqual([q.id, created.id]);
+    expect(json.rows[0]).toMatchObject({ optionFeedback: quizNotes, modified: false });
+    expect(store.getContentOverrides().challenges[q.id]).toMatchObject({ optionFeedback: quizNotes });
+    expect(getChallenge(created.id).optionFeedback).toEqual(createdNotes);
+    expect(json.issues.map((i) => i.id)).toEqual(['nope-1', stageTest().id]);
+    expect(store.listAudit()[0]).toMatchObject({ action: 'content.challenge.feedback', details: { saved: 2, refused: 2 } });
+  });
+
+  it('refuses an empty list and more than 50 questions', async () => {
+    expect((await api('POST', '/content/challenges/feedback', { items: [] })).status).toBe(400);
+    const items = Array.from({ length: 51 }, () => ({ id: authoredQuiz().id, optionFeedback: null }));
+    expect((await api('POST', '/content/challenges/feedback', { items })).status).toBe(400);
+  });
+});
+
+describe('POST /ai/feedback', () => {
+  it('checks the ids first, then answers 503 while Gemini is not configured', async () => {
+    expect((await api('POST', '/ai/feedback', { ids: [] })).status).toBe(400);
+    expect((await api('POST', '/ai/feedback', { ids: Array.from({ length: 11 }, (_, i) => `x${i}`) })).status).toBe(400);
+    expect((await api('POST', '/ai/feedback', { ids: ['nope-1'] })).status).toBe(400);
+    const code = await api('POST', '/ai/feedback', { ids: [stageTest().id] });
+    expect(code.status).toBe(400);
+    expect(code.json.error).toContain('has no options or blanks');
+    const off = await api('POST', '/ai/feedback', { ids: [authoredQuiz().id] });
+    expect(off.status).toBe(503);
+    expect(off.json.notConfigured).toBe(true);
   });
 });

@@ -21,6 +21,8 @@ export interface UnitCompleteProps {
   countUpMs: number;
   /** First-try share of the questions solved, or null when nothing was solved this run. */
   accuracy: number | null;
+  /** "4 first try · 1 fixed on retry", once a question came back and was got right. */
+  retryLine?: string | null;
   timeMs: number;
   streak: { before: number; after: number };
   /** "5-day streak" (`celebrations.copy.streakUp`), shown when the streak went up. */
@@ -79,6 +81,7 @@ const UnitComplete: React.FC<UnitCompleteProps> = ({
   xp,
   countUpMs,
   accuracy,
+  retryLine = null,
   timeMs,
   streak,
   streakLine,
@@ -142,6 +145,7 @@ const UnitComplete: React.FC<UnitCompleteProps> = ({
     sentence(heading),
     `${xp} XP earned.`,
     accuracy !== null ? `Accuracy ${accuracy}%.` : '',
+    retryLine ? sentence(retryLine) : '',
     `Time ${spokenTime(timeMs)}.`,
     streakUp ? sentence(streakLine) : '',
     perfectLine ? sentence(perfectLine) : flawlessLine ? sentence(flawlessLine) : '',
@@ -178,6 +182,8 @@ const UnitComplete: React.FC<UnitCompleteProps> = ({
           <Check size={14} aria-hidden="true" /> {flawlessLine}
         </p>
       ) : null}
+
+      {retryLine ? <p className="unit-complete-retry">{retryLine}</p> : null}
 
       {goalLine ? (
         <p className="unit-complete-perfect is-goal">

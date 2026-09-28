@@ -31,14 +31,34 @@ import {
   getChallenge,
   authoredChallenge,
   isCustomChallenge,
-  isModifiedChallenge
+  isModifiedChallenge,
+  feedbackBasisKey,
+  hasFeedbackOverride,
+  isFeedbackStale,
+  conceptAssignments
 } from './content.js';
+import {
+  authoredConceptIndex,
+  conceptIdFor,
+  generateConceptKey,
+  normalizeAnchor,
+  normalizeConceptInput,
+  resolveAnchor
+} from './concept-cards.js';
 import { createSettingsAdminRouter } from './settings-routes.js';
-import { EXECUTABLE_LANGUAGES, generateChallengeId, mergeIssues, normalizeChallengeInput } from './custom-challenges.js';
+import {
+  EXECUTABLE_LANGUAGES,
+  FEEDBACK_MAX,
+  generateChallengeId,
+  mergeIssues,
+  normalizeChallengeInput,
+  wrongAnswerIssues,
+  wrongAnswerRows
+} from './custom-challenges.js';
 import { requireAdminAuth, publicAdmin, updateAdminCredentials } from './admin-auth.js';
 import * as excel from './excel.js';
 import { GeminiError } from './ai.js';
-import { AiInputError, KINDS as AI_KINDS, draftQuestion, findDuplicates, suggestQuestions } from './ai-questions.js';
+import { AiInputError, FEEDBACK_KINDS, KINDS as AI_KINDS, MAX_FEEDBACK_IDS, draftFeedback, draftQuestion, findDuplicates, suggestQuestions } from './ai-questions.js';
 import {
   BillingError,
   CURRENCY,
@@ -59,6 +79,114 @@ import { BUCKETS, BUCKET_SETTING } from './rate-limit.js';
 import { premiumGateStats } from './progression.js';
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+/* --------------------------------------------------- wrong-answer notes */
+
+const OPTION_TYPES = ['quiz', 'output_prediction', 'multi_select'];
+/** How many questions one bulk save of notes may carry. */
+export const MAX_FEEDBACK_BULK = 50;
+const letter = (i) => String.fromCharCode(65 + i);
+
+/**
+ * Check the wrong-answer notes sent for one question and tidy them:
+ * `optionFeedback` (one note per option) and `blankFeedback` (per blank,
+ * `{ wrongAnswers: [{ answer, feedback }] }`). `null` clears either. Returns
+ * `{ issues, set }`: `set` holds what to store, with `null` meaning "no notes".
+ * Nothing here can touch grading - the notes are text beside the question.
+ */
+export function feedbackEdit(challenge, body) {
+  const issues = [];
+  const set = {};
+  const b = body && typeof body === 'object' ? body : {};
+
+  if (b.optionFeedback !== undefined) {
+    const count = challenge.options?.length ?? 0;
+    if (b.optionFeedback === null) set.optionFeedback = null;
+    else if (!OPTION_TYPES.includes(challenge.type)) {
+      issues.push({ path: 'optionFeedback', message: 'Only multiple-choice, select-all and predict-the-output questions have a note per option.' });
+    } else if (!Array.isArray(b.optionFeedback) || b.optionFeedback.some((n) => n !== null && typeof n !== 'string')) {
+      issues.push({ path: 'optionFeedback', message: 'Send the notes as a list of text, one per option.' });
+    } else if (b.optionFeedback.length !== count) {
+      issues.push({ path: 'optionFeedback', message: `This question has ${count} options, so it takes ${count} notes - one per option, empty for none.` });
+    } else {
+      const notes = b.optionFeedback.map((n) => String(n ?? '').trim());
+      notes.forEach((note, i) => {
+        if (note.length > FEEDBACK_MAX) issues.push({ path: `optionFeedback.${i}`, message: `The note on option ${letter(i)} is too long (max ${FEEDBACK_MAX} characters).` });
+      });
+      set.optionFeedback = notes.some(Boolean) ? notes : null;
+    }
+  }
+
+  if (b.blankFeedback !== undefined) {
+    const blanks = challenge.blanks ?? [];
+    if (b.blankFeedback === null) set.blankFeedback = null;
+    else if (challenge.type !== 'fill_blank') {
+      issues.push({ path: 'blankFeedback', message: 'Only fill-in-the-blank questions have wrong answers per blank.' });
+    } else if (!Array.isArray(b.blankFeedback) || b.blankFeedback.length !== blanks.length) {
+      issues.push({ path: 'blankFeedback', message: `This question has ${blanks.length} blank${blanks.length === 1 ? '' : 's'}, so send one entry per blank.` });
+    } else {
+      const rows = blanks.map((_, i) => wrongAnswerRows(b.blankFeedback[i]?.wrongAnswers));
+      rows.forEach((list, i) => issues.push(...wrongAnswerIssues({ ...blanks[i], wrongAnswers: list }, i)));
+      set.blankFeedback = rows.some((list) => list.length) ? rows.map((list) => ({ wrongAnswers: list })) : null;
+    }
+  }
+  return { issues, set };
+}
+
+/** Does this request body carry wrong-answer notes? */
+const sendsFeedback = (body) => body?.optionFeedback !== undefined || body?.blankFeedback !== undefined;
+
+/** A question with notes laid on it - the record a created or modified question stores. */
+function withNotes(challenge, set) {
+  const next = { ...challenge };
+  if ('optionFeedback' in set) {
+    if (set.optionFeedback) next.optionFeedback = set.optionFeedback;
+    else delete next.optionFeedback;
+  }
+  if ('blankFeedback' in set && Array.isArray(next.blanks)) {
+    next.blanks = next.blanks.map((blank, i) => {
+      const { wrongAnswers, ...rest } = blank;
+      const rows = set.blankFeedback?.[i]?.wrongAnswers ?? [];
+      return rows.length ? { ...rest, wrongAnswers: rows } : rest;
+    });
+  }
+  return next;
+}
+
+/**
+ * The notes that give the answer away, as warnings for the admin (never a
+ * refusal: a leaking note is simply held back until the answer is shown).
+ * Uses the shared rule (src/platform/grading-engine/feedback.ts) when the
+ * learning bundle is loaded; none before that.
+ */
+export function feedbackWarnings(challenge, leaksOf) {
+  if (typeof leaksOf !== 'function') return [];
+  const warnings = [];
+  for (const key of leaksOf(challenge)) {
+    const option = /^o(\d+)$/.exec(key);
+    if (option) {
+      warnings.push({ path: `optionFeedback.${option[1]}`, message: `The note on option ${letter(Number(option[1]))} contains the right answer - learners see it only once the answer is shown.` });
+      continue;
+    }
+    const blank = /^b(\d+)\.(\d+)$/.exec(key);
+    if (blank) {
+      const answer = challenge.blanks?.[Number(blank[1])]?.wrongAnswers?.[Number(blank[2])]?.answer ?? '';
+      warnings.push({
+        path: `blanks.${blank[1]}.wrongAnswers.${blank[2]}`,
+        message: `Blank ${Number(blank[1]) + 1}: the note for "${answer}" names the right answer - learners see it only once the answer is shown.`
+      });
+    }
+  }
+  return warnings;
+}
+
+/** For the audit log: how many notes changed, never their text. */
+function feedbackAuditOf(set) {
+  const details = {};
+  if ('optionFeedback' in set) details.optionNotes = set.optionFeedback ? set.optionFeedback.filter(Boolean).length : 0;
+  if ('blankFeedback' in set) details.wrongAnswers = set.blankFeedback ? set.blankFeedback.reduce((n, b) => n + b.wrongAnswers.length, 0) : 0;
+  return details;
+}
 
 /**
  * The learner's live reset link, for the Users table's badge. A store
@@ -510,7 +638,15 @@ export function createAdminRouter(deps = {}) {
       byLanguage[stage.language] = (byLanguage[stage.language] ?? 0) + challenges.length;
     }
 
-    res.json({ byStage, challengesByLanguage: byLanguage, mostMissed: mostMissedRows(deps) });
+    // Practice sessions over the last 7 days (each learner's own days): who
+    // practised, and the review XP it paid. Null before the review service exists.
+    let practice = null;
+    try {
+      practice = deps.learning?.review ? deps.learning.review.practiceStats() : null;
+    } catch {
+      practice = null;
+    }
+    res.json({ byStage, challengesByLanguage: byLanguage, mostMissed: mostMissedRows(deps), practice });
   });
 
   /**
@@ -817,19 +953,66 @@ export function createAdminRouter(deps = {}) {
    * authored (from source), modified (an authored id replaced in the store)
    * and created (written in the console, no authored original).
    */
-  function toRow(c) {
+  function toRow(c, assigned = conceptAssignments().assigned) {
     const overrides = store.getContentOverrides().challenges;
+    const override = Object.hasOwn(overrides, c.id) ? overrides[c.id] : null;
     // The admin view always shows the ORIGINAL authored values alongside the
     // merged ones, so editing a field shows what it overrides - for a
     // modified question that is the untouched authored version, not the edit.
     const o = authoredChallenge(c.id) ?? c;
+    // Notes written for options (or blanks) the source has since changed:
+    // set aside for learners, and shown here so they can be looked at again.
+    const feedbackStale = isFeedbackStale(c, override);
     return {
       ...applyChallengeOverride(c, overrides),
-      hidden: Boolean(overrides[c.id]?.hidden),
+      hidden: Boolean(override?.hidden),
       custom: isCustomChallenge(c.id),
       modified: isModifiedChallenge(c.id),
-      original: { title: o.title, prompt: o.prompt, explanation: o.explanation, xpReward: o.xpReward, difficulty: o.difficulty }
+      original: {
+        title: o.title,
+        prompt: o.prompt,
+        explanation: o.explanation,
+        xpReward: o.xpReward,
+        difficulty: o.difficulty,
+        hints: o.hints ?? [],
+        tags: o.tags ?? []
+      },
+      feedbackStale,
+      ...(feedbackStale ? { staleFeedback: { optionFeedback: override.optionFeedback ?? null, blankFeedback: override.blankFeedback ?? null } } : {}),
+      // The teaching card this lesson carries, if any: a built-in concept's
+      // id, or the key of an admin's card (server/concept-cards.js).
+      conceptKey: assigned.get(c.id)?.key ?? null
     };
+  }
+
+  /**
+   * Store checked notes for one question. A built-in question keeps its
+   * source logic live: the notes go in its override with the basis they
+   * were written against. A created or modified question keeps them in its
+   * own stored record, re-checked by the content schema (nothing is run -
+   * notes never change grading). Returns `{ ok, issues, override, challenge }`.
+   */
+  function saveFeedback(id, set) {
+    const raw = getChallenge(id);
+    if (isCustomChallenge(id) || isModifiedChallenge(id)) {
+      if (!deps.validateChallenge) return { ok: false, issues: [{ path: '', message: 'The server is still starting - try again in a moment.' }] };
+      const check = deps.validateChallenge(withNotes(raw, set));
+      if (!check.ok) return { ok: false, issues: check.issues };
+      store.putCustomChallenge(check.challenge);
+      return { ok: true, issues: [], override: store.getContentOverrides().challenges[id] ?? null, challenge: getChallenge(id) };
+    }
+    const override = store.setChallengeOverride(id, feedbackOverridePatch(id, raw, set));
+    return { ok: true, issues: [], override, challenge: applyChallengeOverride(raw, store.getContentOverrides().challenges) };
+  }
+
+  /** The override fields for notes on a built-in question: the notes, and the basis they were written against. */
+  function feedbackOverridePatch(id, raw, set) {
+    const current = store.getContentOverrides().challenges[id] ?? {};
+    const patch = {};
+    if ('optionFeedback' in set) patch.optionFeedback = set.optionFeedback ?? undefined;
+    if ('blankFeedback' in set) patch.blankFeedback = set.blankFeedback ?? undefined;
+    patch.feedbackBasis = hasFeedbackOverride({ ...current, ...patch }) ? feedbackBasisKey(raw) : undefined;
+    return patch;
   }
 
   router.get('/content/challenges', (req, res) => {
@@ -837,7 +1020,8 @@ export function createAdminRouter(deps = {}) {
     // Authored order with modified ones in place, created ones last - the order learners see.
     let list = allChallenges();
     if (stageId) list = list.filter((c) => c.stageId === stageId);
-    res.json({ challenges: list.map(toRow) });
+    const { assigned } = conceptAssignments();
+    res.json({ challenges: list.map((c) => toRow(c, assigned)) });
   });
 
   /* ------------------------------------------------ admin-authored questions */
@@ -938,7 +1122,20 @@ export function createAdminRouter(deps = {}) {
       // A full save supersedes any re-wording layered on top earlier (a PATCH
       // override), or the admin's new title would be shadowed by the old one.
       // setChallengeOverride merges, so `hidden` survives the clear.
-      store.setChallengeOverride(id, { title: undefined, prompt: undefined, explanation: undefined, hints: undefined, tags: undefined, xpReward: undefined, difficulty: undefined });
+      // The same goes for wrong-answer notes: the wizard sent the merged ones
+      // in the body, so they are in the stored question now.
+      store.setChallengeOverride(id, {
+        title: undefined,
+        prompt: undefined,
+        explanation: undefined,
+        hints: undefined,
+        tags: undefined,
+        xpReward: undefined,
+        difficulty: undefined,
+        optionFeedback: undefined,
+        blankFeedback: undefined,
+        feedbackBasis: undefined
+      });
       audit(req, 'content.challenge.replace', id, { stageId: saved.stageId, type: saved.type, language: saved.language, authored: Boolean(authored) });
       res.json({ challenge: toRow(getChallenge(id)), verification: result.verification });
     })
@@ -1010,9 +1207,332 @@ export function createAdminRouter(deps = {}) {
     else if (['easy', 'medium', 'hard'].includes(req.body?.difficulty)) patch.difficulty = req.body.difficulty;
     if (req.body?.hidden !== undefined) patch.hidden = Boolean(req.body.hidden);
 
+    // Wrong-answer notes (`optionFeedback`, `blankFeedback`): checked
+    // first, so a refused note saves nothing at all. On a built-in question
+    // they are stored beside the basis they were written against; a created
+    // or modified question keeps them in its own record.
+    let notes = null;
+    if (sendsFeedback(req.body)) {
+      const { issues, set } = feedbackEdit(challenge, req.body);
+      if (issues.length) return res.status(400).json({ error: issues[0].message, issues });
+      notes = set;
+      if (isCustomChallenge(challenge.id) || isModifiedChallenge(challenge.id)) {
+        const saved = saveFeedback(challenge.id, set);
+        if (!saved.ok) return res.status(400).json({ error: saved.issues[0]?.message ?? 'The notes do not fit this question.', issues: saved.issues });
+      } else {
+        Object.assign(patch, feedbackOverridePatch(challenge.id, challenge, set));
+      }
+    }
+
     const result = store.setChallengeOverride(req.params.id, patch);
-    audit(req, 'content.challenge.update', req.params.id, patch);
-    res.json({ override: result });
+    const { optionFeedback, blankFeedback, feedbackBasis, ...plain } = patch;
+    audit(req, 'content.challenge.update', req.params.id, notes ? { ...plain, ...feedbackAuditOf(notes) } : patch);
+    const served = applyChallengeOverride(getChallenge(req.params.id), store.getContentOverrides().challenges);
+    res.json({ override: result, warnings: notes ? feedbackWarnings(served, deps.learning?.lib?.feedbackLeaks) : [] });
+  });
+
+  /**
+   * Save the notes for many questions at once - the Answer feedback page's
+   * "Save accepted". `{ items: [{ id, optionFeedback?, blankFeedback? }] }`,
+   * at most MAX_FEEDBACK_BULK. Each question is saved on its own: the ones
+   * that pass come back as `rows`, the rest as `issues` naming their id.
+   */
+  router.post('/content/challenges/feedback', (req, res) => {
+    const items = req.body?.items;
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Send the notes to save as a list of items.' });
+    if (items.length > MAX_FEEDBACK_BULK) return res.status(400).json({ error: `At most ${MAX_FEEDBACK_BULK} questions per save.` });
+
+    const rows = [];
+    const issues = [];
+    const warnings = [];
+    const seen = new Set();
+    for (const item of items) {
+      const id = typeof item?.id === 'string' ? item.id : '';
+      const challenge = id ? getChallenge(id) : null;
+      if (!challenge) {
+        issues.push({ id, path: '', message: 'No such question.' });
+        continue;
+      }
+      if (seen.has(id)) {
+        issues.push({ id, path: '', message: 'This question is in the list twice.' });
+        continue;
+      }
+      seen.add(id);
+      if (!sendsFeedback(item)) {
+        issues.push({ id, path: '', message: 'No notes were sent for this question.' });
+        continue;
+      }
+      const checked = feedbackEdit(challenge, item);
+      if (checked.issues.length) {
+        issues.push(...checked.issues.map((i) => ({ id, ...i })));
+        continue;
+      }
+      const saved = saveFeedback(id, checked.set);
+      if (!saved.ok) {
+        issues.push(...saved.issues.map((i) => ({ id, ...i })));
+        continue;
+      }
+      rows.push(toRow(getChallenge(id)));
+      warnings.push(...feedbackWarnings(saved.challenge, deps.learning?.lib?.feedbackLeaks).map((w) => ({ id, ...w })));
+    }
+    if (rows.length) audit(req, 'content.challenge.feedback', null, { saved: rows.length, refused: new Set(issues.map((i) => i.id)).size, ids: rows.map((r) => r.id) });
+    res.json({ rows, issues, warnings });
+  });
+
+  /* ------------------------------------------------------- teaching cards */
+
+  /**
+   * The Teaching page: every built-in concept and every card an admin wrote
+   * (server/concept-cards.js), where each lands, and what learners get.
+   * Built-in concepts keep their lesson; an edit is stored under the
+   * concept's own id and can be reverted. Created cards go before a lesson,
+   * at the start of a stage or at the start of a unit - one concept per
+   * lesson. Nothing here touches grading.
+   */
+  const unitFirstLesson = (unitId) => deps.learning?.units?.firstLessonOf?.(unitId) ?? null;
+
+  /** The lessons learners see, in order, before any card is applied. */
+  function learnerLessons() {
+    const snapshot = contentSnapshot();
+    return snapshot ? applyLearnerOverrides(snapshot, store.getContentOverrides(), { concepts: false }).challenges : [];
+  }
+
+  function cardList() {
+    return store.allConceptCards();
+  }
+
+  /** Every key in use: the cards' and the built-in concepts' ids (a new key must be none of them). */
+  function usedKeys(bank) {
+    return [...cardList().map((card) => card.key), ...authoredConceptIndex(bank).keys()];
+  }
+
+  /**
+   * One row per concept: its key, where it is, what it says, where it came
+   * from ('authored' | 'modified' | 'created'), whether it is hidden, and -
+   * `problem` - why learners do not get it: its lesson is hidden or gone
+   * ('anchor-missing'), or the lesson has another concept ('lesson-has-concept').
+   */
+  function conceptRows() {
+    const bank = allChallenges();
+    const byId = new Map(bank.map((c) => [c.id, c]));
+    const cards = cardList();
+    const index = authoredConceptIndex(bank);
+    const forLearners = conceptAssignments(learnerLessons(), { bank, cards });
+    const placedKeys = new Map([...forLearners.assigned.entries()].map(([lessonId, entry]) => [entry.key, lessonId]));
+    const rows = [];
+
+    for (const [key, lessonId] of index) {
+      const lesson = byId.get(lessonId);
+      const card = store.getConceptCard(key);
+      const served = placedKeys.has(key);
+      rows.push({
+        key,
+        anchor: { kind: 'lesson', challengeId: lessonId },
+        concept: card?.concept ?? lesson?.concept ?? null,
+        source: card?.concept ? 'modified' : 'authored',
+        hidden: Boolean(card?.hidden),
+        revision: Number.isInteger(card?.revision) ? card.revision : 0,
+        lessonId,
+        lessonTitle: lesson?.title ?? lessonId,
+        stageId: lesson?.stageId ?? null,
+        orphaned: !served,
+        problem: served ? null : 'anchor-missing',
+        updatedAt: card?.updatedAt ?? null
+      });
+    }
+    for (const card of cards) {
+      if (index.has(card.key)) continue;
+      const placedOn = placedKeys.get(card.key) ?? null;
+      // Not placed for learners: name the lesson it would go on anyway (a hidden one, say).
+      const lessonId = placedOn ?? resolveAnchor(card.anchor, bank, { unitFirstLesson });
+      const lesson = lessonId ? byId.get(lessonId) : null;
+      rows.push({
+        key: card.key,
+        anchor: card.anchor,
+        concept: card.concept ?? null,
+        source: 'created',
+        hidden: Boolean(card.hidden),
+        revision: Number.isInteger(card.revision) ? card.revision : 0,
+        lessonId: lessonId ?? null,
+        lessonTitle: lesson?.title ?? null,
+        stageId: lesson?.stageId ?? card.anchor?.stageId ?? null,
+        orphaned: !placedOn,
+        problem: placedOn ? null : forLearners.unplaced.get(card.key) ?? 'anchor-missing',
+        updatedAt: card.updatedAt ?? null
+      });
+    }
+    return { rows, forLearners };
+  }
+
+  /** One card's row, as the list returns it. */
+  const conceptRowOf = (key) => conceptRows().rows.find((row) => row.key === key) ?? null;
+
+  /** The lesson an anchor lands on (hidden lessons too, for a lesson anchor), or an issue. */
+  function anchorTarget(anchor, bank) {
+    if (anchor.kind === 'lesson') {
+      const lesson = bank.find((c) => c.id === anchor.challengeId);
+      if (!lesson) return { issue: { path: 'anchor.challengeId', message: 'No such lesson.' } };
+      if (lesson.isStageTest) return { issue: { path: 'anchor.challengeId', message: 'A stage test cannot carry a teaching card - pick a lesson.' } };
+      return { lessonId: lesson.id };
+    }
+    if (anchor.kind === 'stage') {
+      const stage = (contentSnapshot()?.stages ?? []).find((s) => s.id === anchor.stageId);
+      if (!stage) return { issue: { path: 'anchor.stageId', message: 'No such stage.' } };
+      return { lessonId: resolveAnchor(anchor, learnerLessons()) };
+    }
+    if (!deps.learning?.units) return { issue: { path: 'anchor.unitId', message: 'Units are not available yet - try again in a moment.' } };
+    const lessonId = unitFirstLesson(anchor.unitId);
+    if (!lessonId) return { issue: { path: 'anchor.unitId', message: 'No such unit (or it has no lessons learners see).' } };
+    return { lessonId };
+  }
+
+  /** Tidy and check a concept served as `id`: the friendly checks, then the schema. */
+  function checkConcept(body, id) {
+    const { candidate, issues } = normalizeConceptInput(body, { id });
+    if (!deps.validateConcept) return { ok: false, concept: null, issues: [{ path: '', message: 'The server is still starting - try again in a moment.' }] };
+    const schema = deps.validateConcept(candidate);
+    const covered = new Set(issues.map((i) => i.path.split('.')[0]));
+    const all = mergeIssues(issues, schema.ok ? [] : schema.issues.filter((i) => !covered.has(i.path.split('.')[0])));
+    return all.length ? { ok: false, concept: null, issues: all } : { ok: true, concept: schema.concept, issues: [] };
+  }
+
+  /** The concept already on this lesson (built-in or a placed card), other than `exceptKey`. */
+  function conceptOnLesson(lessonId, exceptKey, bank) {
+    const { assigned } = conceptAssignments(bank, { bank });
+    const entry = assigned.get(lessonId);
+    return entry && entry.key !== exceptKey ? entry.key : null;
+  }
+
+  router.get('/content/concepts', (req, res) => {
+    const stageId = req.query.stageId ? String(req.query.stageId) : null;
+    const { rows, forLearners } = conceptRows();
+    const bank = allChallenges();
+    const learners = learnerLessons();
+    const hiddenIds = new Set(
+      Object.entries(store.getContentOverrides().challenges)
+        .filter(([, o]) => o?.hidden)
+        .map(([id]) => id)
+    );
+    // "2 of 20 lessons have teaching": the lessons learners see, and how many get a concept.
+    const coverage = (contentSnapshot()?.stages ?? []).map((stage) => {
+      const lessons = learners.filter((c) => c.stageId === stage.id && !c.isStageTest);
+      const withConcept = lessons.filter((c) => {
+        const entry = forLearners.assigned.get(c.id);
+        return entry && !entry.hidden;
+      }).length;
+      return { stageId: stage.id, name: stage.name, lessons: lessons.length, withConcept };
+    });
+    const body = { rows: stageId ? rows.filter((row) => row.stageId === stageId) : rows, coverage };
+    if (stageId) {
+      const { assigned } = conceptAssignments(bank, { bank });
+      body.lessons = bank
+        .filter((c) => c.stageId === stageId && !c.isStageTest)
+        .map((c) => {
+          const entry = assigned.get(c.id);
+          return {
+            id: c.id,
+            title: c.title,
+            type: c.type,
+            hidden: hiddenIds.has(c.id),
+            concept: entry ? { key: entry.key, source: entry.source, hidden: entry.hidden, title: entry.concept?.title ?? '' } : null
+          };
+        });
+      body.units = (deps.learning?.units?.unitsForStage?.(stageId) ?? []).map((u) => ({ id: u.id, name: u.name, firstLessonId: u.challengeIds[0] ?? null }));
+    }
+    res.json(body);
+  });
+
+  router.post('/content/concepts/validate', (req, res) => {
+    const key = typeof req.body?.key === 'string' && req.body.key ? req.body.key : 'concept-preview';
+    const anchor = req.body?.anchor === undefined ? null : normalizeAnchor(req.body.anchor);
+    const result = checkConcept(req.body?.concept, key);
+    res.json({ ok: result.ok && !(anchor && anchor.issues.length), issues: [...(anchor?.issues ?? []), ...result.issues], concept: result.concept });
+  });
+
+  router.post('/content/concepts', (req, res) => {
+    const bank = allChallenges();
+    const { anchor, issues: anchorIssues } = normalizeAnchor(req.body?.anchor);
+    if (!anchor) return res.status(422).json({ error: anchorIssues[0].message, issues: anchorIssues });
+    const target = anchorTarget(anchor, bank);
+    if (target.issue) return res.status(422).json({ error: target.issue.message, issues: [target.issue] });
+    // One concept per lesson: edit the one that is there instead.
+    const existing = target.lessonId ? conceptOnLesson(target.lessonId, null, bank) : null;
+    if (existing) {
+      return res.status(409).json({ error: 'That lesson already has a teaching card - edit that one instead.', existingKey: existing, lessonId: target.lessonId });
+    }
+    const key = generateConceptKey(req.body?.concept?.title, usedKeys(bank));
+    const checked = checkConcept(req.body?.concept, conceptIdFor(key, 0));
+    if (!checked.ok) return res.status(422).json({ error: 'The card is not ready to save yet.', issues: checked.issues });
+    store.putConceptCard({ key, concept: checked.concept, anchor, hidden: false, revision: 0 });
+    audit(req, 'content.concept.create', key, { anchor: anchor.kind, lessonId: target.lessonId ?? null });
+    res.status(201).json({ card: conceptRowOf(key) });
+  });
+
+  router.put('/content/concepts/:key', (req, res) => {
+    const key = String(req.params.key);
+    const bank = allChallenges();
+    const index = authoredConceptIndex(bank);
+    const record = store.getConceptCard(key);
+    const builtIn = index.has(key);
+    if (!builtIn && !record) return res.status(404).json({ error: 'No such teaching card.' });
+
+    // A built-in concept stays on its own lesson; a created card may move.
+    let anchor = builtIn ? { kind: 'lesson', challengeId: index.get(key) } : record.anchor;
+    if (!builtIn && req.body?.anchor !== undefined) {
+      const next = normalizeAnchor(req.body.anchor);
+      if (!next.anchor) return res.status(422).json({ error: next.issues[0].message, issues: next.issues });
+      const target = anchorTarget(next.anchor, bank);
+      if (target.issue) return res.status(422).json({ error: target.issue.message, issues: [target.issue] });
+      const existing = target.lessonId ? conceptOnLesson(target.lessonId, key, bank) : null;
+      if (existing) return res.status(409).json({ error: 'That lesson already has a teaching card - edit that one instead.', existingKey: existing, lessonId: target.lessonId });
+      anchor = next.anchor;
+    }
+    // "Show it again": a new served id, so learners who saw it see the new version.
+    const revision = (Number.isInteger(record?.revision) ? record.revision : 0) + (req.body?.showAgain === true ? 1 : 0);
+    const checked = checkConcept(req.body?.concept, conceptIdFor(key, revision));
+    if (!checked.ok) return res.status(422).json({ error: 'The card is not ready to save yet.', issues: checked.issues });
+    store.putConceptCard({ key, concept: checked.concept, anchor, hidden: Boolean(record?.hidden), revision });
+    audit(req, 'content.concept.update', key, { builtIn, anchor: anchor.kind, showAgain: req.body?.showAgain === true });
+    res.json({ card: conceptRowOf(key) });
+  });
+
+  /** A built-in concept back as it shipped (still hidden, if it was). */
+  router.post('/content/concepts/:key/revert', (req, res) => {
+    const key = String(req.params.key);
+    const index = authoredConceptIndex(allChallenges());
+    if (!index.has(key)) return res.status(409).json({ error: 'Only a built-in concept can be reverted - a card written here can be edited or deleted.' });
+    const record = store.getConceptCard(key);
+    if (!record?.concept) return res.status(409).json({ error: 'This concept has not been edited, so there is nothing to revert.' });
+    if (record.hidden) store.putConceptCard({ key, anchor: record.anchor, hidden: true });
+    else store.deleteConceptCard(key);
+    audit(req, 'content.concept.revert', key, { hidden: Boolean(record.hidden) });
+    res.json({ card: conceptRowOf(key) });
+  });
+
+  /** Hide or show a concept (built-in or created). */
+  router.patch('/content/concepts/:key', (req, res) => {
+    const key = String(req.params.key);
+    if (typeof req.body?.hidden !== 'boolean') return res.status(400).json({ error: 'Send `hidden` as true or false.' });
+    const hidden = req.body.hidden;
+    const index = authoredConceptIndex(allChallenges());
+    const record = store.getConceptCard(key);
+    if (!index.has(key) && !record) return res.status(404).json({ error: 'No such teaching card.' });
+    if (index.has(key) && !record?.concept && !hidden) store.deleteConceptCard(key);
+    else store.putConceptCard({ ...(record ?? { key, anchor: { kind: 'lesson', challengeId: index.get(key) } }), hidden });
+    audit(req, 'content.concept.update', key, { hidden });
+    res.json({ card: conceptRowOf(key) });
+  });
+
+  /** Delete a card written here. A built-in concept is hidden or reverted instead. */
+  router.delete('/content/concepts/:key', (req, res) => {
+    const key = String(req.params.key);
+    if (authoredConceptIndex(allChallenges()).has(key)) {
+      return res.status(409).json({ error: 'This concept is built in, so it cannot be deleted - hide it, or revert your edit.', builtIn: true });
+    }
+    if (!store.getConceptCard(key)) return res.status(404).json({ error: 'No such teaching card.' });
+    store.deleteConceptCard(key);
+    audit(req, 'content.concept.delete', key, null);
+    res.json({ ok: true, deleted: true });
   });
 
   /* --------------------------------------------------- ai question assistant */
@@ -1077,6 +1597,38 @@ export function createAdminRouter(deps = {}) {
       const text = typeof body.text === 'string' ? body.text : '';
       const result = await findDuplicates({ ai: deps.ai, draft, text, bank: allChallenges(), stages: contentSnapshot()?.stages ?? [] });
       audit(req, 'ai.duplicates', null, { push: result.verdict.push, candidates: result.candidates.length });
+      res.json(result);
+    })
+  );
+
+  /**
+   * Gemini drafts wrong-answer notes for 1-10 questions (option or blank
+   * kinds). Nothing is saved: the Answer feedback page shows each draft to
+   * accept, edit or reject, and saves the accepted ones through the bulk
+   * route above. Each draft comes back with the notes that would give the
+   * answer away already flagged.
+   */
+  router.post(
+    '/ai/feedback',
+    aiRoute(async (req, res) => {
+      const ids = req.body?.ids;
+      if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Pick at least one question.' });
+      if (ids.length > MAX_FEEDBACK_IDS) return res.status(400).json({ error: `At most ${MAX_FEEDBACK_IDS} questions per draft.` });
+      const unique = [...new Set(ids.map((id) => String(id ?? '')))];
+      const overrides = store.getContentOverrides().challenges;
+      const challenges = [];
+      for (const id of unique) {
+        const raw = getChallenge(id);
+        if (!raw) return res.status(400).json({ error: `No such question: ${id}.` });
+        if (!FEEDBACK_KINDS.includes(raw.type)) {
+          return res.status(400).json({ error: `"${raw.title}" has no options or blanks to write notes for.` });
+        }
+        challenges.push(applyChallengeOverride(raw, overrides));
+      }
+      if (!deps.ai?.configured) return notConfigured(res);
+
+      const result = await draftFeedback({ ai: deps.ai, challenges, leaks: deps.learning?.lib?.feedbackLeaks });
+      audit(req, 'ai.feedback', null, { count: challenges.length });
       res.json(result);
     })
   );

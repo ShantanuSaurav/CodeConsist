@@ -2,7 +2,8 @@
  * The migrations of db.json: version 2 added `settings` and `activity`
  * (users gained `preferences`), version 3 added `passwordResets` (users
  * gained `tokenVersion`), version 4 added `contentOverrides.units` and the
- * whole preferences shape - and nothing a learner earned is ever touched.
+ * whole preferences shape, version 5 added `conceptCards` and
+ * `reviewSessions` - and nothing a learner earned is ever touched.
  *
  * `migrateState` is pure over the loaded object (like forgetBillingIdentity
  * in db-forget.test.mjs). `load()` is exercised with the file system mocked,
@@ -78,7 +79,7 @@ describe('migrateState', () => {
   it('adds settings and activity, and leaves progress exactly as it was', () => {
     const next = store.migrateState(clone(OLD_DB));
     expect(next.version).toBe(store.SCHEMA_VERSION);
-    expect(store.SCHEMA_VERSION).toBe(4);
+    expect(store.SCHEMA_VERSION).toBe(5);
     expect(next.settings).toEqual({ overrides: {}, revision: 0, updatedAt: null, updatedBy: null });
     expect(next.activity).toEqual({});
     expect(next.progress).toEqual(OLD_DB.progress);
@@ -120,7 +121,7 @@ describe('migrateState', () => {
 
   it('never lets a newer version number go backwards', () => {
     expect(store.migrateState({ version: 7 }).version).toBe(7);
-    expect(store.migrateState({}).version).toBe(4);
+    expect(store.migrateState({}).version).toBe(5);
   });
 
   it('adds password resets and token versions (version 3), leaving orders, overrides and progress alone', () => {
@@ -160,16 +161,16 @@ describe('load() of a version 1 file', () => {
   });
 
   it('keeps a byte-for-byte copy of the old file before migrating', () => {
-    // Named after the version it migrates TO (a file from before version 4).
-    const copy = files.written.find((w) => /db\.json\.pre-v4-\d+$/.test(w.file));
-    expect(copy, 'db.json.pre-v4-<ts>').toBeTruthy();
+    // Named after the version it migrates TO (a file from before version 5).
+    const copy = files.written.find((w) => /db\.json\.pre-v5-\d+$/.test(w.file));
+    expect(copy, 'db.json.pre-v5-<ts>').toBeTruthy();
     expect(copy.text).toBe(JSON.stringify(OLD_DB));
     // Not treated as corrupt.
     expect(files.renamed.filter((r) => r.to.includes('.corrupt-'))).toEqual([]);
   });
 
   it('loads the migrated state with progress untouched', () => {
-    expect(store.db().version).toBe(4);
+    expect(store.db().version).toBe(5);
     expect(store.db().progress).toEqual(OLD_DB.progress);
     expect(store.getSettingsRecord().revision).toBe(0);
     expect(store.allActivity()).toEqual({});
@@ -194,6 +195,74 @@ describe('load() of a version 1 file', () => {
     expect(store.passwordResetsForUser('u1')).toEqual([]);
     expect(store.getPasswordReset('pr_two')).toMatchObject({ userId: 'u2' });
     expect(store.findPasswordResetByTokenHash('hash-pr_two')).toMatchObject({ id: 'pr_two' });
+  });
+
+  it('deleteUser takes the learner’s open Practice session with it', () => {
+    const session = (id) => ({ id, createdAt: '2026-09-27T00:00:00.000Z', items: [], answered: {}, bonusPaid: false });
+    store.insertUser({ id: 'u7', email: 'g@example.com', username: 'gus', passwordHash: 'hash' });
+    store.putReviewSession('u7', session('rs-7'));
+    store.putReviewSession('u9', session('rs-9'));
+    expect(store.getReviewSession('u7')).toMatchObject({ id: 'rs-7' });
+    expect(store.deleteUser('u7')).toBe(true);
+    expect(store.getReviewSession('u7')).toBeNull();
+    expect(store.getReviewSession('u9')).toMatchObject({ id: 'rs-9' });
+    expect(store.getReviewSession('__proto__')).toBeNull();
+    expect(store.deleteReviewSession('u9')).toBe(true);
+    expect(store.deleteReviewSession('u9')).toBe(false);
+  });
+});
+
+describe('version 5: teaching cards, Practice sessions, the review schedule', () => {
+  it('adds conceptCards and reviewSessions, keeping stored ones and repairing nonsense', () => {
+    const next = store.migrateState(clone(OLD_DB));
+    expect(next.conceptCards).toEqual({});
+    expect(next.reviewSessions).toEqual({});
+    // Progress is carried over exactly: `review` appears only on read.
+    expect(JSON.stringify(next.progress)).toBe(JSON.stringify(OLD_DB.progress));
+    const cards = { 'variables-let': { key: 'variables-let', hidden: true } };
+    const sessions = { u1: { id: 'rs-1', items: [] } };
+    const kept = store.migrateState({ conceptCards: cards, reviewSessions: sessions });
+    expect(kept.conceptCards).toEqual(cards);
+    expect(kept.reviewSessions).toEqual(sessions);
+    expect(store.migrateState({ conceptCards: [1], reviewSessions: 'x' })).toMatchObject({ conceptCards: {}, reviewSessions: {} });
+  });
+
+  it('keeps feedback overrides on built-in questions as they were stored', () => {
+    const overrides = {
+      stages: {},
+      languages: {},
+      units: {},
+      challenges: { q1: { optionFeedback: ['', 'Not quite'], feedbackBasis: '["a","b"]' }, q2: { hidden: true } }
+    };
+    expect(store.migrateState({ contentOverrides: clone(overrides) }).contentOverrides).toEqual(overrides);
+  });
+
+  it('stores teaching cards by key (any key, own properties only) and keeps them when a learner is deleted', () => {
+    store.putConceptCard({ key: 'concept-a-0000', concept: { id: 'concept-a-0000' }, anchor: { kind: 'lesson', challengeId: 'q1' } });
+    store.putConceptCard({ key: '__proto__', hidden: true, anchor: { kind: 'lesson', challengeId: 'q2' } });
+    const first = store.getConceptCard('concept-a-0000');
+    expect(first).toMatchObject({ key: 'concept-a-0000', createdAt: expect.any(String), updatedAt: expect.any(String) });
+    expect(store.getConceptCard('__proto__')).toMatchObject({ hidden: true });
+    expect(store.getConceptCard('constructor')).toBeNull();
+    expect(({}).hidden).toBeUndefined();
+    // A replacement keeps the creation time.
+    const again = store.putConceptCard({ key: 'concept-a-0000', concept: { id: 'concept-a-0000-r1' }, anchor: first.anchor });
+    expect(again.createdAt).toBe(first.createdAt);
+    expect(store.allConceptCards().map((c) => c.key).sort()).toEqual(['__proto__', 'concept-a-0000']);
+    expect(store.deleteConceptCard('__proto__')).toBe(true);
+    expect(store.deleteConceptCard('__proto__')).toBe(false);
+    expect(store.deleteConceptCard('concept-a-0000')).toBe(true);
+  });
+
+  it('fills review on read without rewriting the stored row', () => {
+    // A row written before version 5 (no `review`).
+    store.setProgress('u8', clone(OLD_DB.progress.u1));
+    const before = JSON.stringify(store.db().progress.u8);
+    const row = store.getProgress('u8');
+    expect(row.review).toEqual({});
+    row.review.c1 = { box: 2, due: '2026-10-01' };
+    expect(JSON.stringify(store.db().progress.u8)).toBe(before);
+    expect(store.getProgress('u8').review).toEqual({});
   });
 });
 

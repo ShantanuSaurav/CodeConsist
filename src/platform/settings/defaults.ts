@@ -16,6 +16,8 @@ import { DEFAULT_BADGES, DEFAULT_RANKS } from '../xp-leveling/insights';
 import { DEFAULT_UNIT_SETTINGS } from '../progress/units';
 import { DEFAULT_GOAL_SETTINGS } from '../habits/goals';
 import { DEFAULT_HABIT_SETTINGS } from '../habits/streak';
+import { DEFAULT_FEEDBACK_SETTINGS } from './budget';
+import { DEFAULT_REVIEW_SETTINGS } from '../review/defaults';
 import type { Settings } from './types';
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -119,6 +121,33 @@ export const DEFAULT_SETTINGS: Settings = {
     families: DEFAULT_BADGES.families.map((family) => ({ ...family, tiers: [...family.tiers] })),
     stageBadges: { ...DEFAULT_BADGES.stageBadges }
   },
+  // Phase 4: attempts before an answer is shown, wrong-answer notes and the
+  // requeue (src/platform/settings/budget.ts, where the rules read them).
+  feedback: {
+    attemptsBeforeReveal: {
+      practice: { ...DEFAULT_FEEDBACK_SETTINGS.attemptsBeforeReveal.practice },
+      learn: DEFAULT_FEEDBACK_SETTINGS.attemptsBeforeReveal.learn
+    },
+    showWrongAnswerNotes: { ...DEFAULT_FEEDBACK_SETTINGS.showWrongAnswerNotes },
+    stageTestWrongAnswerNotes: DEFAULT_FEEDBACK_SETTINGS.stageTestWrongAnswerNotes,
+    solutionAfterFailedRuns: DEFAULT_FEEDBACK_SETTINGS.solutionAfterFailedRuns,
+    learnOpensReading: DEFAULT_FEEDBACK_SETTINGS.learnOpensReading,
+    requeue: {
+      ...DEFAULT_FEEDBACK_SETTINGS.requeue,
+      maxScoreAfterReveal: { ...DEFAULT_FEEDBACK_SETTINGS.requeue.maxScoreAfterReveal }
+    }
+  },
+  // Phase 4: Practice sessions (src/platform/review, where the rules read them).
+  review: {
+    ...DEFAULT_REVIEW_SETTINGS,
+    intervalsDays: [...DEFAULT_REVIEW_SETTINGS.intervalsDays],
+    initialBox: { ...DEFAULT_REVIEW_SETTINGS.initialBox },
+    sessionSize: { ...DEFAULT_REVIEW_SETTINGS.sessionSize },
+    mix: { ...DEFAULT_REVIEW_SETTINGS.mix },
+    weak: { ...DEFAULT_REVIEW_SETTINGS.weak },
+    itemTypes: [...DEFAULT_REVIEW_SETTINGS.itemTypes],
+    xp: { ...DEFAULT_REVIEW_SETTINGS.xp }
+  },
   copy: {
     offline: {
       auth: 'Accounts are temporarily unavailable. Keep practising as a guest - your progress is saved on this device.',
@@ -158,7 +187,7 @@ export const DEFAULT_SETTINGS: Settings = {
         'CodeConsist - learn to code with {lessons} bite-sized lessons and {tests} stage tests across {stages} stages on {tracks} tracks, with real code execution. Free to start.'
     },
     limits: {
-      tooMany: 'Too many attempts - try again in {minutes} minutes.',
+      tooMany: 'Too many attempts - wait {minutes} min and try again.',
       busy: 'The code runner is busy - try again in a moment.'
     },
     premium: {

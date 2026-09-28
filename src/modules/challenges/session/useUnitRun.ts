@@ -31,6 +31,8 @@ export interface RunCounts {
   questions: number;
   /** Of those, solved on their first check with no hint. */
   firstTry: number;
+  /** Of those, solved after coming back at the end of the unit (a miss, then right). */
+  fixedOnRetry: number;
   hints: number;
   /** XP paid during the run: solve XP plus any perfect-unit and daily-goal bonus. */
   xp: number;
@@ -50,6 +52,7 @@ export const EMPTY_COUNTS: RunCounts = {
   checks: 0,
   questions: 0,
   firstTry: 0,
+  fixedOnRetry: 0,
   hints: 0,
   xp: 0,
   perfectBonusXp: 0,
@@ -60,13 +63,14 @@ export const EMPTY_COUNTS: RunCounts = {
   unverified: 0
 };
 
-/** One solve's contribution to the run. */
-export function countSolve(counts: RunCounts, solve: { attempts: number; hints: number; outcome: SolveOutcome }): RunCounts {
+/** One solve's contribution to the run. `attempts` and `hints` are the question's totals across the run. */
+export function countSolve(counts: RunCounts, solve: { attempts: number; hints: number; outcome: SolveOutcome; requeued?: boolean }): RunCounts {
   const { outcome } = solve;
   return {
     ...counts,
     questions: counts.questions + 1,
     firstTry: counts.firstTry + (solve.attempts === 1 && solve.hints === 0 ? 1 : 0),
+    fixedOnRetry: counts.fixedOnRetry + (solve.requeued ? 1 : 0),
     hints: counts.hints + Math.max(0, solve.hints),
     xp: counts.xp + outcome.totalXp,
     perfectBonusXp: counts.perfectBonusXp + outcome.perfectBonusXp,
@@ -100,7 +104,7 @@ export interface UnitRun {
   counts: RunCounts;
   /** A check (or a run of the tests) happened. */
   noteCheck: () => void;
-  noteSolve: (solve: { attempts: number; hints: number; outcome: SolveOutcome }) => void;
+  noteSolve: (solve: { attempts: number; hints: number; outcome: SolveOutcome; requeued?: boolean }) => void;
   /** Active milliseconds so far (hidden-tab time left out). */
   elapsedMs: () => number;
   /** Stop the clock (the end screen is showing). */

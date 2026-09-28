@@ -10,7 +10,7 @@ interface Props {
   onAnswer: (answer: Answer) => void;
   checked: boolean;
   locked: boolean;
-  /** Show the correct order after a wrong check. Never on a stage test. */
+  /** The answer is shown now (tries used up): the correct order appears. Never on a stage test. */
   reveal: boolean;
 }
 

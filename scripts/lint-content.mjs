@@ -12,6 +12,9 @@
  *   - correctIndex concentrated on one position across the bank
  *   - near-duplicate challenges inside a stage
  *   - explanations too thin to teach anything
+ *   - wrong-answer notes that give the answer away, only repeat the option,
+ *     or are too short to explain anything (plus how many questions have
+ *     notes at all)
  *
  * These are WARNINGS, not errors: each one needs a human to judge. Exits 0
  * unless --strict is passed.
@@ -149,6 +152,40 @@ function checkExplanation(c) {
   }
 }
 
+/* Wrong-answer notes (optionFeedback, blanks[].wrongAnswers). */
+
+/** Notes shorter than this rarely explain a misconception. */
+const THIN_NOTE = 20;
+
+function checkFeedback(c, feedbackLeaks) {
+  const leaks = feedbackLeaks(c);
+  const correct = new Set(c.type === 'multi_select' ? c.correctIndices ?? [] : [c.correctIndex]);
+  (c.optionFeedback ?? []).forEach((raw, i) => {
+    const note = String(raw ?? '').trim();
+    if (!note) return;
+    if (leaks.has(`o${i}`)) note_(c, 'feedback-leak', `the note on option ${i + 1} contains the correct option - it will only show once the answer is revealed`);
+    if (note.length < THIN_NOTE) note_(c, 'feedback-thin', `the note on option ${i + 1} is only ${note.length} characters`);
+    const option = norm(c.options?.[i]);
+    // A short note is already flagged thin; this one is about a long note that says nothing new.
+    if (note.length >= THIN_NOTE && !correct.has(i) && option.length > 3 && norm(note).replace(option, '').replace(/[^a-z0-9]/g, '').length < 15) {
+      note_(c, 'feedback-restates-option', `the note on option ${i + 1} mostly repeats the option instead of saying why it is wrong`);
+    }
+  });
+  (c.blanks ?? []).forEach((blank, b) => {
+    (blank.wrongAnswers ?? []).forEach((wrong, w) => {
+      const note = String(wrong.feedback ?? '').trim();
+      if (leaks.has(`b${b}.${w}`)) note_(c, 'feedback-leak', `blank ${b + 1}: the note for "${wrong.answer}" names the answer - it will only show once the answer is revealed`);
+      if (note.length < THIN_NOTE) note_(c, 'feedback-thin', `blank ${b + 1}: the note for "${wrong.answer}" is only ${note.length} characters`);
+      const answer = norm(wrong.answer);
+      if (note.length >= THIN_NOTE && answer.length > 3 && norm(note).replace(answer, '').replace(/[^a-z0-9]/g, '').length < 15) {
+        note_(c, 'feedback-restates-option', `blank ${b + 1}: the note for "${wrong.answer}" mostly repeats the answer instead of saying why it is wrong`);
+      }
+    });
+  });
+}
+
+const note_ = (c, kind, message) => note(c.id, kind, message);
+
 function checkPrompt(c) {
   const p = norm(c.prompt);
   for (const option of correctOptionTexts(c)) {
@@ -172,21 +209,34 @@ async function load() {
     "export { optionOrder, choiceOrder } from './platform/grading-engine/answers';",
     'answers'
   );
+  // The same leak rule the practice modal and the admin pages use.
+  const { feedbackLeaks, feedbackCoverage } = await bundleAndImport(
+    "export { feedbackLeaks, feedbackCoverage } from './platform/grading-engine/feedback';",
+    'feedback'
+  );
   return {
     all: records.map((r) => r.item),
     fileCount: new Set(records.map((r) => r.file)).size,
     optionOrder,
-    choiceOrder
+    choiceOrder,
+    feedbackLeaks,
+    feedbackCoverage
   };
 }
 
-const { all, fileCount, optionOrder, choiceOrder } = await load();
+const { all, fileCount, optionOrder, choiceOrder, feedbackLeaks, feedbackCoverage } = await load();
 
+let noteEligible = 0;
+let noteCovered = 0;
 for (const c of all) {
   checkHintLeakage(c);
   checkOptions(c);
   checkExplanation(c);
   checkPrompt(c);
+  checkFeedback(c, feedbackLeaks);
+  const coverage = feedbackCoverage(c);
+  if (coverage.eligible) noteEligible++;
+  if (coverage.hasNotes) noteCovered++;
 }
 
 /* Near-duplicate challenges within a stage. */
@@ -252,6 +302,12 @@ if (single > 0) {
   } else {
     console.log('');
   }
+}
+
+if (noteEligible > 0) {
+  console.log(
+    `  wrong-answer notes: ${noteCovered} of ${noteEligible} questions with options or blanks have them (${Math.round((noteCovered / noteEligible) * 100)}%). Admin edits live in the database, not here.\n`
+  );
 }
 
 if (blanksWithChoices > 0) {

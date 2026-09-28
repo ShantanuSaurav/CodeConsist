@@ -168,6 +168,44 @@ describe('POST /api/activity/misses', () => {
   });
 });
 
+describe('a miss after which the answer was shown (final)', () => {
+  const todayUtc = () => app.learningDeps.lib.dayKeyIn('UTC', new Date());
+
+  it('counts as revealed and sends the question back to the start of the Practice schedule', async () => {
+    // Solved long ago on the first try: derived box 1.
+    store.setProgress('u1', {
+      ...store.getProgress('u1'),
+      completedChallenges: ['q-quiz', 'q-multi'],
+      attempts: {
+        'q-quiz': { challengeId: 'q-quiz', score: 100, attempts: 1, hintsUsed: 0, solvedAt: '2026-01-01T09:00:00.000Z' },
+        'q-multi': { challengeId: 'q-multi', score: 100, attempts: 1, hintsUsed: 0, solvedAt: '2026-01-01T09:00:00.000Z' }
+      },
+      review: { 'q-multi': { box: 3, due: '2027-01-01', last: '2026-09-01T00:00:00.000Z', paid: '2026-09-01' } }
+    });
+    const res = await misses([
+      { challengeId: 'q-quiz', answer: 0, final: true },
+      { challengeId: 'q-multi', answer: [1], final: true }
+    ]);
+    expect(res.json.misses['q-quiz']).toMatchObject({ count: 1, revealed: 1 });
+    const review = store.getProgress('u1').review;
+    const tomorrow = app.learningDeps.lib.addDays(todayUtc(), 1);
+    expect(review['q-quiz']).toMatchObject({ box: 0, due: tomorrow });
+    // A stored entry drops back too, and keeps the day it was last paid.
+    expect(review['q-multi']).toMatchObject({ box: 0, due: tomorrow, paid: '2026-09-01' });
+    // Still never an attempt.
+    expect(store.getProgress('u1').attempts['q-quiz'].attempts).toBe(1);
+  });
+
+  it('follows review.wrongResetsToBox, and a miss that is not final leaves the schedule alone', async () => {
+    const service = app.learningDeps.settings;
+    expect(service.update({ revision: service.revision(), patch: { review: { wrongResetsToBox: 1 } } }).ok).toBe(true);
+    await misses([{ challengeId: 'q-blank', answer: ['y'] }]);
+    expect(store.getProgress('u1').review ?? {}).toEqual({});
+    await misses([{ challengeId: 'q-blank', answer: ['z'], final: true }]);
+    expect(store.getProgress('u1').review['q-blank']).toMatchObject({ box: 1, due: app.learningDeps.lib.addDays(todayUtc(), 3) });
+  });
+});
+
 describe('days in the learner’s time zone', () => {
   // 20:00Z on the 25th is 01:30 on the 26th in Kolkata and 13:00 on the 25th in Los Angeles.
   const EVENING = new Date('2026-09-25T20:00:00Z');

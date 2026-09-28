@@ -184,7 +184,8 @@ export const AdminChallenges: React.FC = () => {
     // Saved into another stage: follow it there so the admin sees the result.
     if (stageId !== ALL_STAGES && row.stageId !== stageId) setStageId(row.stageId);
     if (!existing) flash(`"${row.title}" added to ${stageName(row.stageId)}. Learners see it now.`);
-    else if (!existing.custom) flash(`"${row.title}" updated - learners see your version now.`);
+    else if (!existing.custom && row.modified) flash(`"${row.title}" updated - learners see your version now.`);
+    else if (!existing.custom) flash(`"${row.title}" updated - learners see the changes now, and it stays up to date with the built-in version.`);
     else flash(`"${row.title}" updated.`);
   };
 

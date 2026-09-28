@@ -211,7 +211,8 @@ export function createHabitsService({ lib, store, settings, activity }) {
    * Merge step 6. `current` is the account's row before the merge, `merged`
    * the row after the XP merge (its streak fields are still the account's),
    * `incoming` the guest's progress and `incomingHabit` their habit.
-   * `credits` are the first solves the merge paid for (their days).
+   * `credits` are the first solves and the Practice answers the merge paid
+   * for (their days).
    * Returns the row to store and the goal bonuses paid on the way.
    */
   function mergeHabitsFor({ user, current, merged, incoming, incomingHabit, credits = [], today, now = new Date() }) {

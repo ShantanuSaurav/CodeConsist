@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, Check, ChevronDown, Lock, Minus, Star } from 'lucide-react';
+import { BookOpen, Check, ChevronDown, Dumbbell, Lock, Minus, Star } from 'lucide-react';
 import type { Challenge, ReadingResolver, Stage, Unit, UserStats } from '@/types';
 import { useSession } from '@/platform/session';
 import { isPremiumLocked, stageStatus, unitStates } from '@/platform/progress';
 import type { UnitGate } from '@/platform/progress';
 import { isPerfectUnit } from '@/platform/xp-leveling/rewards';
 import { intents } from '@/platform/events';
+import { describeNextReview, describeReviewSummary } from '@/platform/review';
 import { Badge, Button, ProgressBar } from '@/ui';
 
 export interface LearningPathProps {
@@ -23,7 +24,9 @@ type Visual = 'completed' | 'current' | 'locked' | 'pro';
  * in progress opens by default; the rest fold to a single line.
  */
 export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
-  const { learnerStages: stages, stats, learningMode, settings } = useSession();
+  const { learnerStages: stages, stats, learningMode, settings, reviewSummary, todayKey } = useSession();
+  const practiceLine = describeReviewSummary(reviewSummary);
+  const nextReview = describeNextReview(reviewSummary.nextDueDay, todayKey);
   const solved = useMemo(() => new Set(stats.completedChallenges), [stats.completedChallenges]);
 
   const currentId = useMemo(
@@ -46,6 +49,26 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
     });
 
   return (
+    <>
+    {/* Practice (review): mistakes and questions due for another look, across the path. */}
+    {reviewSummary.enabled && (
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border-subtle px-4 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Dumbbell size={16} className="text-accent shrink-0" aria-hidden="true" />
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-fg">Practice</div>
+            <div className="text-xs text-fg-secondary">
+              {practiceLine ?? (nextReview ? `All caught up - next review ${nextReview}.` : 'Nothing to practise yet - solve a few lessons first.')}
+            </div>
+          </div>
+        </div>
+        {practiceLine && (
+          <Button size="sm" variant="secondary" onClick={() => intents.openReview()}>
+            Practise now
+          </Button>
+        )}
+      </div>
+    )}
     <ol className="relative">
       {/* The rail behind the stage markers. */}
       <span className="absolute left-[15px] top-4 bottom-4 w-px bg-border" aria-hidden="true" />
@@ -115,7 +138,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                     <button
                       type="button"
                       onClick={() => intents.openPractice(stage.id, undefined, 'learn')}
-                      className={`px-1.5 py-1 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'learn' ? 'text-fg font-medium' : ''}`}
+                      className={`inline-flex items-center min-h-[44px] px-2.5 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'learn' ? 'text-fg font-medium' : ''}`}
                       title="Theory, examples and a try-it before each new idea"
                     >
                       Learn
@@ -124,12 +147,23 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                     <button
                       type="button"
                       onClick={() => intents.openPractice(stage.id, undefined, 'practice')}
-                      className={`px-1.5 py-1 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'practice' ? 'text-fg font-medium' : ''}`}
+                      className={`inline-flex items-center min-h-[44px] px-2.5 rounded-xs hover:bg-surface-2 hover:text-fg ${learningMode === 'practice' ? 'text-fg font-medium' : ''}`}
                       title="Jump straight to the questions"
                     >
                       Practice
                     </button>
                   </div>
+                )}
+                {stage.state === 'Completed' && !premiumLocked && reviewSummary.enabled && (
+                  <button
+                    type="button"
+                    onClick={() => intents.openReview({ stageId: stage.id })}
+                    className="inline-flex items-center gap-1.5 min-h-[44px] px-3 rounded-xs text-xs text-fg-secondary hover:bg-surface-2 hover:text-fg"
+                    title="A short session over this stage's questions you missed or that are due for another look"
+                  >
+                    <Dumbbell size={13} aria-hidden="true" />
+                    Practice this stage
+                  </button>
                 )}
                 {reading && (
                   <Link to={reading.href} className="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg">
@@ -191,6 +225,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
         );
       })}
     </ol>
+    </>
   );
 };
 

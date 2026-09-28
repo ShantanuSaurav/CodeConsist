@@ -10,7 +10,9 @@
  *           may this learner solve it at all (premium)? 403 - before any
  *           code runs -> verify the submission (the only await; code runs in
  *           an execution slot, 503 when they are all busy) -> pass mark? 422
- *           -> capture the zone, pick the learner's day -> score, pay, record
+ *           (not for a question requeued after a miss) -> capture the zone,
+ *           pick the learner's day -> score (capped when the answer was shown
+ *           first), pay, record
  *           -> a unit completed? its perfect bonus -> the day row -> streak,
  *           freezes, repair and the daily goal (server/habits.js; the goal
  *           bonus once a day) -> level -> persist, drop the draft, Excel
@@ -19,17 +21,19 @@
  *           complete -> merge the activity log -> adopt the guest's
  *           preferences where the account has none -> the streak (a new
  *           account adopts the guest's; an existing one replays the merged
- *           days, paying their goal bonuses) -> level -> persist
+ *           days, paying their goal bonuses) -> the Practice schedule and
+ *           review log (newer entries win; right answers priced again under
+ *           the daily cap, no session bonus) -> level -> persist
  *
  * Everything after the last `await` is synchronous, so progress and the
  * activity log are written in the same tick and two requests cannot
  * interleave between a read and its write.
  *
- * `learningDeps` ({ lib, settings, activity, units, habits }) is read per request:
+ * `learningDeps` ({ lib, settings, activity, units, habits, review }) is read per request:
  * it is filled in by server/index.js's bootstrap, after this router is mounted.
  */
 import express from 'express';
-import { applySolveCore, applySolveRewards, bonusesOf, mergeCore, parseSolveBody, recalcProgress, resetProgress } from './progress-rules.js';
+import { applySolveCore, applySolveRewards, bonusesOf, mergeCore, parseSolveBody, recalcProgress, resetProgress, scoreCapFor } from './progress-rules.js';
 import { adoptGuestPreferences, publicPreferences } from './preferences-routes.js';
 import { BusyError } from './rate-limit.js';
 
@@ -148,8 +152,11 @@ export function createProgressRouter({
       // admin's change applies to the very next solve.
       const rules = settings.current();
 
-      // A correct answer below the pass mark does not complete the lesson.
-      if (!lib.isPassingSolve(input.attempts, input.hintsUsed, rules.xp)) {
+      // A correct answer below the pass mark does not complete the lesson -
+      // unless the question came back at the end of the unit after a miss
+      // (`requeued`): then it is the learner finishing it, and the score
+      // (floored, and capped when the answer was shown) says how it went.
+      if (!input.requeued && !lib.isPassingSolve(input.attempts, input.hintsUsed, rules.xp)) {
         return res.status(422).json({
           error: `Correct, but below the pass mark of ${rules.xp.passScore}%. Retry the lesson for a fresh attempt.`,
           reason: 'below-pass-mark',
@@ -171,7 +178,8 @@ export function createProgressRouter({
         lib,
         xp: rules.xp,
         levels: rules.levels,
-        completedStagesFor
+        completedStagesFor,
+        cap: scoreCapFor(input, rules.feedback, lib)
       });
       const { awarded, score, firstSolve } = solved;
 
@@ -238,8 +246,10 @@ export function createProgressRouter({
   /**
    * Merge a guest's local progress (and activity) into the account they just
    * signed into - or this account's own offline copy. Body:
-   * `{ progress, activity? }`; see progress-rules.js's mergeCore for what is
-   * and is not believed. A solve in a premium stage this account has not
+   * `{ progress, activity?, preferences?, habit?, reviewLog? }`; see
+   * progress-rules.js's mergeCore for what is and is not believed, and
+   * review-routes.js's mergeFor for the Practice schedule (`progress.review`)
+   * and the review log. A solve in a premium stage this account has not
    * unlocked is not credited; its id comes back in `skippedLocked`.
    */
   router.post('/progress/merge', requireAuth, (req, res) => {
@@ -283,16 +293,26 @@ export function createProgressRouter({
       user = store.updateUser(user.id, { preferences: { ...prefs, ...adopt, updatedAt: now.toISOString() } }) ?? user;
     }
 
+    // Practice (step 7, run before the streak): the newer schedule entries,
+    // and the review log's right answers priced again here - under the daily
+    // cap, never a bonus. The answers it pays are the only Practice answers
+    // on the merged days, so the goal the streak step replays below counts
+    // server-priced answers only (never a count the browser sent).
+    const reviewed = learningDeps.review
+      ? learningDeps.review.mergeFor({ user, progress: merged, incoming: req.body?.progress?.review, reviewLog: req.body?.reviewLog, today, now })
+      : { next: merged, awardedXp: 0, credits: [] };
+
     // The streak (step 6): a new account adopts the guest's habit; an
-    // existing one keeps its own and replays the merged days. Goal bonuses
-    // come only from here.
+    // existing one keeps its own and replays the merged days - the days a
+    // solve or a Practice answer was credited on (a right Practice answer
+    // counts for the streak, as it does live). Goal bonuses come only from here.
     const withHabits = habits.mergeHabitsFor({
       user,
       current,
-      merged,
+      merged: reviewed.next,
       incoming: req.body?.progress,
       incomingHabit: req.body?.habit,
-      credits,
+      credits: [...credits, ...reviewed.credits],
       today,
       now
     });
@@ -309,6 +329,8 @@ export function createProgressRouter({
       awardedXp: awarded,
       bonusXp: bonusXp + withHabits.bonusXp,
       bonuses: [...bonusesOf(unitRewards), ...goalBonuses],
+      // Practice XP the review log paid (not in `awardedXp`).
+      awardedReviewXp: reviewed.awardedXp,
       activity: activity.view(user, { now }),
       preferences: publicPreferences(store.normalizePreferences?.(user.preferences) ?? user.preferences),
       habits: habitsForUser({ store, learningDeps }, user, now),
@@ -329,6 +351,8 @@ export function createProgressRouter({
     const fresh = { ...resetProgress(store.EMPTY_PROGRESS), ...streak };
     store.setProgress(req.user.id, fresh);
     learningDeps.activity.reset(req.user);
+    // The open Practice session goes too (the schedule went with the row).
+    learningDeps.review?.reset(req.user);
     res.json({ progress: fresh, habits: habitsForUser({ store, learningDeps }, req.user) });
   });
 

@@ -12,12 +12,14 @@
  * writes. Judging the stored number against a day here, as this file used
  * to, would hide the very missed days the freeze and repair rules work on.
  */
-import type { UserStats } from '@/types';
-import { ApiError } from '../api-client/api';
+import type { ReviewEvent, ReviewItemState, UserStats } from '@/types';
+import { ApiError, OfflineError } from '../api-client/api';
 import { learnerDay } from '../time/days';
 import { DEFAULT_LEVEL_CURVE, levelFromXp } from '../xp-leveling/leveling';
 import type { LevelCurve } from '../xp-leveling/leveling';
 import { normalizeUnitsCompleted } from '../xp-leveling/rewards';
+import { normalizeReviewMap } from '../review/schedule';
+import { REVIEW_LOG_MAX, normalizeReviewEvent } from '../review/xp';
 
 export const INITIAL_STATS: UserStats = {
   xp: 0,
@@ -30,6 +32,7 @@ export const INITIAL_STATS: UserStats = {
   seenConcepts: [],
   attempts: {},
   unitsCompleted: {},
+  review: {},
   isPremium: false,
   unlockedStages: []
 };
@@ -67,6 +70,8 @@ export function hydrateStats(raw: unknown, curve: LevelCurve = DEFAULT_LEVEL_CUR
     attempts: saved.attempts && typeof saved.attempts === 'object' ? saved.attempts : {},
     // A save from before units has none; a mangled one is made safe.
     unitsCompleted: normalizeUnitsCompleted(saved.unitsCompleted),
+    // The Practice schedule: a save from before it has none.
+    review: normalizeReviewMap(saved.review),
     isPremium: Boolean(saved.isPremium),
     // A cached copy of what the server said last time; the next restore overwrites it.
     unlockedStages: Array.isArray(saved.unlockedStages) ? saved.unlockedStages.filter((id) => typeof id === 'string') : []
@@ -74,7 +79,52 @@ export function hydrateStats(raw: unknown, curve: LevelCurve = DEFAULT_LEVEL_CUR
   // Freezes, repair and streak history: normalized by the habits engine
   // wherever it is read. A save from before them has none.
   if (!plainObject(saved.habit)) delete stats.habit;
+  // Practice answers still to go up with the next merge.
+  const pending = pendingReviewLog(saved);
+  if (pending.length) stats.unsynced = { reviewLog: pending };
+  else delete stats.unsynced;
   return stats;
+}
+
+/** Practice answers the server has not priced yet (a guest's, or made offline), oldest first. */
+export function pendingReviewLog(stats: Pick<UserStats, 'unsynced'> | null | undefined): ReviewEvent[] {
+  const raw = stats?.unsynced?.reviewLog;
+  return (Array.isArray(raw) ? raw : []).map(normalizeReviewEvent).filter((e): e is ReviewEvent => e !== null);
+}
+
+/** One more Practice answer waiting for the server (the newest `REVIEW_LOG_MAX` are kept). */
+export function withPendingReview(stats: UserStats, event: ReviewEvent): UserStats {
+  return { ...stats, unsynced: { reviewLog: [...pendingReviewLog(stats), event].slice(-REVIEW_LOG_MAX) } };
+}
+
+/**
+ * One Practice answer priced in this browser, written onto the stats as they
+ * are NOW (it is applied in a functional update, so a server answer that
+ * landed meanwhile is kept): the question's schedule entry, the XP it paid
+ * (a guest's goal bonus included) and the answer kept for the next sync.
+ */
+export function withLocalReviewAnswer(
+  prev: UserStats,
+  answer: { challengeId: string; state: ReviewItemState | null; xp: number; event: ReviewEvent | null },
+  curve: LevelCurve = DEFAULT_LEVEL_CURVE
+): UserStats {
+  let next = prev;
+  if (answer.state) next = { ...next, review: { ...(next.review ?? {}), [answer.challengeId]: answer.state } };
+  const xp = Math.max(0, Math.floor(Number(answer.xp)) || 0);
+  if (xp > 0) next = { ...next, xp: next.xp + xp, level: levelFromXp(next.xp + xp, curve) };
+  if (answer.event) next = withPendingReview(next, answer.event);
+  return next;
+}
+
+/** The server has priced these Practice answers (a merge succeeded): no longer pending. */
+export function withoutPendingReviews(stats: UserStats, sent: readonly ReviewEvent[]): UserStats {
+  if (!stats.unsynced) return stats;
+  const gone = new Set(sent.map((e) => `${e.challengeId}|${e.at}`));
+  const left = pendingReviewLog(stats).filter((e) => !gone.has(`${e.challengeId}|${e.at}`));
+  const next = { ...stats };
+  if (left.length) next.unsynced = { reviewLog: left };
+  else delete next.unsynced;
+  return next;
 }
 
 /**
@@ -154,4 +204,23 @@ export function statsAfterSolve(prev: UserStats, progress: ServerProgressRow, op
  */
 export function solveWasDeferred(err: unknown): err is ApiError {
   return err instanceof ApiError && (err.status === 429 || (err.status === 503 && err.reason === 'busy'));
+}
+
+/**
+ * What to do with a Practice answer `POST /api/review/answer` did not take:
+ *   'local'      - unreachable, or turned away without a verdict (429, the
+ *                  code runner busy): priced here, sent with the next sync;
+ *   'expired'    - the session is over on the server (a 404 that says so):
+ *                  start a new one;
+ *   'signed-out' - the account's session ended (401);
+ *   'failed'     - anything else (an error, a question no longer in the
+ *                  bank - its 404 is not "expired"): nothing was recorded.
+ */
+export type ReviewAnswerFailure = 'local' | 'expired' | 'signed-out' | 'failed';
+
+export function reviewAnswerFailure(err: unknown): ReviewAnswerFailure {
+  if (err instanceof OfflineError || solveWasDeferred(err)) return 'local';
+  if (err instanceof ApiError && err.status === 404 && err.reason === 'expired') return 'expired';
+  if (err instanceof ApiError && err.status === 401) return 'signed-out';
+  return 'failed';
 }

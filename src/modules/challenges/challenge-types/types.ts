@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { Challenge, ChallengeType, ExecutionResult } from '@/types';
+import type { Challenge, ChallengeType, ExecutionResult, FeedbackNote } from '@/types';
 import type { Answer } from '@/platform/grading-engine/answers';
 
 /** Props every answer-style renderer (quiz, blanks, ordering) receives. */
@@ -10,11 +10,16 @@ export interface AnswerRendererProps {
   checked: boolean;
   locked: boolean;
   /**
-   * May a wrong check show the right answer (expected blanks, the correct
-   * option, the correct order)? False on stage tests - see session/rules.ts.
-   * Wrong positions are still marked either way.
+   * Is the right answer shown now (the expected blanks, the correct option,
+   * the correct order)? Only once the attempt budget has run out, and never
+   * on a stage test - see settings/budget.ts and session/rules.ts. Wrong
+   * positions are marked on every check either way.
    */
   reveal: boolean;
+  /** The "why" notes for this check (settings allowing): see grading-engine/feedback.ts. */
+  notes: FeedbackNote[];
+  /** Single choice: options already picked wrong this round - struck through, not pickable again. */
+  ruledOut?: number[];
 }
 
 /** Props for code-style renderers (write the code, fix the bug). */
@@ -55,6 +60,12 @@ export interface AnswerTypeDefinition extends CommonDefinition {
   wrongPositions: (challenge: Challenge, answer: Answer) => number[];
   /** Number keys 1-9 pick an option, if the renderer displays options. */
   supportsNumberKeys: boolean;
+  /**
+   * The notes for this answer: a wrong pick's "why this is wrong", a blank's
+   * anticipated wrong answer, and - with `reveal` - why the right answer is
+   * right. A note that would give the answer away waits for `reveal`.
+   */
+  feedback: (challenge: Challenge, answer: Answer, reveal: boolean) => FeedbackNote[];
 }
 
 /** A type solved by running code against test cases. */

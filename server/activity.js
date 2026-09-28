@@ -134,6 +134,22 @@ export function createActivityService({ lib, store, settings, getChallengeMerged
   }
 
   /**
+   * A Practice-session answer (server/review-routes.js): `answered` counts
+   * a right answer in the day's `reviews`; `xp` (review XP, or a session
+   * bonus with no question) goes in `reviewXp` and `xp`; `clean` closes
+   * the question's open mistake. Returns the day row after it.
+   */
+  function recordReview(user, { challengeId = null, answered = false, xp = 0, clean = false, day, at }) {
+    const log = lib.applyActivityEvent(
+      load(user),
+      { type: 'review', challengeId, answered: Boolean(answered), xp: Number(xp) || 0, clean: Boolean(clean) },
+      { day, at, rules: rules() }
+    );
+    save(user, log);
+    return lib.dayRow(log, day);
+  }
+
+  /**
    * The daily goal was met on `day` (server/habits.js): its snapshot and bonus
    * go on the day row - once; a day already met keeps its first snapshot.
    * Returns whether it was recorded, and the day row after.
@@ -289,5 +305,5 @@ export function createActivityService({ lib, store, settings, getChallengeMerged
     return filled;
   }
 
-  return { zoneFor, captureZone, todayFor, recordSolve, recordGoal, recordMisses, merge, view, reset, learning, backfillAll, load, rules };
+  return { zoneFor, captureZone, todayFor, recordSolve, recordReview, recordGoal, recordMisses, merge, view, reset, learning, backfillAll, load, rules };
 }

@@ -11,7 +11,11 @@
  * `progress.attempts` (the badges read that). Code is never stored: a code
  * miss is a pass count, and the learner's code lives in the drafts store.
  *
- * `learningDeps` ({ lib, settings, activity }) is read per request - it is
+ * A miss after which the answer was shown (`final: true`) also moves the
+ * question back on the Practice schedule (`review.wrongResetsToBox`, via
+ * `learningDeps.review`) - in the same tick as the miss itself.
+ *
+ * `learningDeps` ({ lib, settings, activity, review }) is read per request - it is
  * filled in by server/index.js's bootstrap, after this router is mounted.
  */
 import express from 'express';
@@ -107,6 +111,13 @@ export function createActivityRouter({ requireAuth, learningDeps, gradeAnswer, g
     const result = items.length
       ? activity.recordMisses(req.user, items, now)
       : { accepted: 0, dropped: 0, today: learningDeps.lib.dayRow(activity.load(req.user, now), activity.todayFor(req.user, undefined, now)), misses: {} };
+    // Answers shown: back to the start of the review schedule (a miss the
+    // daily caps did not count still happened).
+    learningDeps.review?.noteRevealed(
+      req.user,
+      items.filter((item) => item.final).map((item) => item.challengeId),
+      now
+    );
 
     res.json({ accepted: result.accepted, dropped: dropped + result.dropped, today: result.today, misses: result.misses });
   });

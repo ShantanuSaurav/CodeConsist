@@ -240,7 +240,7 @@ describe('sendTooMany / retryMinutes', () => {
     sendTooMany(res, 125);
     expect(res.code).toBe(429);
     expect(res.headers['Retry-After']).toBe('125');
-    expect(res.body).toEqual({ error: 'Too many attempts - try again in 3 minutes.', reason: 'rate-limited', retryAfterSeconds: 125 });
+    expect(res.body).toEqual({ error: 'Too many attempts - wait 3 min and try again.', reason: 'rate-limited', retryAfterSeconds: 125 });
   });
 });
 

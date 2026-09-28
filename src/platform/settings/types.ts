@@ -211,6 +211,77 @@ export interface BadgeSettings {
   };
 }
 
+/** The answer-graded question kinds: the ones with an attempt budget before the answer is shown. */
+export type AnswerChallengeType = 'quiz' | 'output_prediction' | 'multi_select' | 'fill_blank' | 'pseudocode_order';
+
+/** Where a wrong-answer note may show: Learn mode, Practice mode, and Practice sessions (review). */
+export type FeedbackNoteContext = 'learn' | 'practice' | 'review';
+
+/**
+ * Answer feedback & retries: how many wrong answers a question allows before
+ * the answer is shown, which wrong-answer notes appear, when a coding
+ * lesson's solution is offered, and how a missed question comes back at the
+ * end of the unit.
+ */
+export interface FeedbackSettings {
+  attemptsBeforeReveal: {
+    /** Practice mode, per kind (a single-choice question never allows more than its options minus one). */
+    practice: Record<AnswerChallengeType, number>;
+    /** Learn mode: explain straight away. */
+    learn: number;
+  };
+  /** Show an option's or a blank's "why this is wrong" note, by where the question is answered. */
+  showWrongAnswerNotes: Record<FeedbackNoteContext, boolean>;
+  /** Notes on answer-graded stage tests too (the answer itself is never shown on a test). */
+  stageTestWrongAnswerNotes: boolean;
+  /** Failed runs before "Show me the solution" is offered on a coding lesson. 0 = never. Never on a test. */
+  solutionAfterFailedRuns: number;
+  /** Learn mode opens the "Read about this topic" panel by default. */
+  learnOpensReading: boolean;
+  requeue: {
+    /** A question whose answer was shown comes back at the end of the unit. */
+    enabled: boolean;
+    /** How many times one question may come back in a run. */
+    maxRounds: number;
+    /** The highest score (and so XP) a question solved after its answer was shown can get, by mode. */
+    maxScoreAfterReveal: { learn: number; practice: number };
+  };
+}
+
+/**
+ * Practice sessions (review): the spaced-repetition schedule, what a session
+ * is built from, how many tries a question gets there, and the small XP it
+ * pays under a daily cap. The UI calls it "Practice"; the code says review.
+ */
+export interface ReviewSettings {
+  /** Off hides every Practice entry point and refuses new sessions. */
+  enabled: boolean;
+  /** Days until a question is due again, by box (box 0 is the first). */
+  intervalsDays: number[];
+  /** The box a missed question drops back to. */
+  wrongResetsToBox: number;
+  /** The box a lesson starts in when it was never reviewed: solved first try (`clean`) or with help (`assisted`). */
+  initialBox: { clean: number; assisted: number };
+  sessionSize: { min: number; max: number };
+  /** The most questions each bucket may take in a session; weak solves fill the rest. */
+  mix: { mistakes: number; due: number };
+  /** A never-reviewed solve counts as weak with a score below this, or this many hints. */
+  weak: { scoreBelow: number; hintsAtLeast: number };
+  /** Mistakes older than this many days no longer count as open mistakes. */
+  mistakeWindowDays: number;
+  /** The question kinds a session may use. */
+  itemTypes: string[];
+  /** Wrong answers a question allows in a session before its answer is shown. */
+  attemptsBeforeReveal: number;
+  /** A missed question comes back once at the end of the session. */
+  requeueMissed: boolean;
+  xp: { correctFirstTry: number; correctAfterMiss: number; sessionBonus: number; dailyCap: number };
+  /** A session left open longer than this is gone. */
+  sessionTtlHours: number;
+  /** A guest's (or an offline) session answer this many days old still pays when it is merged. */
+  guestMergeWindowDays: number;
+}
+
 /** Data limits. Admin only - never sent to learners. */
 export interface RetentionSettings {
   activityDaysKept: number;
@@ -342,6 +413,8 @@ export interface Settings {
   units: UnitSettings;
   celebrations: CelebrationSettings;
   badges: BadgeSettings;
+  feedback: FeedbackSettings;
+  review: ReviewSettings;
   copy: CopySettings;
   retention: RetentionSettings;
   access: AccessSettings;

@@ -30,7 +30,8 @@ vi.mock('../db.js', () => {
     progress: {},
     auditLog: [],
     contentOverrides: { stages: {}, challenges: {}, languages: {}, units: {} },
-    customChallenges: {}
+    customChallenges: {},
+    conceptCards: {}
   });
   let state = EMPTY();
   return {
@@ -55,6 +56,19 @@ vi.mock('../db.js', () => {
     },
     allCustomChallenges: () => Object.values(state.customChallenges),
     getCustomChallenge: (id) => (typeof id === 'string' && Object.hasOwn(state.customChallenges, id) ? state.customChallenges[id] : null),
+    allConceptCards: () => Object.values(state.conceptCards),
+    getConceptCard: (key) => (typeof key === 'string' && Object.hasOwn(state.conceptCards, key) ? state.conceptCards[key] : null),
+    putConceptCard: (record) => {
+      const existing = state.conceptCards[record.key];
+      const now = new Date().toISOString();
+      state.conceptCards[record.key] = { ...record, createdAt: existing?.createdAt ?? now, updatedAt: now };
+      return state.conceptCards[record.key];
+    },
+    deleteConceptCard: (key) => {
+      if (!Object.hasOwn(state.conceptCards, key)) return false;
+      delete state.conceptCards[key];
+      return true;
+    },
     appendAudit: (entry) => {
       const row = { id: `audit-${state.auditLog.length}`, at: new Date().toISOString(), ...entry };
       state.auditLog.push(row);

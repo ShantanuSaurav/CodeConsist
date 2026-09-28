@@ -58,12 +58,14 @@ export function createUnitsService({ store, lib, settings, getSnapshot = content
     if (memo && memo.snapshot === snapshot && memo.key === key) return memo;
 
     const contentOverrides = plainObject(store.getContentOverrides?.());
-    const merged = applyLearnerOverrides(snapshot, contentOverrides);
+    // Which lessons exist, not what they teach: the teaching cards are left
+    // out (a card anchored to a unit's start asks this service where it is).
+    const merged = applyLearnerOverrides(snapshot, contentOverrides, { concepts: false });
     // The same bank with no question hidden. The default grouping is cut from
     // EVERY lesson of a stage and only then resolved against the visible ones,
     // so hiding a question shrinks its own unit instead of re-balancing the
     // whole stage (and the admin editor's "Default" matches what learners get).
-    const everyLesson = applyLearnerOverrides(snapshot, { ...contentOverrides, challenges: {} }).challenges;
+    const everyLesson = applyLearnerOverrides(snapshot, { ...contentOverrides, challenges: {} }, { concepts: false }).challenges;
     const overrides = overridesOf();
     const units = cfg();
     const byStage = new Map();
@@ -91,6 +93,16 @@ export function createUnitsService({ store, lib, settings, getSnapshot = content
   /** The unit a question is in, as learners see it - or null (the stage test, a hidden or unknown id). */
   function unitFor(challengeId) {
     return build().byChallenge.get(String(challengeId ?? '')) ?? null;
+  }
+
+  /** The first lesson learners see in a unit (where a teaching card anchored to its start goes), or null. */
+  function firstLessonOf(unitId) {
+    const id = String(unitId ?? '');
+    for (const defs of build().byStage.values()) {
+      const unit = defs.find((d) => d.id === id);
+      if (unit) return unit.challengeIds[0] ?? null;
+    }
+    return null;
   }
 
   /** `applyLearnerOverrides(...)` output with each stage's `units` attached, for GET /api/content. */
@@ -166,5 +178,5 @@ export function createUnitsService({ store, lib, settings, getSnapshot = content
     };
   }
 
-  return { unitsForStage, unitFor, attachUnits, unitCount, adminLessons, adminView, cfg };
+  return { unitsForStage, unitFor, firstLessonOf, attachUnits, unitCount, adminLessons, adminView, cfg };
 }

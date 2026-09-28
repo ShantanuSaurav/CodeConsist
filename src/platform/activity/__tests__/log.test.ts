@@ -403,3 +403,38 @@ describe('units in the day row (Phase 2)', () => {
     expect(dayRow(merged, '2026-09-24')).toMatchObject({ xp: 65, units: 1, perfectBonusXp: 25 });
   });
 });
+
+describe('Practice answers in the day row (Phase 4)', () => {
+  const miss = (log: ActivityLog) =>
+    applyActivityEvent(log, { type: 'miss', challengeId: 'c1', context: 'lesson', answer: { kind: 'choice', index: 0 } }, { day: '2026-09-24', at: at('2026-09-24'), rules: RULES });
+
+  it('counts a right answer, its review XP inside the day XP, and a bonus with no question', () => {
+    let log = applyActivityEvent(emptyActivityLog(), { type: 'review', challengeId: 'c1', answered: true, xp: 5 }, { day: '2026-09-25', at: at('2026-09-25'), rules: RULES });
+    log = applyActivityEvent(log, { type: 'review', challengeId: null, answered: false, xp: 5 }, { day: '2026-09-25', at: at('2026-09-25', '13:00:00'), rules: RULES });
+    expect(dayRow(log, '2026-09-25')).toMatchObject({ reviews: 1, reviewXp: 10, xp: 10, lessons: 0 });
+    // Older rows have neither field.
+    expect(normalizeDay({ xp: 3 })).toMatchObject({ reviews: 0, reviewXp: 0 });
+  });
+
+  it('closes an open mistake only on a clean answer', () => {
+    const missed = miss(emptyActivityLog());
+    const assisted = applyActivityEvent(missed, { type: 'review', challengeId: 'c1', answered: true, xp: 2 }, { day: '2026-09-25', at: at('2026-09-25'), rules: RULES });
+    expect(assisted.misses.c1.open).toBe(true);
+    const clean = applyActivityEvent(missed, { type: 'review', challengeId: 'c1', answered: true, xp: 5, clean: true }, { day: '2026-09-25', at: at('2026-09-25'), rules: RULES });
+    expect(clean.misses.c1).toMatchObject({ open: false, count: 1 });
+    // A later miss opens it again.
+    expect(miss(clean).misses.c1.open).toBe(true);
+  });
+
+  it('never takes the answer count or the review XP a browser claims (the goal counts answers)', () => {
+    const incoming = { days: { '2026-09-24': { reviews: 50, reviewXp: 500, xp: 500 }, '2026-09-23': { reviews: 3, reSolves: 1 } } };
+    const merged = mergeActivityLogs(emptyActivityLog(), incoming, { today: '2026-09-25', rules: RULES });
+    // A day with nothing else to believe is not even created.
+    expect(merged.days['2026-09-24']).toBeUndefined();
+    expect(dayRow(merged, '2026-09-23')).toMatchObject({ reviews: 0, reSolves: 1, reviewXp: 0, xp: 0 });
+    // A day the server already has keeps its own count.
+    const own = applyActivityEvent(emptyActivityLog(), { type: 'review', challengeId: 'c1', answered: true, xp: 5 }, { day: '2026-09-24', at: at('2026-09-24'), rules: RULES });
+    const onto = mergeActivityLogs(own, incoming, { today: '2026-09-25', rules: RULES });
+    expect(dayRow(onto, '2026-09-24')).toMatchObject({ reviews: 1, reviewXp: 5, xp: 5 });
+  });
+});

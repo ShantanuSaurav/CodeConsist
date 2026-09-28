@@ -225,6 +225,31 @@ export const SettingZone: React.FC<SettingFieldProps & { id: string }> = ({ id, 
   );
 };
 
+/** A list picked from fixed values (the kinds a Practice session uses): one checkbox per value, in the listed order. */
+export const SettingChecklist: React.FC<SettingFieldProps & { id: string }> = ({ id, meta, value, onChange }) => {
+  const chosen = new Set(Array.isArray(value) ? value.map(String) : []);
+  const values = meta.values ?? [];
+  return (
+    <div id={id} role="group" aria-label={meta.label} className="flex flex-wrap gap-x-5 gap-y-2">
+      {values.map((v) => (
+        <label key={v} className="inline-flex items-center gap-2 text-sm text-fg">
+          <input
+            type="checkbox"
+            checked={chosen.has(v)}
+            onChange={(e) => {
+              const next = new Set(chosen);
+              if (e.target.checked) next.add(v);
+              else next.delete(v);
+              onChange(values.filter((x) => next.has(x)));
+            }}
+          />
+          <span className="font-mono text-[13px]">{v}</span>
+        </label>
+      ))}
+    </div>
+  );
+};
+
 /** A comma-separated list of numbers or words. Keeps what is typed; reports only a list that parses. */
 export const SettingList: React.FC<SettingFieldProps & { id: string }> = ({ id, meta, value, error, onChange }) => {
   const list = Array.isArray(value) ? value : [];
@@ -473,8 +498,10 @@ export const SettingField: React.FC<SettingFieldProps & { issueFor?: (path: stri
       input = <SettingZone {...props} id={id} />;
       break;
     case 'intList':
-    case 'stringList':
       input = <SettingList {...props} id={id} />;
+      break;
+    case 'stringList':
+      input = meta.values ? <SettingChecklist {...props} id={id} /> : <SettingList {...props} id={id} />;
       break;
     case 'rows':
       input = <SettingRows {...props} id={id} />;

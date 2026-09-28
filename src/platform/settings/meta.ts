@@ -146,6 +146,22 @@ export const SECTION_META: SectionMeta[] = [
     phase: 'P2'
   },
   {
+    id: 'feedback',
+    title: 'Answer feedback & retries',
+    description:
+      'How many wrong answers a question allows before its answer is shown, which "why this is wrong" notes appear, when a coding lesson offers its solution, and how a missed question comes back at the end of the unit. The notes themselves are written under Answer feedback.',
+    audience: 'public',
+    phase: 'P4'
+  },
+  {
+    id: 'review',
+    title: 'Practice sessions',
+    description:
+      "Short Practice sessions that go back over a learner's mistakes, the questions due on their review schedule and their weakest solves - and the small XP they pay under a daily cap. A session is built from the rules as they are when it starts; what an answer pays uses the rules at that moment.",
+    audience: 'public',
+    phase: 'P4'
+  },
+  {
     id: 'copy',
     title: 'Site copy',
     description:
@@ -394,6 +410,264 @@ const BADGES_META: Record<string, SettingMeta> = {
     maxLength: 60,
     tokens: ['name'],
     sample: { name: 'C Fundamentals' }
+  }
+};
+
+/* --------------------------------------------------------------- feedback */
+
+/** The answer-graded kinds, with their admin labels, for the per-kind attempt budgets. */
+export const ANSWER_KINDS: Array<{ key: string; label: string }> = QUESTION_KINDS.filter((k) => k.key !== 'code_runner' && k.key !== 'debug');
+
+/** Where wrong-answer notes can be switched on or off. */
+export const NOTE_CONTEXTS: Array<{ key: string; label: string }> = [
+  { key: 'learn', label: 'Learn mode' },
+  { key: 'practice', label: 'Practice mode' },
+  { key: 'review', label: 'Practice sessions' }
+];
+
+const FEEDBACK_META: Record<string, SettingMeta> = {
+  ...Object.fromEntries(
+    ANSWER_KINDS.map(({ key, label }): [string, SettingMeta] => [
+      `feedback.attemptsBeforeReveal.practice.${key}`,
+      {
+        label: `Tries before the answer, Practice mode: ${label}`,
+        help: 'Wrong answers allowed before the right answer is shown (with the last one). Before that only the learner\'s own pick is marked wrong. A single-choice question never allows more than its options minus one.',
+        kind: 'int',
+        min: 1,
+        max: 5,
+        unit: 'tries'
+      }
+    ])
+  ),
+  'feedback.attemptsBeforeReveal.learn': {
+    label: 'Tries before the answer, Learn mode',
+    help: 'Learn mode explains the answer after this many wrong answers - 1 explains straight away.',
+    kind: 'int',
+    min: 1,
+    max: 5,
+    unit: 'tries'
+  },
+  ...Object.fromEntries(
+    NOTE_CONTEXTS.map(({ key, label }): [string, SettingMeta] => [
+      `feedback.showWrongAnswerNotes.${key}`,
+      {
+        label: `Wrong-answer notes: ${label}`,
+        help: 'Show the note written for the option or blank the learner got wrong ("why this is wrong"). A note that would give the answer away waits until the answer is shown.',
+        kind: 'bool'
+      }
+    ])
+  ),
+  'feedback.stageTestWrongAnswerNotes': {
+    label: 'Wrong-answer notes on stage tests',
+    help: 'Also show them on answer-graded stage tests (C and C++). The right answer is never shown on a test either way.',
+    kind: 'bool'
+  },
+  'feedback.solutionAfterFailedRuns': {
+    label: '"Show me the solution" after',
+    help: 'Failed runs of a coding lesson before its worked solution is offered. 0 never offers it. Never offered on a stage test.',
+    kind: 'int',
+    min: 0,
+    max: 10,
+    unit: 'failed runs'
+  },
+  'feedback.learnOpensReading': {
+    label: 'Learn mode opens the reading',
+    help: 'In Learn mode, the "Read about this topic" panel starts open on every lesson that has one.',
+    kind: 'bool'
+  },
+  'feedback.requeue.enabled': {
+    label: 'Missed questions come back',
+    help: 'A question whose answer was shown returns at the end of the unit, so every unit ends with every question answered right.',
+    kind: 'bool'
+  },
+  'feedback.requeue.maxRounds': {
+    label: 'Most times a question comes back',
+    help: 'In one run of a unit. Past this, the question stays unsolved and is the first thing the learner meets next time.',
+    kind: 'int',
+    min: 0,
+    max: 3,
+    unit: 'times'
+  },
+  'feedback.requeue.maxScoreAfterReveal.learn': {
+    label: 'Highest score after the answer was shown: Learn mode',
+    help: 'Caps the score, and so the XP, of a question solved after its answer was shown. The server pays the same.',
+    kind: 'int',
+    min: 50,
+    max: 100,
+    unit: '%'
+  },
+  'feedback.requeue.maxScoreAfterReveal.practice': {
+    label: 'Highest score after the answer was shown: Practice mode',
+    help: 'Caps the score, and so the XP, of a question solved after its answer was shown. The server pays the same.',
+    kind: 'int',
+    min: 50,
+    max: 100,
+    unit: '%'
+  }
+};
+
+/* ---------------------------------------------------------------- review */
+
+const REVIEW_META: Record<string, SettingMeta> = {
+  'review.enabled': {
+    label: 'Practice sessions',
+    help: 'Off hides the Practice card on the dashboard, the Practice row on the path and "Practice this stage", and no new session can start.',
+    kind: 'bool'
+  },
+  'review.intervalsDays': {
+    label: 'Review schedule (days per box)',
+    help: 'Days until a question is due again, by box. A clean answer moves it one box up, one right after help keeps its box, and a missed one drops back to the box set below. 2 to 8 entries, each longer than the one before.',
+    kind: 'intList',
+    min: 1,
+    max: 365,
+    minItems: 2,
+    maxItems: 8
+  },
+  'review.wrongResetsToBox': {
+    label: 'A missed question drops back to box',
+    help: 'Counted from 0 (the first interval). A question whose answer was shown - in a lesson or a session - goes back to this box.',
+    kind: 'int',
+    min: 0,
+    max: 7
+  },
+  'review.initialBox.clean': {
+    label: 'Starting box: solved first try',
+    help: 'Where a lesson solved on its first try with no hint starts, before it was ever reviewed. Counted from 0.',
+    kind: 'int',
+    min: 0,
+    max: 7
+  },
+  'review.initialBox.assisted': {
+    label: 'Starting box: solved with help',
+    help: 'Where a lesson solved after a wrong answer or a hint starts, before it was ever reviewed. Counted from 0.',
+    kind: 'int',
+    min: 0,
+    max: 7
+  },
+  'review.sessionSize.min': {
+    label: 'Smallest session',
+    help: 'A session with fewer questions is topped up with more mistakes and due questions, when there are any.',
+    kind: 'int',
+    min: 1,
+    max: 20,
+    unit: 'questions'
+  },
+  'review.sessionSize.max': {
+    label: 'Largest session',
+    help: 'No session holds more questions than this.',
+    kind: 'int',
+    min: 1,
+    max: 20,
+    unit: 'questions'
+  },
+  'review.mix.mistakes': {
+    label: 'Most mistakes per session',
+    help: 'Questions the learner got wrong on an earlier day and has not yet answered cleanly. They come first.',
+    kind: 'int',
+    min: 0,
+    max: 20,
+    unit: 'questions'
+  },
+  'review.mix.due': {
+    label: 'Most due questions per session',
+    help: 'Questions due on the review schedule. Weak solves fill the rest of the session.',
+    kind: 'int',
+    min: 0,
+    max: 20,
+    unit: 'questions'
+  },
+  'review.weak.scoreBelow': {
+    label: 'Weak solve: score below',
+    help: 'A lesson never reviewed counts as weak when its score was below this.',
+    kind: 'int',
+    min: 1,
+    max: 100,
+    unit: '%'
+  },
+  'review.weak.hintsAtLeast': {
+    label: 'Weak solve: hints used',
+    help: 'A lesson never reviewed also counts as weak when it took at least this many hints.',
+    kind: 'int',
+    min: 0,
+    max: 10,
+    unit: 'hints'
+  },
+  'review.mistakeWindowDays': {
+    label: 'Mistakes count for',
+    help: 'A mistake older than this is no longer picked as a mistake (it stays on the schedule).',
+    kind: 'int',
+    min: 1,
+    max: 365,
+    unit: 'days'
+  },
+  'review.itemTypes': {
+    label: 'Question kinds in sessions',
+    help: 'The kinds a session may use. Coding kinds take much longer - add them only if sessions should include them.',
+    kind: 'stringList',
+    values: QUESTION_KINDS.map((k) => k.key),
+    minItems: 1,
+    maxItems: QUESTION_KINDS.length
+  },
+  'review.attemptsBeforeReveal': {
+    label: 'Tries before the answer, in a session',
+    help: 'Wrong answers a question allows in a session before its answer is shown. A single-choice question never allows more than its options minus one.',
+    kind: 'int',
+    min: 1,
+    max: 5,
+    unit: 'tries'
+  },
+  'review.requeueMissed': {
+    label: 'Missed questions come back once',
+    help: 'A question whose answer was shown returns once at the end of the session.',
+    kind: 'bool'
+  },
+  'review.xp.correctFirstTry': {
+    label: 'XP: right first time',
+    help: 'Paid for a question answered right on the first try with no hint - once per question per day.',
+    kind: 'int',
+    min: 0,
+    max: 50,
+    unit: 'XP'
+  },
+  'review.xp.correctAfterMiss': {
+    label: 'XP: right after a miss',
+    help: 'Paid for a question answered right after a wrong answer, a hint or its answer being shown - once per question per day.',
+    kind: 'int',
+    min: 0,
+    max: 50,
+    unit: 'XP'
+  },
+  'review.xp.sessionBonus': {
+    label: 'XP: finishing a session',
+    help: 'Paid once when every question in a session has been answered right, within the daily limit.',
+    kind: 'int',
+    min: 0,
+    max: 100,
+    unit: 'XP'
+  },
+  'review.xp.dailyCap': {
+    label: 'Most Practice XP per day',
+    help: 'Practice sessions never pay more than this in one day, bonus included. It counts towards the daily goal like any XP.',
+    kind: 'int',
+    min: 0,
+    max: 500,
+    unit: 'XP'
+  },
+  'review.sessionTtlHours': {
+    label: 'A session stays open for',
+    help: 'After this long an unfinished session is gone, and answering in it asks the learner to start a new one.',
+    kind: 'int',
+    min: 1,
+    max: 72,
+    unit: 'hours'
+  },
+  'review.guestMergeWindowDays': {
+    label: 'Offline answers pay for',
+    help: 'Practice answered as a guest or offline pays, when it reaches the account, only for the last this-many days (0: today only).',
+    kind: 'int',
+    min: 0,
+    max: 7,
+    unit: 'days'
   }
 };
 
@@ -887,6 +1161,12 @@ export const SETTING_META: Record<string, SettingMeta> = {
   ...UNITS_META,
   ...CELEBRATIONS_META,
   ...BADGES_META,
+
+  /* ---------------------------------------------------------- feedback */
+  ...FEEDBACK_META,
+
+  /* ------------------------------------------------------------ review */
+  ...REVIEW_META,
 
   /* -------------------------------------------------------------- copy */
   ...COPY_META,

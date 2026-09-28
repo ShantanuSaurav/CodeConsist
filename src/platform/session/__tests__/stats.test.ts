@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { INITIAL_STATS, adoptAccountProgress, hydrateStats, sessionToday, solveWasDeferred, statsAfterSolve } from '../stats';
+import {
+  INITIAL_STATS,
+  adoptAccountProgress,
+  hydrateStats,
+  pendingReviewLog,
+  reviewAnswerFailure,
+  sessionToday,
+  solveWasDeferred,
+  statsAfterSolve,
+  withLocalReviewAnswer,
+  withPendingReview,
+  withoutPendingReviews
+} from '../stats';
 import { ApiError, OfflineError } from '../../api-client/api';
 import { learnerHabitStatus } from '../../habits';
 import { DEFAULT_SETTINGS } from '../../settings/defaults';
@@ -132,5 +144,63 @@ describe('unit completions in the stats (P2)', () => {
     const prev = { ...INITIAL_STATS, xp: 60, unitsCompleted: { local: { completedAt: '2026-09-25T10:00:00.000Z', perfect: true, bonusXp: 25 } } };
     const server = { xp: 60, streak: 1, lastActiveDay: '2026-09-25', completedChallenges: [], unitsCompleted: {} };
     expect(statsAfterSolve(prev, server, { rulesChanged: true, curve: { thresholds: [0, 100], overflowStep: 100 } }).unitsCompleted).toEqual({});
+  });
+});
+
+describe('the Practice schedule and pending Practice answers in the stats (P4)', () => {
+  const event = (challengeId: string, at = '2026-09-25T10:00:00.000Z') => ({ challengeId, sessionId: 'local-1', at, day: at.slice(0, 10), outcome: 'clean' as const, correct: true });
+
+  it('hydrates the schedule and the pending answers safely from any save', () => {
+    const stats = hydrateStats({
+      review: { a: { box: 1, due: '2026-09-26' }, broken: { box: 'x' } },
+      unsynced: { reviewLog: [event('a'), { challengeId: '' }, 'junk'] }
+    });
+    expect(stats.review).toEqual({ a: { box: 1, due: '2026-09-26' } });
+    expect(pendingReviewLog(stats)).toEqual([event('a')]);
+    // Nothing pending: no field at all.
+    expect(hydrateStats({ unsynced: { reviewLog: [] } }).unsynced).toBeUndefined();
+  });
+
+  it('adds pending answers, and drops exactly the ones a merge sent', () => {
+    let stats = withPendingReview({ ...INITIAL_STATS }, event('a'));
+    stats = withPendingReview(stats, event('b', '2026-09-25T11:00:00.000Z'));
+    expect(pendingReviewLog(stats).map((e) => e.challengeId)).toEqual(['a', 'b']);
+    const sent = pendingReviewLog(stats).slice(0, 1);
+    stats = withPendingReview(stats, event('c', '2026-09-25T12:00:00.000Z'));
+    expect(pendingReviewLog(withoutPendingReviews(stats, sent)).map((e) => e.challengeId)).toEqual(['b', 'c']);
+    expect(withoutPendingReviews(stats, pendingReviewLog(stats)).unsynced).toBeUndefined();
+  });
+
+  it('writes a local answer onto the stats as they are when it lands - keeping what the server paid meanwhile', () => {
+    // Sent first, fell back to a local price after the next question's answer had landed from the server.
+    const landed = { ...INITIAL_STATS, xp: 40, level: 1, completedChallenges: ['a', 'b'], review: { b: { box: 2, due: '2026-10-02', paid: '2026-09-25' } } };
+    const next = withLocalReviewAnswer(landed, { challengeId: 'a', state: { box: 1, due: '2026-09-28', last: '2026-09-25T10:00:00.000Z', paid: '2026-09-25' }, xp: 5, event: event('a') });
+    expect(next.xp).toBe(45);
+    expect(next.review).toEqual({ b: { box: 2, due: '2026-10-02', paid: '2026-09-25' }, a: { box: 1, due: '2026-09-28', last: '2026-09-25T10:00:00.000Z', paid: '2026-09-25' } });
+    expect(pendingReviewLog(next)).toEqual([event('a')]);
+    // A wrong answer (no event) that paid nothing only moves the schedule.
+    const wrong = withLocalReviewAnswer(landed, { challengeId: 'a', state: { box: 0, due: '2026-09-25' }, xp: 0, event: null });
+    expect(wrong).toMatchObject({ xp: 40, review: { a: { box: 0, due: '2026-09-25' } } });
+    expect(wrong.unsynced).toBeUndefined();
+  });
+
+  it('tells an expired session from an answer the server could not take', () => {
+    expect(reviewAnswerFailure(new OfflineError())).toBe('local');
+    expect(reviewAnswerFailure(new ApiError('Too many attempts.', 429))).toBe('local');
+    expect(reviewAnswerFailure(new ApiError('The code runner is busy.', 503, { reason: 'busy' }))).toBe('local');
+    expect(reviewAnswerFailure(new ApiError('This practice session has ended. Start a new one.', 404, { reason: 'expired' }))).toBe('expired');
+    // A question removed from the bank since: a 404 that is not the session's.
+    expect(reviewAnswerFailure(new ApiError('Unknown challenge.', 404))).toBe('failed');
+    expect(reviewAnswerFailure(new ApiError('Session ended.', 401))).toBe('signed-out');
+    expect(reviewAnswerFailure(new ApiError('Practice is not available yet.', 503))).toBe('failed');
+    expect(reviewAnswerFailure(new ApiError('That question is not part of this practice session.', 400))).toBe('failed');
+    expect(reviewAnswerFailure(new Error('boom'))).toBe('failed');
+  });
+
+  it('keeps the pending answers when the server row is adopted, and takes its schedule', () => {
+    const prev = withPendingReview({ ...INITIAL_STATS, review: { a: { box: 0, due: '2026-09-26' } } }, event('a'));
+    const next = adoptAccountProgress(prev, { xp: 0, completedChallenges: [], review: { a: { box: 2, due: '2026-10-02' } } });
+    expect(next.review).toEqual({ a: { box: 2, due: '2026-10-02' } });
+    expect(pendingReviewLog(next)).toHaveLength(1);
   });
 });

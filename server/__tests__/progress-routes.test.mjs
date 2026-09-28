@@ -412,3 +412,63 @@ describe('units: a merge pays only for units the new ids complete', () => {
     expect(res.json.progress.unitsCompleted).toEqual({});
   });
 });
+
+describe('requeued and revealed (Phase 4)', () => {
+  it('a plain body pays exactly what it did before the flags existed', async () => {
+    const res = await solve({ challengeId: 'q-quiz', answer: 1, attempts: 2 });
+    expect(res.json).toMatchObject({ awardedXp: 36, score: 90 });
+  });
+
+  it('requeued skips the pass mark: the floored score is paid', async () => {
+    // 6 tries is 50 raw - below the mark of 60 on a first pass.
+    expect((await solve({ challengeId: 'q-quiz', answer: 1, attempts: 6 })).status).toBe(422);
+    // Only exactly true counts.
+    expect((await solve({ challengeId: 'q-quiz', answer: 1, attempts: 6, requeued: 'yes' })).status).toBe(422);
+    const res = await solve({ challengeId: 'q-quiz', answer: 1, attempts: 6, requeued: true });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ awardedXp: 20, score: 50, firstSolve: true });
+    // A wrong answer is still refused, requeued or not.
+    expect((await solve({ challengeId: 'q-multi', answer: [0], requeued: true })).status).toBe(422);
+  });
+
+  it('revealed caps the score by learning mode - Practice when none is sent', async () => {
+    const practice = await solve({ challengeId: 'q-quiz', answer: 1, revealed: true, learningMode: 'practice' });
+    expect(practice.json).toMatchObject({ awardedXp: 24, score: 60 });
+    expect(practice.json.progress.attempts['q-quiz'].score).toBe(60);
+
+    const learn = await solve({ challengeId: 'q-multi', answer: [0, 2], revealed: true, learningMode: 'learn' });
+    expect(learn.json).toMatchObject({ awardedXp: 40, score: 80 });
+
+    const none = await solve({ challengeId: 'q-blank', answer: ['x'], revealed: true });
+    expect(none.json).toMatchObject({ awardedXp: 36, score: 60 });
+  });
+
+  it('the floor still holds under the cap, and a re-solve pays nothing', async () => {
+    const res = await solve({ challengeId: 'q-quiz', answer: 1, attempts: 7, revealed: true, requeued: true, learningMode: 'learn' });
+    expect(res.json).toMatchObject({ awardedXp: 20, score: 50 });
+    const again = await solve({ challengeId: 'q-quiz', answer: 1, revealed: true, requeued: true });
+    expect(again.json).toMatchObject({ awardedXp: 0, firstSolve: false });
+    expect(again.json.progress.xp).toBe(20);
+  });
+
+  it('the cap is the admin setting at the time of the solve', async () => {
+    const update = app.learningDeps.settings.update({ revision: 0, patch: { feedback: { requeue: { maxScoreAfterReveal: { practice: 90 } } } }, adminId: 'admin' });
+    expect(update.ok).toBe(true);
+    const res = await solve({ challengeId: 'q-quiz', answer: 1, revealed: true, learningMode: 'practice' });
+    expect(res.json).toMatchObject({ awardedXp: 36, score: 90 });
+  });
+});
+
+describe('a guest solve made after its answer was shown (Phase 4)', () => {
+  it('merges under the cap it was paid under locally - never more', async () => {
+    const res = await app.call('POST', '/progress/merge', {
+      user: 'u1',
+      body: { progress: { completedChallenges: ['q-quiz', 'q-multi'], attempts: { 'q-quiz': { attempts: 1, hintsUsed: 0, scoreCap: 60 }, 'q-multi': { attempts: 1, hintsUsed: 0, scoreCap: 'lots' } } } }
+    });
+    expect(res.status).toBe(200);
+    // 40 XP at 60% is 24; the nonsense cap is ignored (50 XP in full).
+    expect(res.json.awardedXp).toBe(24 + 50);
+    expect(store.getProgress('u1').attempts['q-quiz']).toMatchObject({ score: 60, scoreCap: 60 });
+    expect(store.getProgress('u1').attempts['q-multi']).not.toHaveProperty('scoreCap');
+  });
+});

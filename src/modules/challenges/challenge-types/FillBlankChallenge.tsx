@@ -1,5 +1,5 @@
 import React from 'react';
-import { Challenge } from '@/types';
+import { Challenge, FeedbackNote } from '@/types';
 import { Answer, choiceOrder } from '@/platform/grading-engine/answers';
 import { wrongPositions } from './registry';
 import { CodeBlock } from '@/ui/primitives/CodeBlock';
@@ -10,15 +10,17 @@ interface Props {
   onAnswer: (answer: Answer) => void;
   checked: boolean;
   locked: boolean;
-  /** Show the expected blanks after a wrong check. Never on a stage test. */
+  /** The answer is shown now (tries used up): the expected blanks appear. Never on a stage test. */
   reveal: boolean;
+  /** Notes for the anticipated wrong answers the learner gave (grading-engine/feedback.ts). */
+  notes: FeedbackNote[];
 }
 
 /**
  * Fill in the `___` holes. The inputs sit inline inside the rendered snippet,
  * so the learner reads the code exactly as it will end up.
  */
-export const FillBlankChallenge: React.FC<Props> = ({ challenge, answer, onAnswer, checked, locked, reveal }) => {
+export const FillBlankChallenge: React.FC<Props> = ({ challenge, answer, onAnswer, checked, locked, reveal, notes }) => {
   const blanks = challenge.blanks ?? [];
   // Defensive: every answer type has a different shape, and a number or null
   // here used to throw on .slice() and take the whole app down. The modal now
@@ -87,8 +89,19 @@ export const FillBlankChallenge: React.FC<Props> = ({ challenge, answer, onAnswe
         showLineNumbers
       />
 
-      {/* The wrong blanks are marked above either way; the answers themselves
-          only where this question may give them away. */}
+      {/* Why an anticipated wrong answer is wrong - never what is right. */}
+      {checked && notes.length > 0 && (
+        <ul className="blank-notes" aria-label="About your answers">
+          {notes.map((note) => (
+            <li key={`${note.position}:${note.text}`}>
+              <strong>Blank {note.position + 1}:</strong> {note.text}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* The wrong blanks are marked above on every check; the answers
+          themselves only once they are revealed (tries used up). */}
       {checked && reveal && wrong.size > 0 && (
         <div className="blank-answers">
           <strong>Expected:</strong>{' '}
