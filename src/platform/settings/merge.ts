@@ -7,13 +7,13 @@
    without it:
      - a group (a section, or `freeze` inside `streak`) recurses;
      - a setting - anything with an entry in SETTING_META - is a leaf and is
-       replaced whole, arrays and maps included;
+       replaced whole, arrays and maps included (./leaves knows which keys
+       those are, so the admin metadata in ./meta stays out of the shell);
      - a leaf whose type differs from its default is ignored;
      - keys the defaults do not have (and `__proto__`) are skipped.
    ========================================================================== */
 import { DEFAULT_SETTINGS } from './defaults';
-import { ADMIN_ONLY_SECTIONS, SETTING_META, isSettingsGroup, metaFor } from './meta';
-import type { SettingMeta } from './meta';
+import { ADMIN_ONLY_SECTIONS, isNullableSetting, isSettingLeaf, isSettingsGroup } from './leaves';
 import type { PublicSettings, Settings, SettingsOverrides } from './types';
 
 type Json = Record<string, unknown>;
@@ -39,8 +39,8 @@ function define(map: Json, key: string, value: unknown): void {
 }
 
 /** Does `value` have the same JSON type as the default it would replace? */
-function sameKind(base: unknown, value: unknown, meta: SettingMeta | null): boolean {
-  if (value === null) return base === null || Boolean(meta?.nullable);
+function sameKind(base: unknown, value: unknown, nullable: boolean): boolean {
+  if (value === null) return base === null || nullable;
   if (base === null) return typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
   if (Array.isArray(base)) return Array.isArray(value);
   if (isPlainObject(base)) return isPlainObject(value);
@@ -49,10 +49,10 @@ function sameKind(base: unknown, value: unknown, meta: SettingMeta | null): bool
 }
 
 function mergeAt(base: unknown, over: unknown, path: string): unknown {
-  const meta = path ? metaFor(path) : null;
-  if (meta || !isPlainObject(base)) {
+  const leaf = path !== '' && isSettingLeaf(path);
+  if (leaf || !isPlainObject(base)) {
     if (over === undefined) return clone(base);
-    return sameKind(base, over, meta) ? clone(over) : clone(base);
+    return sameKind(base, over, leaf && isNullableSetting(path)) ? clone(over) : clone(base);
   }
   const out: Json = {};
   const source = isPlainObject(over) ? over : {};
@@ -157,7 +157,7 @@ export function overrideLeaves(overrides: unknown, prefix = ''): Record<string, 
   for (const key of Object.keys(overrides)) {
     const path = prefix ? `${prefix}.${key}` : key;
     const value = overrides[key];
-    if (!metaFor(path) && isPlainObject(value) && isSettingsGroup(path)) Object.assign(out, overrideLeaves(value, path));
+    if (!isSettingLeaf(path) && isPlainObject(value) && isSettingsGroup(path)) Object.assign(out, overrideLeaves(value, path));
     else out[path] = value;
   }
   return out;
@@ -191,7 +191,7 @@ export function applySettingsPatch(overrides: unknown, patch: unknown): PatchRes
     for (const key of Object.keys(node)) {
       const path = prefix ? `${prefix}.${key}` : key;
       const value = node[key];
-      if (metaFor(path)) {
+      if (isSettingLeaf(path)) {
         if (value === null) deletePath(next, path);
         else if (value !== undefined) setPath(next, path, clone(value));
       } else if (isSettingsGroup(path)) {
@@ -249,62 +249,4 @@ export function normalizeOrigin(raw: unknown): string | null {
   } catch {
     return null;
   }
-}
-
-/* ------------------------------------------------------------ environment */
-
-function parseEnvValue(meta: SettingMeta, raw: string): unknown {
-  const text = raw.trim();
-  switch (meta.kind) {
-    case 'int':
-    case 'number': {
-      const n = Number(text);
-      return text !== '' && Number.isFinite(n) ? n : undefined;
-    }
-    case 'bool':
-      if (/^(1|true|yes|on)$/i.test(text)) return true;
-      if (/^(0|false|no|off)$/i.test(text)) return false;
-      return undefined;
-    case 'intList':
-      return text
-        .split(',')
-        .map((s) => Number(s.trim()))
-        .filter((n) => Number.isFinite(n));
-    case 'stringList':
-    case 'origins':
-      return text
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-    case 'rows':
-    case 'map':
-      try {
-        return JSON.parse(text);
-      } catch {
-        return undefined;
-      }
-    default:
-      return text;
-  }
-}
-
-/** `{ [path]: value }` for every setting whose `envVar` is set in `env`. */
-export function envValues(env: Record<string, string | undefined> | null | undefined): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (!env) return out;
-  for (const [path, meta] of Object.entries(SETTING_META)) {
-    if (!meta.envVar) continue;
-    const raw = env[meta.envVar];
-    if (typeof raw !== 'string' || raw.trim() === '') continue;
-    const value = parseEnvValue(meta, raw);
-    if (value !== undefined) out[path] = value;
-  }
-  return out;
-}
-
-/** The defaults with the environment layered on - the base an admin's overrides sit on. */
-export function defaultsWithEnv(env: Record<string, string | undefined> | null | undefined): Settings {
-  const fromEnv = envValues(env);
-  if (Object.keys(fromEnv).length === 0) return clone(DEFAULT_SETTINGS);
-  return mergeSettings(DEFAULT_SETTINGS, patchFromEdits(fromEnv));
 }

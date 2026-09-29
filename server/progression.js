@@ -485,7 +485,10 @@ export function acceptClaims(current, checked, ctx) {
     awardedXp += solved.awarded;
     accepted.push({ stageId: stage.id, testId: claim.testId, kind: claim.kind, xp: solved.awarded });
     const day = lib.dayKeyIn(zone, new Date(at));
-    credits.push({ challengeId: claim.testId, day: day > today ? today : day, at, isTest: true, awardedXp: solved.awarded });
+    // A kept claim comes in with the merge: its XP counts for the weekly
+    // league only when merged XP does, and only the first time ever (Phase 6).
+    const leagueXp = rules.league?.countMergedXp === true && solved.firstEver ? solved.awarded : 0;
+    credits.push({ challengeId: claim.testId, day: day > today ? today : day, at, isTest: true, awardedXp: solved.awarded, leagueXp });
   }
   return { progress: next, accepted, rejected, credits, awardedXp };
 }

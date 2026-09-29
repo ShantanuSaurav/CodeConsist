@@ -8,6 +8,8 @@
  * first wrong check used to print the answer and the retry then passed.
  */
 import type { Challenge } from '@/types';
+import { xpForSolve } from '@/platform/xp-leveling/leveling';
+import type { XpRules } from '@/platform/xp-leveling/leveling';
 import type { PracticeMode } from './PracticeSessionProvider';
 
 /**
@@ -69,4 +71,15 @@ export function practiceXpLine(correctFirstTry: number, remainingToday: number |
   const most = Math.max(0, Math.floor(Number(correctFirstTry)) || 0);
   const left = remainingToday === null ? most : Math.min(most, Math.max(0, Math.floor(Number(remainingToday)) || 0));
   return left > 0 ? `Practice · up to +${left} XP` : 'Practice · no more XP today';
+}
+
+/**
+ * A lesson footer's XP line: the question's reward - or, back after its
+ * answer was shown, the most a right answer now pays under the reveal cap
+ * (`feedback.requeue.maxScoreAfterReveal`), the same figure the solve and the
+ * server use. It never promises the full reward and then pays less.
+ */
+export function lessonXpLine(xpReward: number, revealedBefore: boolean, cap: number, rules: XpRules): string {
+  const most = revealedBefore ? xpForSolve(xpReward, 1, 0, rules, cap) : xpReward;
+  return revealedBefore && most < xpReward ? `+${most} XP (answer was shown)` : `+${xpReward} XP`;
 }

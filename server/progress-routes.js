@@ -14,9 +14,11 @@
  *           (not for a question requeued after a miss) -> capture the zone,
  *           pick the learner's day -> score (capped when the answer was shown
  *           first), pay, record
- *           -> a unit completed? its perfect bonus -> the day row -> streak,
+ *           -> a unit completed? its perfect bonus -> the day row (with its
+ *           league XP: first-ever XP only) -> streak,
  *           freezes, repair and the daily goal (server/habits.js; the goal
- *           bonus once a day) -> level -> persist, drop the draft, Excel
+ *           bonus once a day) -> level -> persist, join the week's league
+ *           (server/leagues.js), drop the draft, Excel
  *   merge:  check the guest's test-out claims' answers (the only await) ->
  *           capture the zone -> keep the claims that hold up, in track order
  *           (-> claims; each writes `testedOut` and pays its test) -> premium
@@ -28,13 +30,15 @@
  *           account adopts the guest's; an existing one replays the merged
  *           days, paying their goal bonuses) -> the Practice schedule and
  *           review log (newer entries win; right answers priced again under
- *           the daily cap, no session bonus) -> level -> persist
+ *           the daily cap, no session bonus) -> level -> persist -> the
+ *           weekly league, only when `league.countMergedXp` is on
+ *   reset:  a fresh row that keeps `everSolved` (and the streak history)
  *
  * Everything after the last `await` is synchronous, so progress and the
  * activity log are written in the same tick and two requests cannot
  * interleave between a read and its write.
  *
- * `learningDeps` ({ lib, settings, activity, units, habits, review }) is read per request:
+ * `learningDeps` ({ lib, settings, activity, units, habits, review, leagues }) is read per request:
  * it is filled in by server/index.js's bootstrap, after this router is mounted.
  */
 import express from 'express';
@@ -290,6 +294,9 @@ export function createProgressRouter({
         awardedXp: awarded,
         unitCompleted: Boolean(reward),
         perfectBonusXp: reward?.bonusXp ?? 0,
+        // The weekly league (step 12): first-ever XP only - never XP earned
+        // again after a reset - and unchecked solves only when they count.
+        leagueXp: lib.solveLeagueXp({ firstEver: solved.firstEver, verified: Boolean(verdict.verified), awardedXp: awarded }, rules.league),
         day: today,
         at: now.toISOString()
       });
@@ -302,6 +309,9 @@ export function createProgressRouter({
       const todayRow = habitsResult.today;
 
       store.setProgress(req.user.id, stored);
+      // League XP today (this solve's, or the goal bonus it paid): the
+      // learner joins this week's league.
+      if (todayRow.leagueXp > 0) learningDeps.leagues?.noteLeagueXp(req.user, today, now);
 
       // The lesson is solved, so the half-finished attempt is no longer work in
       // progress - see server/drafts-routes.js, which owns that rule.
@@ -488,6 +498,14 @@ export function createProgressRouter({
       }
       store.setProgress(req.user.id, stored);
 
+      // The weekly league (step 9): merged days carry league XP only when
+      // `league.countMergedXp` is on; then the learner joins the weeks of
+      // the days that got some (a week already final is never reopened).
+      if (rules.league?.countMergedXp && learningDeps.leagues) {
+        const days = new Set([...allCredits, ...reviewed.credits, ...withHabits.goals].map((c) => c.day).filter(Boolean));
+        for (const day of [...days].sort()) learningDeps.leagues.noteLeagueXp(user, day, now);
+      }
+
       const goalBonuses = withHabits.goals.filter((g) => g.xp > 0).map((g) => ({ kind: 'daily-goal', day: g.day, xp: g.xp }));
       res.json({
         // Level and streak as they stand on the learner's today, like GET
@@ -518,12 +536,13 @@ export function createProgressRouter({
    * The days stay - they are history, and keeping them stops a reset from
    * being a way to farm a day twice. The streak history stays too: the
    * current run is closed into it as `ended: 'reset'`, and freezes go back
-   * to the starting number.
+   * to the starting number. So does `everSolved`: XP earned again after a
+   * reset never counts for the weekly league.
    */
   router.post('/progress/reset', requireAuth, (req, res) => {
     const before = store.getProgress(req.user.id);
     const streak = learningDeps.habits.resetFields(req.user, before);
-    const fresh = { ...resetProgress(store.EMPTY_PROGRESS), ...streak };
+    const fresh = { ...resetProgress(store.EMPTY_PROGRESS, before), ...streak };
     store.setProgress(req.user.id, fresh);
     learningDeps.activity.reset(req.user);
     // The open Practice session goes too (the schedule went with the row).

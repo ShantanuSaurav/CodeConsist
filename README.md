@@ -53,7 +53,7 @@ npm start          # app + API together on http://localhost:4000
 | `/dashboard/roadmap` | Developer roadmaps (roadmap.sh-style) plus your track as one connected path |
 | `/dashboard/roadmap/:slug` | One roadmap: topic graph, per-topic notes and links, done/learning/skip tracking |
 | `/dashboard/learn/:stage/read` | The stage's article - the reading that goes with its lessons |
-| `/dashboard/leaderboard` | Accounts ranked by server-verified XP |
+| `/dashboard/leaderboard` | This week's league and the all-time board, ranked by server-verified XP |
 | `/dashboard/achievements` | Figures, coverage by language, badges |
 | `/dashboard/settings` | Account, Pro unlock, theme, learning mode, track, reset |
 | `/admin` | Administrator console - its own sign-in, users, tracks, stages, challenges, analytics, audit log |
@@ -294,11 +294,22 @@ Every screen is its own chunk and the challenge bank is another, fetched with
 
 | Chunk | Loaded | gzipped |
 | --- | --- | ---: |
-| `index` (providers, router, layout, practice modal) + `react` + `icons` | first paint | ~91 kB |
-| `challenges-content` | right after, in parallel | 94 kB |
-| `landing` + `motion` | on `/` | 47 kB |
-| `dashboard`, `route-learn`, `roadmaps`, `articles`, … | the screen you open | 1-43 kB each |
-| `types` (zod + the schemas) | never - development and CI only | - |
+| `index` (providers, router, layout, practice modal) + `react` + `icons` | first paint | ~186 kB |
+| `challenges-content` | right after, in parallel | ~109 kB |
+| `landing` | on `/` | ~8 kB |
+| `dashboard`, `route-learn`, `roadmaps`, `articles`, … | the screen you open | 2-43 kB each |
+| `admin` | the admin console | ~98 kB |
+| `types` (zod + the schemas) | the admin console only (settings validation); development and CI for content | ~12 kB |
+
+The learning loop (settings, streaks and goals, the activity log, Practice
+sessions, test-out and placement) grew the shell by about half, from ~126 kB
+before it. The admin's settings metadata (`src/platform/settings/meta.ts`)
+and the test-out and placement screens (`AssessmentPanel`) stay out of it.
+`node scripts/check-dist.mjs`, run by CI after the build, fails when the shell
+passes its gzipped budget (195 kB, set in that script) or picks up zod,
+framer-motion or that metadata. framer-motion is still in `package.json`, and
+`vite.config.ts` still names a `motion` chunk for it, but nothing imports it
+today.
 
 Content-only releases leave every UI chunk cached in returning browsers, and
 the other way round. `npm run build` prints the table; the boundary check

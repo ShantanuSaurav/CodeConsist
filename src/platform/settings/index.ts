@@ -1,8 +1,10 @@
 /**
  * The settings store's shared code, for the learner app.
  *
- * Everything except the zod schema (`./schema`), which only the server
- * bundle and the lazy admin chunk import - so zod never reaches the shell.
+ * Everything except the zod schema (`./schema`) and the admin metadata
+ * (`./meta`: every setting's label, help text and bounds, and `./env`),
+ * which only the server bundle and the lazy admin chunk import - so zod and
+ * the admin's help text never reach the shell.
  */
 export type {
   AccessSettings,
@@ -48,38 +50,12 @@ export type {
   XpSettings
 } from './types';
 export { DEFAULT_SETTINGS } from './defaults';
-export {
-  ADMIN_ONLY_SECTIONS,
-  ANSWER_KINDS,
-  BADGE_METRICS,
-  COPY_MAX_LENGTH,
-  ASSESSMENT_SAMPLE,
-  COPY_SAMPLE,
-  DAY_RULES,
-  EXPERIENCE_LEVELS,
-  GOAL_METRIC_LABELS,
-  NOTE_CONTEXTS,
-  ONBOARDING_ICONS,
-  ONBOARDING_STEP_IDS,
-  QUESTION_KINDS,
-  RATE_LIMIT_BUCKETS,
-  REMINDER_SAMPLE,
-  SOUND_EVENTS,
-  SECTION_META,
-  SETTING_META,
-  WELCOME_BACK_TOKENS,
-  isSettingsGroup,
-  metaFor,
-  pathsInSection,
-  sectionOfPath
-} from './meta';
+export { ADMIN_ONLY_SECTIONS, isSettingsGroup } from './leaves';
 export type { RowFieldMeta, SectionMeta, SettingKind, SettingMeta } from './meta';
 export {
   DEFAULT_PUBLIC_SETTINGS,
   applySettingsPatch,
   coerceSettings,
-  defaultsWithEnv,
-  envValues,
   getPath,
   isPlainObject,
   mergeSettings,

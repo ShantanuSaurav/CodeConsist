@@ -176,7 +176,30 @@ describe('the admin settings routes', () => {
     const typed = await put(0, { xp: { passScore: '70' }, levels: { ranks: [{ minLevel: 2, title: 'X' }] } });
     expect(typed.status).toBe(422);
     expect(typed.json.issues.map((i) => i.path).sort()).toEqual(['levels.ranks.0.minLevel', 'xp.passScore']);
+    // A refused save says what the value must be - not "ignored", which reads as half-saved.
+    expect(typed.json.issues.find((i) => i.path === 'xp.passScore').message).toBe('Must be a number.');
+    const flag = await put(0, { units: { perfectRequiresNoHints: 'yes' } });
+    expect(flag.json.issues).toEqual([{ path: 'units.perfectRequiresNoHints', message: 'Must be on or off.' }]);
     expect(store.getSettingsRecord().revision).toBe(0);
+  });
+
+  it('a patch that changes nothing keeps the revision and writes no audit row', async () => {
+    const audits = () => store.db().auditLog.filter((row) => row.action === 'settings.update').length;
+    for (const patch of [{}, { xp: null }, { streak: { freeze: null } }]) {
+      const res = await put(0, patch);
+      expect(res.status, JSON.stringify(patch)).toBe(200);
+      expect(res.json.revision).toBe(0);
+    }
+    expect(store.getSettingsRecord()).toMatchObject({ revision: 0, overrides: {}, updatedAt: null });
+    expect(audits()).toBe(0);
+
+    // The same value again, once it is stored: still nothing to do.
+    await put(0, { xp: { passScore: 70 } });
+    const same = await put(1, { xp: { passScore: 70 } });
+    expect(same.status).toBe(200);
+    expect(same.json).toMatchObject({ revision: 1, overrides: { xp: { passScore: 70 } } });
+    expect(store.getSettingsRecord().revision).toBe(1);
+    expect(audits()).toBe(1);
   });
 
   it('a stored section that no longer validates falls back to its defaults and is reported', async () => {

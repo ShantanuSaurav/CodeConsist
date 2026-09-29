@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { RATE_LIMIT_BUCKETS } from '@/platform/settings';
+import { RATE_LIMIT_BUCKETS } from '@/platform/settings/meta';
 import { adminApi } from '../../services/adminApi';
 import type { AccessStatus, ProgressionGateCounter } from '../../services/adminApi';
 import { Badge, Button, Card, ErrorText, Spinner, Table } from '../ui';

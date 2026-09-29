@@ -4,7 +4,6 @@ import { SECTION_META, SETTING_META, metaFor } from '../meta';
 import {
   applySettingsPatch,
   coerceSettings,
-  defaultsWithEnv,
   getPath,
   isPlainObject,
   mergeSettings,
@@ -13,6 +12,8 @@ import {
   patchFromEdits,
   publicSettings
 } from '../merge';
+import { defaultsWithEnv } from '../env';
+import { ADMIN_ONLY_SECTIONS, MAP_SETTINGS, NULLABLE_SETTINGS, isSettingsGroup, settingLeafPaths } from '../leaves';
 import { patchIssues, resolveSettings, settingsContentIssues, validateSettings } from '../schema';
 import { fillCopy, tokensIn } from '../copy';
 import { getCopy, getSettingsSnapshot, setSettingsSnapshot, subscribe } from '../store';
@@ -97,6 +98,19 @@ describe('defaults', () => {
       expect(sections).toContain(path.split('.')[0]);
     }
     expect(Object.keys(DEFAULT_SETTINGS).sort()).toEqual([...sections].sort());
+  });
+
+  it("the learner's merge knows the same settings as the admin metadata (leaves.ts vs meta.ts)", () => {
+    // merge.ts reads ./leaves so the admin help text stays out of the shell;
+    // the two must name exactly the same settings, groups and nullable ones.
+    expect([...settingLeafPaths()].sort()).toEqual(Object.keys(SETTING_META).sort());
+    expect([...MAP_SETTINGS].sort()).toEqual(Object.keys(SETTING_META).filter((path) => SETTING_META[path].kind === 'map').sort());
+    expect([...NULLABLE_SETTINGS].sort()).toEqual(Object.keys(SETTING_META).filter((path) => SETTING_META[path].nullable).sort());
+    const groups = new Set(Object.keys(SETTING_META).flatMap((path) => path.split('.').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('.'))));
+    for (const group of groups) expect(isSettingsGroup(group), group).toBe(true);
+    for (const path of Object.keys(SETTING_META)) expect(isSettingsGroup(path), path).toBe(false);
+    expect(isSettingsGroup('xp.nope')).toBe(false);
+    expect(ADMIN_ONLY_SECTIONS.every((id) => SECTION_META.some((s) => s.id === id))).toBe(true);
   });
 
   it('every text default uses only its declared tokens', () => {
@@ -362,6 +376,19 @@ describe('patchIssues', () => {
     expect(blocking({}, { xp: { passScore: 'high' } })).toEqual(['xp.passScore']);
     expect(blocking({ xp: { scoreFloor: 95 } }, { xp: { hintPenalty: 5 } })).toEqual(['xp.scoreFloor']);
     expect(blocking({ xp: { scoreFloor: 95 } }, { xp: { scoreFloor: null } })).toEqual([]);
+  });
+
+  it('words a wrong type as what the value must be - "ignored" is for stored overrides only', () => {
+    const issuesFor = (patch: object) => {
+      const next = applySettingsPatch({}, patch).overrides;
+      return patchIssues(patch, next, mergeSettings(DEFAULT_SETTINGS, next));
+    };
+    expect(issuesFor({ xp: { passScore: '70' } })).toEqual([{ path: 'xp.passScore', message: 'Must be a number.' }]);
+    expect(issuesFor({ units: { perfectRequiresNoHints: 1 } })).toEqual([{ path: 'units.perfectRequiresNoHints', message: 'Must be on or off.' }]);
+    expect(issuesFor({ levels: { ranks: { minLevel: 1 } } })).toEqual([{ path: 'levels.ranks', message: 'Must be a list.' }]);
+    expect(issuesFor({ placement: { stagesByTrack: ['core'] } })).toEqual([{ path: 'placement.stagesByTrack', message: 'Must be a map.' }]);
+    // The same value already stored is reported by resolveSettings, where it is ignored.
+    expect(resolveSettings({ xp: { passScore: '70' } }).issues).toEqual([{ path: 'xp.passScore', message: 'Wrong type for this setting - ignored.' }]);
   });
 });
 

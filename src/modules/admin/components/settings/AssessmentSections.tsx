@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, ExternalLink, Info } from 'lucide-react';
 import { maxRunsFor } from '@/platform/progress';
-import { pathsInSection } from '@/platform/settings';
+import { pathsInSection } from '@/platform/settings/meta';
 import type { SettingsContext } from '../../services/adminApi';
 import { Badge, Card } from '../ui';
 import { GenericSection } from './GenericSection';

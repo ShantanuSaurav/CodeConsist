@@ -116,8 +116,8 @@ export function createHabitsService({ lib, store, settings, activity }) {
     let bonusXp = 0;
     if (events.goalMet && events.goal) {
       // Once per day: the day keeps its first snapshot, and only a snapshot
-      // that landed pays.
-      const recorded = activity.recordGoal(user, { day: today, at, goal: events.goal, bonusXp: events.bonusXp });
+      // that landed pays. A goal met live counts for the weekly league too.
+      const recorded = activity.recordGoal(user, { day: today, at, goal: events.goal, bonusXp: events.bonusXp, leagueXp: events.bonusXp });
       row = recorded.row;
       if (recorded.applied) bonusXp = events.bonusXp;
     }
@@ -276,8 +276,10 @@ export function createHabitsService({ lib, store, settings, activity }) {
 
     let next = withFields(merged, fields);
     let bonusXp = 0;
+    // A goal met by merged days counts for the weekly league only when merged XP does.
+    const mergedCounts = s.league?.countMergedXp === true;
     for (const met of goals) {
-      const recorded = activity.recordGoal(user, { day: met.day, at, goal: met.goal, bonusXp: met.bonusXp });
+      const recorded = activity.recordGoal(user, { day: met.day, at, goal: met.goal, bonusXp: met.bonusXp, leagueXp: mergedCounts ? met.bonusXp : 0 });
       if (recorded.applied) bonusXp += met.bonusXp;
     }
     if (bonusXp > 0) {

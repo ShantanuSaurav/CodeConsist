@@ -143,5 +143,7 @@ export const STORAGE_KEYS = {
    * so the same limits and cooldowns apply. Cleared when an account's
    * progress replaces the guest's.
    */
-  assessments: 'cq-assessments-v1'
+  assessments: 'cq-assessments-v1',
+  /** The leaderboard tab last opened in this browser: 'week' (the weekly league) or 'all' (all time). */
+  leaderboardTab: 'cq-leaderboard-tab-v1'
 } as const;

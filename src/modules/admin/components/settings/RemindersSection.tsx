@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bell, Users } from 'lucide-react';
-import { REMINDER_SAMPLE, fillCopy } from '@/platform/settings';
+import { fillCopy } from '@/platform/settings';
+import { REMINDER_SAMPLE } from '@/platform/settings/meta';
 import { Card } from '../ui';
 import { GenericSection } from './GenericSection';
 import type { SectionProps } from './GenericSection';
@@ -52,7 +53,7 @@ export const RemindersSection: React.FC<SectionProps> = (props) => {
         </div>
         <p className="text-xs text-fg-muted mb-2">
           With sample values ({s.name}, a {s.streak}-day streak, {s.freezes} freeze of {s.maxFreezes}). A learner sees one banner at a time: welcome back, then a
-          streak to repair, then a freeze used, then at risk.
+          streak to repair, then a freeze used, then at risk, then last week's league result.
         </p>
         <ul data-testid="reminder-preview">
           {tiers.map((tier) => (
@@ -86,6 +87,13 @@ export const RemindersSection: React.FC<SectionProps> = (props) => {
           />
           <Preview label="Freeze earned" title={fillCopy(r.freezeEarned, { freezes: s.freezes, maxFreezes: s.maxFreezes })} />
           <Preview label="Streak repaired" title={fillCopy(r.streakRepaired, { streak: s.streak })} />
+          {(['single', 'promoted', 'demoted', 'stayed'] as const).map((kind) => (
+            <Preview
+              key={kind}
+              label={`League result · ${kind === 'single' ? 'tiers off' : kind}${r.leagueResult.enabled ? '' : ' (off)'}`}
+              title={fillCopy(r.leagueResult[kind], { rank: s.rank, xp: s.xp, tier: s.tier })}
+            />
+          ))}
         </ul>
       </Card>
 

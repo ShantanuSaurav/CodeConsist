@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { formatDayLabel } from '@/platform/time/days';
 import { StreakStrip } from '@/ui';
 import { AdminUserRow, UserLearning, UserLearningPatch, adminApi } from '../services/adminApi';
@@ -88,6 +89,22 @@ export const UserHabitsPanel: React.FC<{ user: AdminUserRow; data: UserLearning;
         <p className="text-sm text-warning">
           Repair on offer: the {summary.repair.lostStreak}-day streak comes back after {summary.repair.remaining} more{' '}
           {summary.repair.remaining === 1 ? 'lesson' : 'lessons'} by {formatDayLabel(summary.repair.deadline)}.
+        </p>
+      )}
+
+      {data.league && data.league.enabled && (
+        <p className="text-sm text-fg-secondary" data-testid="user-league">
+          Weekly league ({data.league.week.id}):{' '}
+          {data.league.week.excluded
+            ? 'excluded this week'
+            : data.league.week.rank !== null
+              ? `#${data.league.week.rank} with ${data.league.week.xp.toLocaleString()} XP`
+              : 'no XP this week yet'}
+          {data.league.tiersEnabled && ` · tier ${data.league.tierName ?? 'not set (the lowest)'}`}
+          {' · '}
+          <Link to="/admin/leagues" className="text-accent">
+            Leagues
+          </Link>
         </p>
       )}
 

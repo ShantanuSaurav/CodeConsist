@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Challenge } from '@/types';
 import { ALL_CHALLENGES } from '../content';
-import { canRevealSolution, contextForMode, practiceXpLine, revealsAnswers } from '../session/rules';
+import { DEFAULT_SETTINGS, revealCap } from '@/platform/settings';
+import { xpForSolve } from '@/platform/xp-leveling/leveling';
+import { canRevealSolution, contextForMode, lessonXpLine, practiceXpLine, revealsAnswers } from '../session/rules';
 import type { AnswerContext } from '../session/rules';
 
 const CONTEXTS: AnswerContext[] = ['lesson', 'test', 'review', 'library', 'assessment'];
@@ -96,5 +98,22 @@ describe('practiceXpLine', () => {
   it('says there is nothing more today once the cap is reached', () => {
     expect(practiceXpLine(5, 0)).toBe('Practice · no more XP today');
     expect(practiceXpLine(0, 60)).toBe('Practice · no more XP today');
+  });
+});
+
+describe('lessonXpLine', () => {
+  const cap = revealCap('practice', DEFAULT_SETTINGS.feedback);
+
+  it("is the question's reward until its answer has been shown", () => {
+    expect(lessonXpLine(40, false, cap, DEFAULT_SETTINGS.xp)).toBe('+40 XP');
+  });
+
+  it('back after a reveal, is what a right answer pays under the cap - what the solve then pays', () => {
+    // stage-1-a01: a 40 XP question back after its answer was shown paid +24 (score 60%).
+    expect(cap).toBe(60);
+    expect(lessonXpLine(40, true, cap, DEFAULT_SETTINGS.xp)).toBe('+24 XP (answer was shown)');
+    expect(lessonXpLine(40, true, cap, DEFAULT_SETTINGS.xp)).toBe(`+${xpForSolve(40, 1, 0, DEFAULT_SETTINGS.xp, cap)} XP (answer was shown)`);
+    // No cap set (100): nothing to say.
+    expect(lessonXpLine(40, true, 100, DEFAULT_SETTINGS.xp)).toBe('+40 XP');
   });
 });

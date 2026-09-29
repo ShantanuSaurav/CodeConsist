@@ -6,7 +6,7 @@
  * than fields, a Component here).
  */
 import type React from 'react';
-import { SECTION_META } from '@/platform/settings';
+import { SECTION_META } from '@/platform/settings/meta';
 import type { SectionMeta } from '@/platform/settings';
 import type { SectionProps } from './GenericSection';
 import { LevelsSection } from './LevelsSection';

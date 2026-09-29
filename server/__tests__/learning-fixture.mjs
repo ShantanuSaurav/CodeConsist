@@ -19,6 +19,8 @@ import { createProgressRouter } from '../progress-routes.js';
 import { createHabitsService } from '../habits.js';
 import { createPreferencesRouter, publicPreferences } from '../preferences-routes.js';
 import { createReviewRouter, createReviewService } from '../review-routes.js';
+import { createLeaguesService } from '../leagues.js';
+import { createLeaguesRouter } from '../leagues-routes.js';
 
 export { lib };
 
@@ -87,13 +89,15 @@ export function createLearningDeps(store, { env = {}, serverZone = () => 'UTC', 
   const settings = createSettingsService({ store, lib, env });
   const activity = createActivityService({ lib, store, settings, getChallengeMerged: getChallenge, gradeAnswer: lib.gradeAnswer, serverZone });
   const habits = createHabitsService({ lib, store, settings, activity });
-  const review = createReviewService({ lib, store, settings, activity, habits, getChallengeMerged: getChallenge });
+  const leagues = createLeaguesService({ lib, store, settings, activity, habits });
+  const review = createReviewService({ lib, store, settings, activity, habits, getChallengeMerged: getChallenge, leagues });
   return {
     lib,
     settings,
     activity,
     habits,
     review,
+    leagues,
     units: units ? createFixtureUnits(settings) : null,
     runtimeInfo: () => ({ pythonVerifiable: false, judge0Languages: [] })
   };
@@ -109,6 +113,7 @@ export function resetStore(store, userIds = ['u1', 'u2']) {
   state.reviewSessions = {};
   state.conceptCards = {};
   state.assessments = {};
+  state.leagues = { members: {}, weeks: {} };
   state.settings = { overrides: {}, revision: 0, updatedAt: null, updatedBy: null };
   state.auditLog = [];
   for (const id of userIds) store.insertUser({ id, email: `${id}@example.com`, username: id, passwordHash: 'x', isPremium: false, identities: {} });
@@ -174,6 +179,8 @@ export async function startLearnerApp(store, options = {}) {
   });
   // The tracks a learner may pick (Phase 5): the fixture's own, unless a test says otherwise.
   app.use('/api', createPreferencesRouter({ requireAuth, publicUser, store, learningDeps, learnerTracks: () => ['core', 'c'], ...(options.preferences ?? {}) }));
+  // GET /api/leagues/current: a guest (no x-user) is served too, as the global optionalAuth does.
+  app.use('/api', createLeaguesRouter({ learningDeps }));
   app.use((err, _req, res, _next) => res.status(500).json({ error: err.message }));
 
   const server = await new Promise((resolve) => {

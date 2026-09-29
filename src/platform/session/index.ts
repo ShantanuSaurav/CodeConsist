@@ -9,6 +9,7 @@ export type {
   MissSubmission
 } from './SessionProvider';
 export type { ReviewAnswerOptions, ReviewAnswerOutcome, ReviewStart } from './useReview';
+export type { LeagueStatus } from './useLeagueState';
 export type { AssessmentStartResult, AssessmentSubmitResult, PlacementStatus, TestOutStatus } from './useAssessments';
 export { assessmentBlockText, describeRetry } from './assessments';
 export type { AssessmentRequest } from './assessments';
