@@ -3,11 +3,21 @@ import { RefreshCw } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { useCopy } from '@/platform/settings';
 import { useAppEvent } from '@/platform/events';
-import { Button, DevHint, EmptyState } from '@/ui';
+import { Button, DevHint, EmptyState, StreakFlame } from '@/ui';
 
-/** Top accounts by XP, from the local API. A table, not a stack of cards. */
+/**
+ * Top accounts by XP, from the local API. A table, not a stack of cards.
+ * The learner's own row is marked (the server's `isYou`; the username on
+ * an older server), and their place is pinned below when it is not shown.
+ */
 export const Leaderboard: React.FC = () => {
-  const { leaderboard, user, serverStatus, refreshLeaderboard } = useSession();
+  const { leaderboard, leaderboardMe, user, serverStatus, refreshLeaderboard } = useSession();
+  const signedIn = Boolean(user && user.provider !== 'guest');
+  const serverMarks = leaderboard.some((row) => row.isYou !== undefined);
+  // Only a signed-in learner has a row of their own (rows from before a sign-out may still carry the last one).
+  const isYou = (row: { username: string; isYou?: boolean }) => signedIn && (serverMarks ? row.isYou === true : row.username === user?.username);
+  const shown = leaderboard.some(isYou);
+  const pinMe = signedIn && leaderboardMe && !shown ? leaderboardMe : null;
   const copy = useCopy();
 
   useEffect(() => {
@@ -42,7 +52,7 @@ export const Leaderboard: React.FC = () => {
     <div>
       <div className="flex items-center justify-between mb-2">
         <span className="eyebrow !mb-0">Top by XP</span>
-        <Button size="sm" variant="ghost" onClick={refreshLeaderboard}>
+        <Button size="sm" variant="ghost" className="min-h-[44px]" onClick={refreshLeaderboard}>
           <RefreshCw size={12} /> Refresh
         </Button>
       </div>
@@ -54,11 +64,12 @@ export const Leaderboard: React.FC = () => {
             <th className="py-2 pl-3 font-medium text-right">XP</th>
             <th className="py-2 pl-3 font-medium text-right hidden sm:table-cell">Level</th>
             <th className="py-2 pl-3 font-medium text-right hidden sm:table-cell">Solved</th>
+            <th className="py-2 pl-3 font-medium text-right">Streak</th>
           </tr>
         </thead>
         <tbody>
           {leaderboard.map((row, i) => {
-            const you = row.username === user?.username && user?.provider !== 'guest';
+            const you = isYou(row);
             return (
               <tr key={row.username} className={`border-b border-border-subtle ${you ? 'bg-accent-soft' : ''}`}>
                 <td className={`py-2.5 pr-3 font-mono tabular-nums ${i < 3 ? 'text-fg font-medium' : 'text-fg-muted'}`}>
@@ -71,10 +82,30 @@ export const Leaderboard: React.FC = () => {
                 <td className="py-2.5 pl-3 font-mono tabular-nums text-fg text-right">{row.xp.toLocaleString()}</td>
                 <td className="py-2.5 pl-3 font-mono tabular-nums text-fg-muted text-right hidden sm:table-cell">{String(row.level).padStart(2, '0')}</td>
                 <td className="py-2.5 pl-3 font-mono tabular-nums text-fg-muted text-right hidden sm:table-cell">{row.solved}</td>
+                <td className="py-2.5 pl-3 text-right">
+                  <StreakFlame streak={row.streak} size={13} className="text-xs justify-end" />
+                </td>
               </tr>
             );
           })}
         </tbody>
+        {pinMe && (
+          <tfoot>
+            <tr className="bg-accent-soft" data-testid="leaderboard-me">
+              <td className="py-2.5 pr-3 font-mono tabular-nums text-fg font-medium border-t-2 border-border" colSpan={2}>
+                You · #{pinMe.rank}
+              </td>
+              <td className="py-2.5 pl-3 font-mono tabular-nums text-fg text-right border-t-2 border-border">{pinMe.xp.toLocaleString()}</td>
+              <td className="py-2.5 pl-3 font-mono tabular-nums text-fg-muted text-right hidden sm:table-cell border-t-2 border-border">
+                {String(pinMe.level).padStart(2, '0')}
+              </td>
+              <td className="py-2.5 pl-3 font-mono tabular-nums text-fg-muted text-right hidden sm:table-cell border-t-2 border-border">{pinMe.solved}</td>
+              <td className="py-2.5 pl-3 text-right border-t-2 border-border">
+                <StreakFlame streak={pinMe.streak} size={13} className="text-xs justify-end" />
+              </td>
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   );

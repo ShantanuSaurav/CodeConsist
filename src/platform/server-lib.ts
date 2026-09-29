@@ -49,3 +49,6 @@ export * from './review';
 // with the same rules the path is drawn with.
 export * from './progress/stages';
 export * from './progress/access';
+// The weekly league (Phase 6): weeks, ranking, groups and what a closed week
+// does - server/leagues.js runs them over the store.
+export * from './league/league';

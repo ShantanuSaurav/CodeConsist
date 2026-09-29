@@ -19,6 +19,8 @@ import {
   LanguageTrack,
   LearningMode,
   LeaderboardEntry,
+  LeaderboardMe,
+  LeagueView,
   MissEntry,
   OnboardingAnswers,
   OnboardingState,
@@ -58,6 +60,8 @@ import { applyReviewResult, reviewStateOf } from '../review';
 import type { ReviewSummary } from '../review';
 import { useSettingsState } from './useSettingsState';
 import { useActivityLog } from './useActivityLog';
+import { useLeagueState } from './useLeagueState';
+import type { LeagueStatus } from './useLeagueState';
 import { useHabitState } from './useHabitState';
 import { useReview } from './useReview';
 import type { ReviewAnswerOptions, ReviewAnswerOutcome, ReviewStart } from './useReview';
@@ -432,7 +436,16 @@ export interface SessionContextType {
   resetProgress: () => Promise<void>;
 
   leaderboard: LeaderboardEntry[];
+  /** The signed-in learner's place on the all-time board, even below the shown rows; null for a guest. */
+  leaderboardMe: LeaderboardMe | null;
   refreshLeaderboard: () => Promise<void>;
+  /** This week's league as last fetched (GET /api/leagues/current), or null. */
+  league: LeagueView | null;
+  /** 'missing' on an older server with no league (the weekly tab hides). */
+  leagueStatus: LeagueStatus;
+  /** When `league` arrived (ms), for its countdown. */
+  leagueFetchedAt: number | null;
+  refreshLeague: () => Promise<void>;
 
   /** Confetti (never with reduced motion). */
   celebrate: (options?: CelebrateOptions) => void;
@@ -650,6 +663,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   const [runtimes, setRuntimes] = useState<Record<string, RuntimeInfo>>({});
   const [oauthProviders, setOauthProviders] = useState<OAuthProviders | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardMe, setLeaderboardMe] = useState<LeaderboardMe | null>(null);
 
   useEffect(() => {
     writeJson(STORAGE_KEYS.stats, stats);
@@ -2607,8 +2621,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   const refreshLeaderboard = useCallback(async () => {
     try {
-      const { leaderboard: rows } = await api.leaderboard();
+      const { leaderboard: rows, me } = await api.leaderboard();
       setLeaderboard(rows);
+      setLeaderboardMe(me ?? null);
     } catch {
       // Keep whatever was on screen. Clearing to [] made a failed request
       // indistinguishable from an empty board, and the dashboard then told a
@@ -2616,9 +2631,18 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     }
   }, []);
 
+  // Again for another viewer: the board marks their row and sends their own place.
+  const boardViewer = user && user.provider !== 'guest' ? user.id : null;
   useEffect(() => {
+    // The rows on screen marked the last viewer's own row: nobody's until the server says (a failed refetch keeps these rows).
+    setLeaderboard((rows) => (rows.some((row) => row.isYou) ? rows.map((row) => (row.isYou ? { ...row, isYou: false } : row)) : rows));
+  }, [boardViewer]);
+  useEffect(() => {
+    setLeaderboardMe(null);
     if (serverStatus === 'online') refreshLeaderboard();
-  }, [serverStatus, refreshLeaderboard]);
+  }, [serverStatus, refreshLeaderboard, boardViewer]);
+
+  const leagueState = useLeagueState({ owner: boardViewer, online: serverStatus === 'online' });
 
   const value = useMemo<SessionContextType>(
     () => ({
@@ -2695,7 +2719,12 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       reloadContent,
       resetProgress,
       leaderboard,
+      leaderboardMe,
       refreshLeaderboard,
+      league: leagueState.league,
+      leagueStatus: leagueState.leagueStatus,
+      leagueFetchedAt: leagueState.leagueFetchedAt,
+      refreshLeague: leagueState.refreshLeague,
       celebrate,
       holdCelebrations: celebrationHold.hold,
       releaseCelebrations: celebrationHold.release,
@@ -2775,7 +2804,12 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       reloadContent,
       resetProgress,
       leaderboard,
+      leaderboardMe,
       refreshLeaderboard,
+      leagueState.league,
+      leagueState.leagueStatus,
+      leagueState.leagueFetchedAt,
+      leagueState.refreshLeague,
       celebrate,
       celebrationHold
     ]

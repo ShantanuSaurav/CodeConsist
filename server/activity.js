@@ -113,9 +113,10 @@ export function createActivityService({ lib, store, settings, getChallengeMerged
   /**
    * A verified solve: the day row it lands on, after it. A solve that
    * completed a unit counts in the day's `units`, and its perfect-unit bonus
-   * in `perfectBonusXp` (and `xp`).
+   * in `perfectBonusXp` (and `xp`). `leagueXp` is the part of its XP that
+   * counts for the weekly league (Phase 6; the caller decides it).
    */
-  function recordSolve(user, { challengeId, isTest, firstSolve, awardedXp, unitCompleted = false, perfectBonusXp = 0, day, at }) {
+  function recordSolve(user, { challengeId, isTest, firstSolve, awardedXp, unitCompleted = false, perfectBonusXp = 0, leagueXp = 0, day, at }) {
     const log = lib.applyActivityEvent(
       load(user),
       {
@@ -125,7 +126,8 @@ export function createActivityService({ lib, store, settings, getChallengeMerged
         firstSolve: Boolean(firstSolve),
         awardedXp,
         unitCompleted: Boolean(unitCompleted),
-        perfectBonusXp: Number(perfectBonusXp) || 0
+        perfectBonusXp: Number(perfectBonusXp) || 0,
+        leagueXp: Number(leagueXp) || 0
       },
       { day, at, rules: rules() }
     );
@@ -137,12 +139,13 @@ export function createActivityService({ lib, store, settings, getChallengeMerged
    * A Practice-session answer (server/review-routes.js): `answered` counts
    * a right answer in the day's `reviews`; `xp` (review XP, or a session
    * bonus with no question) goes in `reviewXp` and `xp`; `clean` closes
-   * the question's open mistake. Returns the day row after it.
+   * the question's open mistake; `leagueXp` (at most `xp`) counts for the
+   * weekly league. Returns the day row after it.
    */
-  function recordReview(user, { challengeId = null, answered = false, xp = 0, clean = false, day, at }) {
+  function recordReview(user, { challengeId = null, answered = false, xp = 0, clean = false, leagueXp = 0, day, at }) {
     const log = lib.applyActivityEvent(
       load(user),
-      { type: 'review', challengeId, answered: Boolean(answered), xp: Number(xp) || 0, clean: Boolean(clean) },
+      { type: 'review', challengeId, answered: Boolean(answered), xp: Number(xp) || 0, clean: Boolean(clean), leagueXp: Number(leagueXp) || 0 },
       { day, at, rules: rules() }
     );
     save(user, log);
@@ -152,11 +155,16 @@ export function createActivityService({ lib, store, settings, getChallengeMerged
   /**
    * The daily goal was met on `day` (server/habits.js): its snapshot and bonus
    * go on the day row - once; a day already met keeps its first snapshot.
-   * Returns whether it was recorded, and the day row after.
+   * `leagueXp` (at most the bonus) is the part that counts for the weekly
+   * league. Returns whether it was recorded, and the day row after.
    */
-  function recordGoal(user, { day, at, goal, bonusXp = 0 }) {
+  function recordGoal(user, { day, at, goal, bonusXp = 0, leagueXp = 0 }) {
     const before = load(user);
-    const log = lib.applyActivityEvent(before, { type: 'goal', goal, bonusXp: Number(bonusXp) || 0 }, { day, at, rules: rules() });
+    const log = lib.applyActivityEvent(
+      before,
+      { type: 'goal', goal, bonusXp: Number(bonusXp) || 0, leagueXp: Number(leagueXp) || 0 },
+      { day, at, rules: rules() }
+    );
     if (log === before) return { applied: false, row: lib.dayRow(before, day) };
     save(user, log);
     return { applied: true, row: lib.dayRow(log, day) };

@@ -63,9 +63,16 @@ function withEntry(map, key, value) {
  * @param {object} deps.activity   server/activity.js's service
  * @param {object} deps.habits     server/habits.js's service
  * @param {(id: string) => object | null} deps.getChallengeMerged
+ * @param {object | null} [deps.leagues]  server/leagues.js's service: a paid answer joins the learner to the week
  */
-export function createReviewService({ lib, store, settings, activity, habits, getChallengeMerged }) {
+export function createReviewService({ lib, store, settings, activity, habits, getChallengeMerged, leagues = null }) {
   const rules = () => settings.current().review;
+  /** The part of Practice XP that counts for the weekly league (`league.countReviewXp`); merged answers only when merged XP counts too. */
+  const leagueShare = (xp, { merged = false } = {}) => {
+    const league = settings.current().league;
+    if (!league?.countReviewXp || (merged && !league.countMergedXp)) return 0;
+    return xp;
+  };
 
   /** The stored session, if it is this one and still open. */
   function liveSession(user, sessionId, now) {
@@ -159,9 +166,19 @@ export function createReviewService({ lib, store, settings, activity, habits, ge
     // bonus) in `reviewXp` and `xp`; a clean one closes the open mistake.
     let dayRow = before;
     if (correct || result.awardedXp > 0) {
-      dayRow = activity.recordReview(user, { challengeId, answered: correct, xp: result.awardedXp, clean: result.closesMistake, day: today, at });
+      dayRow = activity.recordReview(user, {
+        challengeId,
+        answered: correct,
+        xp: result.awardedXp,
+        clean: result.closesMistake,
+        leagueXp: leagueShare(result.awardedXp),
+        day: today,
+        at
+      });
     }
-    if (result.bonusXp > 0) dayRow = activity.recordReview(user, { challengeId: null, answered: false, xp: result.bonusXp, day: today, at });
+    if (result.bonusXp > 0) {
+      dayRow = activity.recordReview(user, { challengeId: null, answered: false, xp: result.bonusXp, leagueXp: leagueShare(result.bonusXp), day: today, at });
+    }
 
     // A right answer is practice: it counts for the streak and the goal
     // (freezes, repair, the goal bonus - once a day), as a solve does.
@@ -174,6 +191,8 @@ export function createReviewService({ lib, store, settings, activity, habits, ge
 
     store.setProgress(user.id, next);
     store.putReviewSession(user.id, result.session);
+    // League XP today (Practice XP, a goal bonus): the learner joins the week.
+    if (dayRow.leagueXp > 0) leagues?.noteLeagueXp(user, today, now);
     return {
       status: 200,
       body: {
@@ -252,7 +271,14 @@ export function createReviewService({ lib, store, settings, activity, habits, ge
     review = credited.review;
     let awardedXp = 0;
     for (const credit of credited.credits) {
-      activity.recordReview(user, { challengeId: credit.challengeId, answered: true, xp: credit.xp, day: credit.day, at: credit.at });
+      activity.recordReview(user, {
+        challengeId: credit.challengeId,
+        answered: true,
+        xp: credit.xp,
+        leagueXp: leagueShare(credit.xp, { merged: true }),
+        day: credit.day,
+        at: credit.at
+      });
       awardedXp += credit.xp;
     }
     closeFixedMistakes(user, reviewLog, { solved: new Set(eligible), zone, today, now, windowDays: r.review.guestMergeWindowDays });

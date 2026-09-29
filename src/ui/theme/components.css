@@ -1327,6 +1327,12 @@ kbd {
 .habit-banner-actions .btn { min-height: 44px; }
 .habit-banner-actions .btn-icon { min-width: 44px; }
 
+/* The weekly league: a bar on the rows in line to move up or down a tier. */
+.league-row-up > td:first-child { box-shadow: inset 3px 0 0 var(--success); }
+.league-row-down > td:first-child { box-shadow: inset 3px 0 0 var(--error); }
+/* The leaderboard's week / all-time tabs: full tap targets on phones. */
+.leaderboard-tabs .segmented-option { min-height: 44px; }
+
 /* The first-run setup is mostly used on phones: every step button is a full tap target. */
 .onboarding-actions .btn { min-height: 44px; }
 

@@ -315,7 +315,11 @@ export const Drawer: React.FC<{
   );
 };
 
-/** A destructive-action confirmation, so nothing irreversible fires from one click. */
+/**
+ * A destructive-action confirmation, so nothing irreversible fires from one
+ * click. With `confirmText`, the admin must also type that text (a week id,
+ * say) before the action can fire.
+ */
 export const ConfirmDialog: React.FC<{
   open: boolean;
   title: string;
@@ -323,15 +327,20 @@ export const ConfirmDialog: React.FC<{
   confirmLabel?: string;
   /** The action is in flight: the dialog stays put but nothing can fire twice. */
   busy?: boolean;
+  /** Text the admin must type to enable the action. */
+  confirmText?: string;
   onConfirm: () => void;
   onCancel: () => void;
-}> = ({ open, title, message, confirmLabel = 'Confirm', busy = false, onConfirm, onCancel }) => {
+}> = ({ open, title, message, confirmLabel = 'Confirm', busy = false, confirmText, onConfirm, onCancel }) => {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
+  const [typed, setTyped] = useState('');
   useEffect(() => {
     if (open) ref.current?.focus();
+    setTyped('');
   }, [open]);
   if (!open) return null;
+  const ready = !confirmText || typed.trim() === confirmText;
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center p-4"
@@ -348,12 +357,28 @@ export const ConfirmDialog: React.FC<{
         <p id={`${id}-message`} className="text-sm text-fg-secondary mb-5">
           {message}
         </p>
+        {confirmText && (
+          <label className="block mb-5">
+            <span className="block text-xs text-fg-secondary mb-1">
+              Type <code className="font-mono text-fg">{confirmText}</code> to confirm
+            </span>
+            <input
+              className={`${inputClass} font-mono`}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              disabled={busy}
+              autoComplete="off"
+              spellCheck={false}
+              aria-label={`Type ${confirmText} to confirm`}
+            />
+          </label>
+        )}
         <div className="flex justify-end gap-2">
           <UiButton variant="secondary" onClick={onCancel} disabled={busy}>
             Cancel
           </UiButton>
           {/* A second click on a destructive action is never a second action. */}
-          <UiButton variant="danger" onClick={() => !busy && onConfirm()} disabled={busy}>
+          <UiButton variant="danger" onClick={() => !busy && ready && onConfirm()} disabled={busy || !ready}>
             {busy ? 'Working…' : confirmLabel}
           </UiButton>
         </div>

@@ -19,6 +19,7 @@ import { DEFAULT_HABIT_SETTINGS } from '../habits/streak';
 import { DEFAULT_FEEDBACK_SETTINGS } from './budget';
 import { DEFAULT_REVIEW_SETTINGS } from '../review/defaults';
 import { DEFAULT_PLACEMENT_SETTINGS, DEFAULT_TEST_OUT_SETTINGS } from '../progress/access';
+import { DEFAULT_LEAGUE_SETTINGS } from '../league/league';
 import type { OnboardingSettings, Settings } from './types';
 
 function jsonCopy<T>(value: T): T {
@@ -166,6 +167,14 @@ export const DEFAULT_SETTINGS: Settings = {
         { minDays: 3, title: 'Welcome back, {name}', body: 'Pick up where you left off - one lesson starts a new streak.' },
         { minDays: 14, title: "It's been {days} days", body: 'Your best streak is {bestStreak} days. Start small: one lesson today.' }
       ]
+    },
+    // Phase 6: last week's league result, once the week has closed.
+    leagueResult: {
+      enabled: true,
+      single: 'Last week you finished #{rank} with {xp} XP.',
+      promoted: 'Last week you finished #{rank} with {xp} XP and moved up to {tier}.',
+      demoted: 'Last week you finished #{rank} with {xp} XP and moved down to {tier}.',
+      stayed: 'Last week you finished #{rank} with {xp} XP and stayed in {tier}.'
     }
   },
   units: {
@@ -234,6 +243,9 @@ export const DEFAULT_SETTINGS: Settings = {
   onboarding: jsonCopy(DEFAULT_ONBOARDING_SETTINGS),
   placement: jsonCopy(DEFAULT_PLACEMENT_SETTINGS),
   testOut: jsonCopy(DEFAULT_TEST_OUT_SETTINGS),
+  // Phase 6: the weekly league (src/platform/league/league.ts). Tiers ship
+  // off until there are enough weekly learners to fill groups (owner decision 4).
+  league: jsonCopy(DEFAULT_LEAGUE_SETTINGS),
   copy: {
     offline: {
       auth: 'Accounts are temporarily unavailable. Keep practising as a guest - your progress is saved on this device.',
@@ -297,7 +309,8 @@ export const DEFAULT_SETTINGS: Settings = {
     missesPerDay: 300,
     missesPerItemPerDay: 20,
     answerMaxChars: 200,
-    mostMissedMinLearners: 3
+    mostMissedMinLearners: 3,
+    leagueWeeksKept: 26
   },
   access: {
     rateLimit: {

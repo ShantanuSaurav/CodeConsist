@@ -46,6 +46,7 @@ import {
   resolveAnchor
 } from './concept-cards.js';
 import { createSettingsAdminRouter } from './settings-routes.js';
+import { createLeaguesAdminRouter } from './leagues-admin.js';
 import {
   EXECUTABLE_LANGUAGES,
   FEEDBACK_MAX,
@@ -430,7 +431,7 @@ function settingsContext(deps) {
  *   runSolution(challenge, code) -> { status, testResults, stderr, reason };
  *   ai -> the Gemini client from server/ai.js ({ configured, model, generateJson });
  *   billing -> { provider } from server/payments.js, the same instance the learner routes use;
- *   learning -> { lib, settings, activity, units, habits, runtimeInfo } (server/index.js's learningDeps):
+ *   learning -> { lib, settings, activity, units, habits, review, leagues, runtimeInfo } (server/index.js's learningDeps):
  *     the rules store, each learner's activity, streaks and goals, and the
  *     shared rule code. Read per request; routes that need it answer 503
  *     while it is missing.
@@ -477,6 +478,12 @@ export function createAdminRouter(deps = {}) {
       getContext: () => settingsContext(deps)
     })
   );
+
+  /* ---------------------------------------------------------- weekly league */
+  // GET /leagues/weeks, GET /leagues/weeks/:id, POST .../close, .../reset,
+  // .../exclude and PATCH /leagues/members/:userId - server/leagues-admin.js.
+  // Behind requireAdminAuth like everything here; each change is audited.
+  router.use(createLeaguesAdminRouter({ getLearning: () => deps.learning ?? null, store, audit }));
 
   /* ------------------------------------------------------- limits & access */
   // The live side of the `access` settings section: what the server derives
@@ -766,6 +773,8 @@ export function createAdminRouter(deps = {}) {
       // Phase 5: the first-run setup and its answers, stages tested out of,
       // the newest test-outs and placements, and the cooldowns cleared.
       setup: assessmentAdminView(store, learning.lib, target, { stageName: stageNamer() }),
+      // Phase 6: the learner's tier and their place in this week's league.
+      league: learning.leagues ? learning.leagues.summaryFor(target) : null,
       misses: view.misses.map((m) => {
         const challenge = getChallenge(m.challengeId);
         const topKey = Object.entries(m.keys ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;

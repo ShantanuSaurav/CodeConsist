@@ -13,6 +13,7 @@ import { tokensIn } from './copy';
 import { DEFAULT_SETTINGS } from './defaults';
 import { SECTION_META, SETTING_META, WELCOME_BACK_TOKENS, metaFor, sectionOfPath } from './meta';
 import { GOAL_ID_RE, GOAL_TARGET_BOUNDS } from '../habits/goals';
+import { LEAGUE_TIER_ID_RE } from '../league/league';
 import type { RowFieldMeta, SettingMeta } from './meta';
 import { defaultsWithEnv, getPath, isPlainObject, mergeSettings, normalizeOrigin, overrideLeaves } from './merge';
 import type { Settings, SettingsIssue } from './types';
@@ -347,6 +348,27 @@ const REFINEMENTS: Partial<Record<string, Refiner>> = {
     multipleOfTen(testOut?.passMark, 'passMark', add);
     const ids: unknown = testOut?.disabledStages;
     if (Array.isArray(ids) && new Set(ids).size !== ids.length) add('disabledStages', 'A stage is listed twice.');
+  },
+  league: (league, add) => {
+    const tiers = league?.tiers;
+    const list: unknown = tiers?.list;
+    if (Array.isArray(list)) {
+      const seen = new Set<string>();
+      list.forEach((tier: any, i: number) => {
+        const id = tier?.id;
+        if (typeof id === 'string') {
+          if (!LEAGUE_TIER_ID_RE.test(id)) add(`tiers.list.${i}.id`, 'Use lower-case letters, digits and dashes (at most 32).');
+          else if (seen.has(id)) add(`tiers.list.${i}.id`, `"${id}" is used by two tiers.`);
+          seen.add(id);
+        }
+        const bad = typeof tier?.name === 'string' ? tokensIn(tier.name) : [];
+        if (bad.length) add(`tiers.list.${i}.name`, `Plain text only (not ${bad.map((t) => `{${t}}`).join(', ')}).`);
+      });
+    }
+    const { groupSize, promoteCount, demoteCount } = tiers ?? {};
+    if ([groupSize, promoteCount, demoteCount].every((n) => typeof n === 'number') && promoteCount + demoteCount >= groupSize) {
+      add('tiers.promoteCount', `Moving up and down together must be less than the group size (${groupSize}).`);
+    }
   },
   badges: (badges, add) => {
     const families: unknown = badges?.families;

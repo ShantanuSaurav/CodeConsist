@@ -10,7 +10,7 @@
  * writes to server/data/db.json, and a test must never touch the real file.
  */
 import { describe, expect, it } from 'vitest';
-import { forgetBillingIdentity } from '../db.js';
+import { forgetBillingIdentity, forgetLeagueIdentity } from '../db.js';
 
 const state = () => ({
   certificates: {
@@ -49,5 +49,66 @@ describe('forgetBillingIdentity', () => {
     expect(forgetBillingIdentity(db, 'u-nobody')).toEqual([]);
     expect(Object.keys(db.certificates)).toHaveLength(2);
     expect(forgetBillingIdentity({}, 'u1')).toEqual([]);
+  });
+});
+
+/**
+ * The weekly league: a deleted learner's tier goes, and so does every trace
+ * of them in a week's joins, baselines, exclusions and groups. A closed
+ * week's results keep the row (the others were ranked with it) but not the
+ * name or id.
+ */
+const leagueState = () => ({
+  leagues: {
+    members: { u1: { tierId: 'silver', since: '2026-09-14T00:00:00.000Z' }, u2: { tierId: 'bronze', since: '2026-09-14T00:00:00.000Z' } },
+    weeks: {
+      '2026-09-14': {
+        id: '2026-09-14',
+        status: 'closed',
+        joinedAt: { u1: '2026-09-14T09:00:00.000Z', u2: '2026-09-15T09:00:00.000Z' },
+        baseline: {},
+        excluded: { u1: { by: 'admin-1', at: '2026-09-16T00:00:00.000Z', reason: 'test account' } },
+        groups: { 'silver-1': { tierId: 'silver', memberIds: ['u1', 'u2'] } },
+        results: [
+          { userId: 'u2', username: 'grace', xp: 120, rank: 1, outcome: 'promoted' },
+          { userId: 'u1', username: 'ada', xp: 80, rank: 2, outcome: 'stayed' }
+        ]
+      },
+      '2026-09-21': { id: '2026-09-21', status: 'open', joinedAt: { u1: '2026-09-21T09:00:00.000Z' }, baseline: { u1: 30 }, excluded: {}, groups: {}, results: [] },
+      '2026-09-28': { id: '2026-09-28', status: 'open', joinedAt: { u2: '2026-09-28T09:00:00.000Z' }, baseline: {}, excluded: {}, groups: {}, results: [] }
+    }
+  }
+});
+
+describe('forgetLeagueIdentity', () => {
+  it('takes the tier and every join, baseline, exclusion and group place with it', () => {
+    const db = leagueState();
+    expect(forgetLeagueIdentity(db, 'u1')).toBe(2);
+    expect(db.leagues.members).toEqual({ u2: { tierId: 'bronze', since: '2026-09-14T00:00:00.000Z' } });
+    const closed = db.leagues.weeks['2026-09-14'];
+    expect(closed.joinedAt).toEqual({ u2: '2026-09-15T09:00:00.000Z' });
+    expect(closed.excluded).toEqual({});
+    expect(closed.groups['silver-1'].memberIds).toEqual(['u2']);
+    expect(db.leagues.weeks['2026-09-21']).toMatchObject({ joinedAt: {}, baseline: {} });
+    // A week they were never in is untouched.
+    expect(db.leagues.weeks['2026-09-28'].joinedAt).toEqual({ u2: '2026-09-28T09:00:00.000Z' });
+  });
+
+  it('keeps their row in a closed week’s results, without the name', () => {
+    const db = leagueState();
+    forgetLeagueIdentity(db, 'u1');
+    expect(db.leagues.weeks['2026-09-14'].results).toEqual([
+      { userId: 'u2', username: 'grace', xp: 120, rank: 1, outcome: 'promoted' },
+      { userId: null, username: null, xp: 80, rank: 2, outcome: 'stayed' }
+    ]);
+  });
+
+  it('is a no-op for a learner who never played, and for a store with no league', () => {
+    const db = leagueState();
+    const before = JSON.stringify(db);
+    expect(forgetLeagueIdentity(db, 'u-nobody')).toBe(0);
+    expect(JSON.stringify(db)).toBe(before);
+    expect(forgetLeagueIdentity({}, 'u1')).toBe(0);
+    expect(forgetLeagueIdentity({ leagues: { members: {}, weeks: { w: null } } }, 'u1')).toBe(0);
   });
 });

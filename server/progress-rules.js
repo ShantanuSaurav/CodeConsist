@@ -68,6 +68,24 @@ export function scoreCapFor(input, feedback, lib) {
   return lib.revealCap(input.learningMode, feedback);
 }
 
+/**
+ * Every challenge this account has ever been paid for: the stored
+ * `everSolved` (which a progress reset keeps) and whatever is solved now.
+ * A row from before Phase 6 has no `everSolved` and reads as its solves.
+ */
+export function everSolvedOf(progress) {
+  const out = [];
+  const seen = new Set();
+  for (const list of [progress?.everSolved, progress?.completedChallenges]) {
+    for (const id of Array.isArray(list) ? list : []) {
+      if (typeof id !== 'string' || !id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
 /** A copy of a keyed map with one entry set - safely for any key (see server/db.js defineEntry). */
 export function withEntry(map, key, value) {
   const out = {};
@@ -93,6 +111,10 @@ export function withEntry(map, key, value) {
  * The streak is not touched here: the habits engine counts the day
  * (server/habits.js recordSolveHabits, pipeline step 11), after the day row
  * it reads has been written.
+ *
+ * `firstEver` (Phase 6): the first time this account was EVER paid for the
+ * challenge - a first solve after a progress reset is not one. The league
+ * counts only those; the id joins `everSolved`, which a reset keeps.
  */
 export function applySolveCore({ progress, challenge, attempts, hintsUsed, now, lib, xp, levels, completedStagesFor, cap = 100, testOut = null }) {
   const challengeId = challenge.id;
@@ -100,6 +122,8 @@ export function applySolveCore({ progress, challenge, attempts, hintsUsed, now, 
   // `cap` limits the score (and so the XP) of a solve made after the answer was shown.
   const score = lib.scoreSolve(attempts, hintsUsed, xp, cap);
   const firstSolve = !progress.completedChallenges.includes(challengeId);
+  const everSolved = everSolvedOf(progress);
+  const firstEver = firstSolve && !everSolved.includes(challengeId);
   let awarded = 0;
   if (firstSolve) {
     awarded = testOut
@@ -112,6 +136,7 @@ export function applySolveCore({ progress, challenge, attempts, hintsUsed, now, 
     ...progress,
     xp: progress.xp + awarded,
     completedChallenges: firstSolve ? [...progress.completedChallenges, challengeId] : progress.completedChallenges,
+    everSolved: firstEver ? [...everSolved, challengeId] : everSolved,
     attempts: withEntry(progress.attempts, challengeId, {
       challengeId,
       score: Math.max(previous?.score ?? 0, score),
@@ -134,7 +159,7 @@ export function applySolveCore({ progress, challenge, attempts, hintsUsed, now, 
   }
   next.level = lib.levelFromXp(next.xp, levels);
   next.completedStages = completedStagesFor(next.completedChallenges, next.testedOut);
-  return { next, awarded, score, firstSolve };
+  return { next, awarded, score, firstSolve, firstEver };
 }
 
 /**
@@ -229,6 +254,11 @@ export function mergeCore({
   const attempts = { ...(current.attempts ?? {}) };
   const credits = [];
   let awarded = 0;
+  // The weekly league (Phase 6): merged XP counts only when the admin allows
+  // it, and only for challenges this account was never paid for before.
+  const everSolved = everSolvedOf(current);
+  const paidBefore = new Set(everSolved);
+  const countsForLeague = settings.league?.countMergedXp === true;
 
   for (const id of newIds) {
     const challenge = getChallengeMerged(id);
@@ -253,7 +283,14 @@ export function mergeCore({
       ...(cap < 100 ? { scoreCap: cap } : {})
     };
     const day = lib.dayKeyIn(zone, new Date(solvedAt));
-    credits.push({ challengeId: id, day: day > today ? today : day, at: solvedAt, isTest: Boolean(challenge.isStageTest), awardedXp: paid });
+    credits.push({
+      challengeId: id,
+      day: day > today ? today : day,
+      at: solvedAt,
+      isTest: Boolean(challenge.isStageTest),
+      awardedXp: paid,
+      leagueXp: countsForLeague && !paidBefore.has(id) ? paid : 0
+    });
   }
 
   const completedChallenges = [...known, ...newIds];
@@ -264,6 +301,7 @@ export function mergeCore({
     ...current,
     xp: current.xp + awarded,
     completedChallenges,
+    everSolved: [...everSolved, ...newIds.filter((id) => !paidBefore.has(id))],
     completedStages: completedStagesFor(completedChallenges, current.testedOut),
     attempts
   };
@@ -299,8 +337,10 @@ export function mergeCore({
  * shared EMPTY_PROGRESS constant's arrays or maps would let one learner's
  * later writes leak into it. Tested-out stages go with the rest of the
  * progress; the assessment log (and its cooldowns) is not progress and stays.
+ * So does `everSolved` (Phase 6) - the row before the reset is `before` -
+ * so XP earned again afterwards never counts for the weekly league.
  */
-export function resetProgress(emptyProgress) {
+export function resetProgress(emptyProgress, before = null) {
   return {
     ...emptyProgress,
     attempts: {},
@@ -309,7 +349,8 @@ export function resetProgress(emptyProgress) {
     unitsCompleted: {},
     review: {},
     testedOut: {},
-    seenConcepts: []
+    seenConcepts: [],
+    everSolved: everSolvedOf(before)
   };
 }
 

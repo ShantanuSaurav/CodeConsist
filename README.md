@@ -53,7 +53,7 @@ npm start          # app + API together on http://localhost:4000
 | `/dashboard/roadmap` | Developer roadmaps (roadmap.sh-style) plus your track as one connected path |
 | `/dashboard/roadmap/:slug` | One roadmap: topic graph, per-topic notes and links, done/learning/skip tracking |
 | `/dashboard/learn/:stage/read` | The stage's article - the reading that goes with its lessons |
-| `/dashboard/leaderboard` | Accounts ranked by server-verified XP |
+| `/dashboard/leaderboard` | This week's league and the all-time board, ranked by server-verified XP |
 | `/dashboard/achievements` | Figures, coverage by language, badges |
 | `/dashboard/settings` | Account, Pro unlock, theme, learning mode, track, reset |
 | `/admin` | Administrator console - its own sign-in, users, tracks, stages, challenges, analytics, audit log |
