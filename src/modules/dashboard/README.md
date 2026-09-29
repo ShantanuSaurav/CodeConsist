@@ -1,6 +1,6 @@
 # modules/dashboard
 
-**Owns:** the home screen: streak / XP / level cards, continue-learning, the 14-week activity heatmap, daily goals and recent achievements - all derived from the session.
+**Owns:** the home screen: streak / XP / level cards, continue-learning, the 14-week activity heatmap, daily goals and recent achievements - all derived from the session - and the "Finish setting up" card while a new learner has not finished or dismissed the first-run setup (Phase 5; never for a learner with progress).
 
 **Public API (`index.ts`):** `DashboardHome`.
 

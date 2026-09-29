@@ -1327,7 +1327,99 @@ kbd {
 .habit-banner-actions .btn { min-height: 44px; }
 .habit-banner-actions .btn-icon { min-width: 44px; }
 
+/* The first-run setup is mostly used on phones: every step button is a full tap target. */
+.onboarding-actions .btn { min-height: 44px; }
+
 @media (prefers-reduced-motion: reduce) {
   .goal-met-card { animation: none; }
   .choice-card { transition: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Learning mode cards (primitives/LearningModeCards.tsx): the lesson chooser,
+   the first-run setup's mode step and the admin's preview.
+   --------------------------------------------------------------------------- */
+.mode-cards { display: grid; gap: var(--space-3); }
+@media (min-width: 640px) { .mode-cards { grid-template-columns: 1fr 1fr; } }
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  text-align: left;
+  width: 100%;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.mode-option:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.mode-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mode-option.is-recommended { border-color: var(--accent); }
+.mode-option-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+}
+.mode-option-body { display: flex; flex-direction: column; gap: var(--space-1); flex: 1; min-width: 0; }
+.mode-option-title { font-weight: 600; font-size: var(--text-base); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.mode-option-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 0 0.5em;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-xs);
+}
+.mode-option-flow { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
+.mode-option-blurb { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
+.mode-option-arrow { flex: none; color: var(--text-muted); margin-top: 6px; }
+.mode-option:hover .mode-option-arrow { color: var(--text); }
+.mode-option.is-checked { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---------------------------------------------------------------------------
+   Track choices (primitives/TrackChoiceList.tsx): the Learn page's track row
+   and the first-run setup's track step.
+   --------------------------------------------------------------------------- */
+.track-choices { display: grid; grid-template-columns: 1fr; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.track-choices > * + * { border-top: 1px solid var(--border); }
+@media (min-width: 640px) {
+  .track-choices.is-row { grid-template-columns: repeat(var(--track-columns, 3), minmax(0, 1fr)); }
+  .track-choices.is-row > * + * { border-top: none; border-left: 1px solid var(--border); }
+}
+.track-choice {
+  position: relative;
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  min-height: 44px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+.track-choice:hover { background: var(--surface); }
+.track-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.track-choice.is-checked { background: var(--surface); }
+.track-choice.is-checked::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 2px; background: var(--accent); }
+.track-choice-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.track-choice-label { font-size: var(--text-sm); font-weight: 500; color: var(--text-secondary); }
+.track-choice.is-checked .track-choice-label { color: var(--text); }
+.track-choice-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.track-choice-desc { margin-top: 2px; font-size: var(--text-xs); color: var(--text-muted); }
+.track-choice-bar { margin-top: var(--space-3); }

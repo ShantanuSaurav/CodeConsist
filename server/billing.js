@@ -347,11 +347,25 @@ export function premiumGate(user, challenge, ctx = {}) {
 /* --------------------------------------------------------- certificates */
 
 /**
+ * Does a stage tested out of (with a record that clears) count toward a
+ * certificate? `testOut.countsTowardCertificate`, off by default - read
+ * through this hook, which server/index.js sets from the settings at boot
+ * (the same pattern as content.js's setUnitFirstLessonResolver).
+ */
+let testOutCountsForCertificate = () => false;
+export function setCertificateTestOutRule(fn) {
+  testOutCountsForCertificate = typeof fn === 'function' ? fn : () => false;
+}
+
+/**
  * May this learner get a certificate for this track? Only when every
  * visible stage in it is cleared: all of its lessons and its stage test
  * (the test is a challenge in the same list, so "every challenge solved"
  * covers both). A stage with no challenges yet cannot be cleared - the same
- * rule the progress model uses for `completedStages`.
+ * rule the progress model uses for `completedStages`. With
+ * `testOut.countsTowardCertificate` on, a stage tested out of (its test
+ * passed, its record clearing it) counts too; off, a certificate still
+ * needs every lesson.
  */
 export function certificateEligibility(userId, trackId, { snapshot, overrides, progress = store.getProgress(userId) } = {}) {
   const issued = store.certificatesForUser(userId).find((c) => c.trackId === trackId && !c.revokedAt);
@@ -359,11 +373,17 @@ export function certificateEligibility(userId, trackId, { snapshot, overrides, p
   const track = view.snapshotTracks.find((t) => t.id === trackId);
   const stages = view.stages.filter((s) => track?.stageIds.includes(s.id));
   const solved = new Set(progress?.completedChallenges ?? []);
+  const testedOut = progress?.testedOut && typeof progress.testedOut === 'object' ? progress.testedOut : {};
+  const testOutCounts = testOutCountsForCertificate();
 
   let stagesCleared = 0;
   for (const stage of stages) {
     const inStage = view.challenges.filter((c) => c.stageId === stage.id);
     if (inStage.length > 0 && inStage.every((c) => solved.has(c.id))) stagesCleared += 1;
+    else if (testOutCounts && Object.hasOwn(testedOut, stage.id) && testedOut[stage.id]?.clears) {
+      const test = inStage.find((c) => c.isStageTest);
+      if (test && solved.has(test.id)) stagesCleared += 1;
+    }
   }
   const counts = { stagesTotal: stages.length, stagesCleared };
 

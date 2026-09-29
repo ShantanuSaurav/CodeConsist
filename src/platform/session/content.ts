@@ -12,11 +12,17 @@
  * time (`cq-unit-defs-v1`), else the default one. The concatenated units are
  * the stage's lesson order.
  */
-import type { Challenge, LanguageTrack, Stage, Unit, UnitDef } from '@/types';
+import type { Challenge, LanguageTrack, Stage, UnitDef } from '@/types';
 import { api } from '../api-client/api';
-import { DEFAULT_UNIT_SETTINGS, resolveUnits, toUnitDefs } from '../progress/units';
+import { DEFAULT_UNIT_SETTINGS, toUnitDefs } from '../progress/units';
+import { groupIntoStages, withResolvedUnits } from '../progress/stages';
 import type { UnitSettings } from '../settings/types';
 import { STORAGE_KEYS, readJson, writeJson } from '../storage/storage';
+
+// Grouping a flat bank under its stages moved to src/platform/progress/stages.ts
+// (Phase 5), so the server builds the very same stages; it is still exported
+// from here for the app.
+export { groupIntoStages };
 
 export interface ContentBundle {
   stages: Stage[];
@@ -43,45 +49,6 @@ export interface ContentBundle {
 
 /** The unit groupings cached from the server, per stage: ids and names only. */
 export type UnitDefCache = Record<string, UnitDef[]>;
-
-/** A stage's units resolved against its lessons, and the lessons in unit order. */
-function withResolvedUnits(stage: Stage, defs: readonly UnitDef[] | null | undefined, cfg: UnitSettings): Stage {
-  const units = resolveUnits(stage.id, stage.challenges, defs, cfg) as Unit[];
-  return { ...stage, units, challenges: units.flatMap((u) => u.challenges) };
-}
-
-/**
- * Group a flat challenge list under its stages, splitting each stage's test
- * (isStageTest) out of the lessons. Stage order follows `stageMeta`. When the
- * meta carries the server's `units` (GET /api/content), each stage gets them,
- * resolved against its lessons - which then follow the unit order.
- */
-export function groupIntoStages(
-  stageMeta: Array<Omit<Stage, 'challenges' | 'state' | 'test' | 'units'> & { units?: UnitDef[] }>,
-  challenges: Challenge[],
-  cfg: UnitSettings = DEFAULT_UNIT_SETTINGS
-): Stage[] {
-  const byStage = new Map<string, Challenge[]>();
-  const testByStage = new Map<string, Challenge>();
-  for (const challenge of challenges) {
-    if (challenge.isStageTest) {
-      testByStage.set(challenge.stageId, challenge);
-      continue;
-    }
-    const list = byStage.get(challenge.stageId);
-    if (list) list.push(challenge);
-    else byStage.set(challenge.stageId, [challenge]);
-  }
-  return stageMeta.map(({ units, ...meta }) => {
-    const stage: Stage = {
-      ...meta,
-      state: 'Locked' as const,
-      challenges: byStage.get(meta.id) ?? [],
-      test: testByStage.get(meta.id)
-    };
-    return Array.isArray(units) ? withResolvedUnits(stage, units, cfg) : stage;
-  });
-}
 
 /**
  * Every stage with its units, under the CURRENT unit settings: the units a

@@ -13,7 +13,7 @@ import {
   patchFromEdits,
   publicSettings
 } from '../merge';
-import { patchIssues, resolveSettings, validateSettings } from '../schema';
+import { patchIssues, resolveSettings, settingsContentIssues, validateSettings } from '../schema';
 import { fillCopy, tokensIn } from '../copy';
 import { getCopy, getSettingsSnapshot, setSettingsSnapshot, subscribe } from '../store';
 import { DEFAULT_LEVEL_CURVE, DEFAULT_XP_RULES } from '../../xp-leveling/leveling';
@@ -143,6 +143,96 @@ describe('Phase 2 rules', () => {
   it('merges one sound event without losing the others', () => {
     const merged = mergeSettings(DEFAULT_SETTINGS, { celebrations: { sound: { events: { wrong: false } } } });
     expect(merged.celebrations.sound.events).toEqual({ correct: true, wrong: false, unitComplete: true, levelUp: true, badge: true });
+  });
+});
+
+describe('Phase 5 rules: onboarding, placement, test-out, the stage-order gates', () => {
+  const check = (patch: object) => validateSettings(mergeSettings(DEFAULT_SETTINGS, patch)).issues.map((i) => i.path);
+  const steps = () => DEFAULT_SETTINGS.onboarding.steps.map((s) => ({ ...s }));
+
+  it('ships the gates logging only, and claims checked by the server', () => {
+    expect(DEFAULT_SETTINGS.access).toMatchObject({ solveGate: 'log', mergeGate: 'log', requireServerVerification: true, acceptGuestClaims: true });
+    expect(check({ access: { solveGate: 'sometimes' } })).toEqual(['access.solveGate']);
+    expect(check({ access: { mergeGate: 'off', solveGate: 'enforce' } })).toEqual([]);
+    // Admin only: never sent to learners. The learner-facing sections are.
+    expect((publicSettings(DEFAULT_SETTINGS) as any).access).toBeUndefined();
+    expect((publicSettings(DEFAULT_SETTINGS) as any).testOut).toEqual(DEFAULT_SETTINGS.testOut);
+  });
+
+  it('keeps the track step before the experience step, when both are on', () => {
+    const swapped = steps();
+    [swapped[1], swapped[2]] = [swapped[2], swapped[1]];
+    expect(check({ onboarding: { steps: swapped } })).toEqual(['onboarding.steps.2.id']);
+    // With one of them off, the order does not matter.
+    swapped[1] = { ...swapped[1], enabled: false };
+    expect(check({ onboarding: { steps: swapped } })).toEqual([]);
+  });
+
+  it('wants each step at most once, from the fixed set, in plain text', () => {
+    const twice = steps();
+    twice[4] = { ...twice[4], id: 'goal' };
+    expect(check({ onboarding: { steps: twice } })).toEqual(['onboarding.steps.4.id']);
+    const unknown = steps();
+    (unknown[0] as { id: string }).id = 'survey';
+    expect(check({ onboarding: { steps: unknown } })).toEqual(['onboarding.steps.0.id']);
+    const tokens = steps();
+    tokens[0] = { ...tokens[0], title: 'Hi {name}' };
+    expect(check({ onboarding: { steps: tokens } })).toEqual(['onboarding.steps.0.title']);
+  });
+
+  it('wants 2-8 motivation answers with distinct slug ids and a known icon', () => {
+    const options = DEFAULT_SETTINGS.onboarding.motivation.options.map((o) => ({ ...o }));
+    expect(check({ onboarding: { motivation: { options: options.slice(0, 1) } } })).toEqual(['onboarding.motivation.options']);
+    const bad = options.map((o) => ({ ...o }));
+    bad[1] = { ...bad[1], id: 'job' };
+    bad[2] = { ...bad[2], id: 'Big Tech' };
+    expect(check({ onboarding: { motivation: { options: bad } } }).sort()).toEqual(['onboarding.motivation.options.1.id', 'onboarding.motivation.options.2.id']);
+    const icon = options.map((o) => ({ ...o }));
+    icon[3] = { ...icon[3], icon: 'unicorn' };
+    expect(check({ onboarding: { motivation: { options: icon } } })).toEqual(['onboarding.motivation.options.3.icon']);
+  });
+
+  it('holds pass marks to 50-100 in steps of 10', () => {
+    expect(check({ testOut: { passMark: 85 } })).toEqual(['testOut.passMark']);
+    expect(check({ placement: { passMark: 40 } })).toEqual(['placement.passMark']);
+    expect(check({ testOut: { passMark: 100 }, placement: { passMark: 50 } })).toEqual([]);
+  });
+
+  it('bounds the numbers and checks the stage lists', () => {
+    expect(check({ placement: { maxStages: 0 } })).toEqual(['placement.maxStages']);
+    expect(check({ testOut: { maxAttempts: 11, sessionMinutes: 4 } }).sort()).toEqual(['testOut.maxAttempts', 'testOut.sessionMinutes']);
+    expect(check({ placement: { stagesByTrack: { core: ['stage-1', 'stage-1'] } } })).toEqual(['placement.stagesByTrack.core']);
+    expect(check({ placement: { stagesByTrack: { core: 'stage-1' } } })).toEqual(['placement.stagesByTrack.core']);
+    expect(check({ testOut: { disabledStages: ['stage-3', 'stage-3'] } })).toEqual(['testOut.disabledStages']);
+  });
+
+  it('keeps assessment copy to its tokens', () => {
+    expect(check({ testOut: { copy: { cooldownLabel: 'Back {when}, {stage}' } } })).toEqual(['testOut.copy.cooldownLabel']);
+    expect(check({ placement: { copy: { failBody: 'Start at {stage}, again {when}.' } } })).toEqual([]);
+    expect(check({ copy: { landing: { pathLineWithSkip: '{stages} stages; skip ahead with {tests} tests' } } })).toEqual(['copy.landing.pathLineWithSkip']);
+  });
+
+  it('checks what needs the content only against the content, on save', () => {
+    const facts = { tracks: [{ id: 'core', stageIds: ['stage-1', 'stage-2'] }], stageIds: ['stage-1', 'stage-2', 'stage-c1'] };
+    const settings = mergeSettings(DEFAULT_SETTINGS, {
+      onboarding: { track: { blurbs: { core: 'The path', rust: 'Soon' } } },
+      placement: { stagesByTrack: { core: ['stage-2', 'stage-c1'], c: ['stage-c1'] } },
+      testOut: { disabledStages: ['stage-c1', 'stage-9'] }
+    });
+    expect(settingsContentIssues(settings, facts).map((i) => i.path)).toEqual([
+      'onboarding.track.blurbs.rust',
+      'placement.stagesByTrack.core',
+      'placement.stagesByTrack.c',
+      'testOut.disabledStages.1'
+    ]);
+    expect(settingsContentIssues(DEFAULT_SETTINGS, facts)).toEqual([]);
+  });
+
+  it('lets a patch set one track of a map without an unknown-path error', () => {
+    const patch = { placement: { stagesByTrack: { core: ['stage-1'] } }, onboarding: { track: { blurbs: { core: 'The path' } } } };
+    const next = applySettingsPatch({}, patch);
+    expect(next.unknownPaths).toEqual([]);
+    expect(patchIssues(patch, next.overrides, mergeSettings(DEFAULT_SETTINGS, next.overrides))).toEqual([]);
   });
 });
 

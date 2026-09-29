@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import type { Challenge, LearningMode, ReviewItem, Stage, Unit } from '@/types';
-import { useSession } from '@/platform/session';
+import type { AssessmentView, Challenge, LearningMode, ReviewItem, Stage, Unit } from '@/types';
+import { assessmentBlockText, describeRetry, useSession } from '@/platform/session';
+import type { AssessmentRequest } from '@/platform/session';
 import { isPremiumLocked, stageStatus, unitStates } from '@/platform/progress';
 import { eventBus, intents, useAppEvent } from '@/platform/events';
 import { useToast } from '@/ui';
@@ -8,7 +9,38 @@ import { describeNextReview } from '@/platform/review';
 import { dropSolved, initialSlots, noteSlotLeft, reachableSlotIndex, requeue, slotKey, solvedThisRun } from './queue';
 import type { ItemHistory, Slot } from './queue';
 
-export type PracticeMode = 'lessons' | 'test' | 'review';
+export type PracticeMode = 'lessons' | 'test' | 'review' | 'assessment';
+
+/**
+ * Where a test-out or placement is (Phase 5):
+ *   intro     its rules, before it starts ("Start the test")
+ *   conflict  another one is already running: resume it or end it
+ *   running   a stage test on screen
+ *   between   a placement test was passed and another follows
+ *   result    it is over (passed, not passed, ended early, ran out of time)
+ */
+export type AssessmentScreen = 'intro' | 'conflict' | 'running' | 'between' | 'result';
+
+/** The test-out or placement open in the modal. */
+export interface AssessmentRun {
+  request: AssessmentRequest;
+  /** The record: running, or as it ended. Null before it starts. */
+  view: AssessmentView | null;
+  screen: AssessmentScreen;
+  /** Another one already running (offered for resuming). */
+  running: AssessmentView | null;
+  /** The stage test that just ended (between tests, and on the result screen). */
+  lastStageId: string | null;
+  lastPassed: boolean | null;
+  /** XP the passes in this run paid. */
+  xp: number;
+  /** Why it could not start (shown on the intro). */
+  error: string | null;
+  /** A request is on its way. */
+  busy: boolean;
+  /** The learner asked to leave a running test: "Leaving ends this attempt". */
+  confirmingLeave: boolean;
+}
 
 /** The Practice session (review) open in the modal. */
 export interface ActiveReview {
@@ -29,6 +61,26 @@ export interface PracticeSessionType {
   activeMode: PracticeMode;
   /** The open Practice session, in 'review' mode. */
   activeReview: ActiveReview | null;
+  /** The open test-out or placement, in 'assessment' mode. */
+  assessmentRun: AssessmentRun | null;
+  /** Offer a test-out of a stage, or a placement on a track: its rules first (the `assessment:open` intent). */
+  openAssessment: (request: AssessmentRequest) => void;
+  /** "Start the test" on the intro. */
+  beginAssessment: () => Promise<void>;
+  /** Carry on with the test that was already running. */
+  resumeAssessment: () => void;
+  /** End the test that was already running (not passed), then back to the intro. */
+  endRunningAssessment: () => Promise<void>;
+  /** A submit or a fail came back: the next test, or the result. */
+  noteAssessmentResult: (view: AssessmentView | null, outcome: { stageId: string; passed: boolean; xp: number }) => void;
+  /** "Next test", between two placement tests. */
+  continueAssessment: () => void;
+  /** "Stop here": end a placement early. */
+  finishPlacement: () => Promise<void>;
+  /** Leave a running test after confirming: it counts as not passed. `runs` is the runs used on the current test. */
+  leaveAssessment: (runs: number) => Promise<void>;
+  /** "Keep going": the leave was not confirmed. */
+  cancelLeave: () => void;
   /** The modal is showing something (a stage, or a Practice session). */
   isOpen: boolean;
   /** The unit being walked in lesson mode (null for the test, or a stage without units). */
@@ -174,6 +226,11 @@ export function stageIsStubbed(stage: Pick<Stage, 'challenges' | 'test'>): boole
   return stage.challenges.some((c) => c.locked) || Boolean(stage.test?.locked);
 }
 
+/** What a running record was started as (to resume it under its own name). */
+function requestOf(view: AssessmentView): AssessmentRequest {
+  return view.kind === 'test-out' ? { kind: 'test-out', stageId: view.stageIds[0] ?? '' } : { kind: 'placement', trackId: view.trackId ?? '' };
+}
+
 const PracticeSessionContext = createContext<PracticeSessionType | undefined>(undefined);
 
 /**
@@ -185,7 +242,24 @@ const PracticeSessionContext = createContext<PracticeSessionType | undefined>(un
  * from here.
  */
 export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { stages, learnerStages, stats, contentReady, learningMode, setLearningMode, reloadContent, settings, startReview, challengeById, todayKey } = useSession();
+  const {
+    stages,
+    learnerStages,
+    stats,
+    contentReady,
+    learningMode,
+    setLearningMode,
+    reloadContent,
+    settings,
+    startReview,
+    challengeById,
+    todayKey,
+    assessmentsAvailable,
+    activeAssessment,
+    startAssessment,
+    failAssessment,
+    finishAssessment
+  } = useSession();
   const { notify } = useToast();
 
   const [activeStageId, setActiveStageId] = useState<string | null>(null);
@@ -204,6 +278,11 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
   // all solved long ago, so "solved in this run" is tracked here instead).
   const [activeReview, setActiveReview] = useState<ActiveReview | null>(null);
   const [reviewResolved, setReviewResolved] = useState<ReadonlySet<string>>(() => new Set());
+  // The test-out or placement (Phase 5), in memory: the record lives on the
+  // server (or in a guest's log), so a reload finds it again as `activeAssessment`.
+  const [assessmentRun, setAssessmentRun] = useState<AssessmentRun | null>(null);
+  const assessmentRef = useRef(assessmentRun);
+  assessmentRef.current = assessmentRun;
   const completedRef = useRef(stats.completedChallenges);
   completedRef.current = stats.completedChallenges;
 
@@ -220,9 +299,10 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
     [activeStageId, stages]
   );
   const isReview = activeMode === 'review' && activeReview !== null;
+  const isAssessment = activeMode === 'assessment' && assessmentRun !== null;
 
   const activeUnit = useMemo<Unit | null>(() => {
-    if (!activeStage || activeMode === 'test' || !activeUnitId) return null;
+    if (!activeStage || activeMode === 'test' || activeMode === 'assessment' || !activeUnitId) return null;
     return activeStage.units?.find((u) => u.id === activeUnitId) ?? null;
   }, [activeStage, activeMode, activeUnitId]);
 
@@ -244,10 +324,12 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
     }
     if (!activeStage) return [];
     if (activeMode === 'test') return activeStage.test ? [activeStage.test] : [];
+    // A test-out or placement: the stage test it is on, only while one is on screen.
+    if (activeMode === 'assessment') return assessmentRun?.screen === 'running' && activeStage.test && !activeStage.test.locked ? [activeStage.test] : [];
     // A unit regrouped away while it was open (an admin's change arrived)
     // falls back to the whole stage rather than an empty lesson.
     return activeUnit?.challenges ?? activeStage.challenges;
-  }, [activeStage, activeMode, activeUnit, isReview, activeReview, challengeById]);
+  }, [activeStage, activeMode, activeUnit, isReview, activeReview, challengeById, assessmentRun?.screen]);
 
   /**
    * One slot per question, then the questions that came back after a miss.
@@ -314,6 +396,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
 
       setActiveMode('lessons');
       setActiveReview(null);
+      setAssessmentRun(null);
       setActiveStageId(target.id);
       setActiveUnitId(landing.unitId);
       setActiveChallengeIndex(landing.index);
@@ -349,6 +432,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       const unit = units[at];
       setActiveMode('lessons');
       setActiveReview(null);
+      setAssessmentRun(null);
       setActiveStageId(target.id);
       setActiveUnitId(unit.id);
       // A finished unit is a replay from its start; otherwise its first unsolved lesson.
@@ -381,6 +465,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       }
       setActiveMode('test');
       setActiveReview(null);
+      setAssessmentRun(null);
       setActiveStageId(target.id);
       setActiveUnitId(null);
       setActiveChallengeIndex(0);
@@ -419,6 +504,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
           return;
         }
         setActiveReview({ sessionId: started.sessionId, items, local: started.local, stageId: scope.stageId ?? null, remainingToday: started.remainingToday });
+        setAssessmentRun(null);
         setActiveMode('review');
         setActiveStageId(scope.stageId ?? null);
         setActiveUnitId(null);
@@ -435,14 +521,196 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
     setReviewResolved((prev) => (prev.has(challengeId) ? prev : new Set([...prev, challengeId])));
   }, []);
 
-  const closePractice = useCallback(() => {
+  /** Close whatever is open, at once. */
+  const closeAll = useCallback(() => {
     setActiveStageId(null);
     setActiveReview(null);
+    setAssessmentRun(null);
     setActiveMode('lessons');
     setActiveUnitId(null);
     setActiveChallengeIndex(0);
     resetRun();
   }, [resetRun]);
+
+  /**
+   * Close the modal. A test-out or placement test on screen is not closed
+   * straight away: leaving ends the attempt, so the learner is asked first
+   * (`confirmingLeave`; `leaveAssessment` / `cancelLeave` answer).
+   */
+  const closePractice = useCallback(() => {
+    const run = assessmentRef.current;
+    if (run && run.screen === 'running' && run.view && run.view.status === 'active') {
+      setAssessmentRun({ ...run, confirmingLeave: true });
+      return;
+    }
+    closeAll();
+  }, [closeAll]);
+
+  /* ------------------------------------------------ test-out and placement */
+
+  /** Show a test on screen: its stage, a fresh run. */
+  const showAssessment = useCallback(
+    (view: AssessmentView, patch: Partial<AssessmentRun>) => {
+      setAssessmentRun((prev) =>
+        prev ? { ...prev, ...patch, view, screen: 'running', running: null, error: null, busy: false, confirmingLeave: false } : prev
+      );
+      setActiveStageId(view.current);
+      setActiveChallengeIndex(0);
+      resetRun();
+    },
+    [resetRun]
+  );
+
+  const openAssessment = useCallback(
+    (request: AssessmentRequest) => {
+      if (!contentReady) {
+        notify('Still loading the lessons - one moment.', 'info');
+        return;
+      }
+      if (!assessmentsAvailable) {
+        notify(assessmentBlockText('offline'), 'info');
+        return;
+      }
+      let stageId: string | null = null;
+      if (request.kind === 'test-out') {
+        const target = stages.find((s) => s.id === request.stageId);
+        if (!target || !target.test) {
+          notify(assessmentBlockText('no-test'), 'error');
+          return;
+        }
+        if (refusePremium(target)) return;
+        stageId = target.id;
+      }
+      // One test at a time: the one already running is offered first -
+      // straight back into it when it is the very one asked for.
+      const running = activeAssessment && activeAssessment.status === 'active' && activeAssessment.current ? activeAssessment : null;
+      const same =
+        running &&
+        running.kind === request.kind &&
+        (request.kind === 'test-out' ? running.stageIds[0] === request.stageId : running.trackId === request.trackId);
+      setActiveMode('assessment');
+      setActiveReview(null);
+      setActiveUnitId(null);
+      setActiveChallengeIndex(0);
+      resetRun();
+      const base: AssessmentRun = {
+        request,
+        view: null,
+        screen: 'intro',
+        running: null,
+        lastStageId: null,
+        lastPassed: null,
+        xp: 0,
+        error: null,
+        busy: false,
+        confirmingLeave: false
+      };
+      if (running && same) {
+        setAssessmentRun({ ...base, view: running, screen: 'running' });
+        setActiveStageId(running.current);
+        return;
+      }
+      setAssessmentRun(running ? { ...base, screen: 'conflict', running } : base);
+      setActiveStageId(stageId);
+    },
+    [contentReady, assessmentsAvailable, stages, refusePremium, activeAssessment, notify, resetRun]
+  );
+
+  const beginAssessment = useCallback(async () => {
+    const run = assessmentRef.current;
+    if (!run || run.busy) return;
+    setAssessmentRun({ ...run, busy: true, error: null });
+    const res = await startAssessment(run.request);
+    if (assessmentRef.current?.request !== run.request) return; // closed meanwhile
+    if (res.assessment && res.assessment.current) {
+      showAssessment(res.assessment, {});
+      return;
+    }
+    if (res.running) {
+      setAssessmentRun((prev) => (prev ? { ...prev, screen: 'conflict', running: res.running ?? null, busy: false } : prev));
+      return;
+    }
+    const when = describeRetry(res.retryAt ?? null);
+    const reason = res.reason && res.reason !== 'offline' && res.reason !== 'signed-out' ? assessmentBlockText(res.reason, when) : null;
+    setAssessmentRun((prev) => (prev ? { ...prev, busy: false, error: reason ?? res.error ?? 'The test could not start.' } : prev));
+  }, [startAssessment, showAssessment]);
+
+  const resumeAssessment = useCallback(() => {
+    const run = assessmentRef.current;
+    if (!run?.running) return;
+    showAssessment(run.running, { request: requestOf(run.running) });
+  }, [showAssessment]);
+
+  const endRunningAssessment = useCallback(async () => {
+    const run = assessmentRef.current;
+    if (!run?.running || run.busy) return;
+    setAssessmentRun({ ...run, busy: true });
+    await failAssessment(run.running, 'gave-up', 0);
+    setAssessmentRun((prev) => (prev ? { ...prev, screen: 'intro', running: null, busy: false, error: null } : prev));
+    setActiveStageId(run.request.kind === 'test-out' ? run.request.stageId : null);
+  }, [failAssessment]);
+
+  const noteAssessmentResult = useCallback<PracticeSessionType['noteAssessmentResult']>((view, outcome) => {
+    setAssessmentRun((prev) => {
+      if (!prev) return prev;
+      const next = view ?? prev.view;
+      // Only a placement goes on, and only to another stage's test: a record
+      // still on the test just taken was not moved on (nothing was recorded),
+      // so it is never offered again as "the next test".
+      const going = Boolean(next && next.kind === 'placement' && next.status === 'active' && next.current && next.current !== outcome.stageId);
+      return {
+        ...prev,
+        view: next,
+        screen: going ? 'between' : 'result',
+        lastStageId: outcome.stageId,
+        lastPassed: outcome.passed,
+        xp: prev.xp + Math.max(0, outcome.xp),
+        busy: false,
+        confirmingLeave: false
+      };
+    });
+    setActiveStageId(outcome.stageId);
+  }, []);
+
+  const continueAssessment = useCallback(() => {
+    const run = assessmentRef.current;
+    if (!run?.view?.current) return;
+    showAssessment(run.view, { lastPassed: run.lastPassed, lastStageId: run.lastStageId });
+  }, [showAssessment]);
+
+  const finishPlacement = useCallback(async () => {
+    const run = assessmentRef.current;
+    if (!run?.view || run.busy) return;
+    setAssessmentRun({ ...run, busy: true });
+    const ended = await finishAssessment(run.view);
+    setAssessmentRun((prev) => (prev ? { ...prev, view: ended ?? prev.view, screen: 'result', busy: false } : prev));
+  }, [finishAssessment]);
+
+  const leaveAssessment = useCallback(
+    async (runs: number) => {
+      const run = assessmentRef.current;
+      if (!run?.view || run.busy) return;
+      const stageId = run.view.current;
+      setAssessmentRun({ ...run, busy: true, confirmingLeave: false });
+      let ended = await failAssessment(run.view, 'gave-up', runs);
+      if (!ended) {
+        // Nothing was recorded (the server could not be reached): the learner
+        // still leaves, and the test runs out on the server by itself.
+        notify('Could not reach the server to end the test. It ends by itself when its time runs out.', 'error');
+        return closeAll();
+      }
+      // Leaving ends the whole attempt: a placement that would go on to its
+      // next test (it does not stop at the first failure) is ended too.
+      if (ended && ended.status === 'active' && ended.kind === 'placement') ended = (await finishAssessment(ended)) ?? ended;
+      if (!stageId) return closeAll();
+      noteAssessmentResult(ended, { stageId, passed: false, xp: 0 });
+    },
+    [failAssessment, finishAssessment, noteAssessmentResult, closeAll, notify]
+  );
+
+  const cancelLeave = useCallback(() => {
+    setAssessmentRun((prev) => (prev ? { ...prev, confirmingLeave: false } : prev));
+  }, []);
 
   // The bank was fetched again while a stage was open (a sign-out, a revoked
   // purchase) and it is stubs now: there is nothing left to show, so close
@@ -457,7 +725,12 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
   // The stage test is a single item, so the rule only applies to lessons. A
   // Practice session goes over solved questions: any of them, in any order.
   const reachableIndex = useMemo(
-    () => (activeMode === 'test' ? 0 : isReview ? Math.max(0, slots.length - 1) : reachableSlotIndex(slots, stats.completedChallenges, deferred)),
+    () =>
+      activeMode === 'test' || activeMode === 'assessment'
+        ? 0
+        : isReview
+          ? Math.max(0, slots.length - 1)
+          : reachableSlotIndex(slots, stats.completedChallenges, deferred),
     [activeMode, isReview, slots, stats.completedChallenges, deferred]
   );
 
@@ -500,17 +773,37 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
   useAppEvent('practice:openUnit', useCallback((p) => openUnit(p.stageId, p.unitId), [openUnit]));
   useAppEvent('practice:openTest', useCallback((p) => openStageTest(p.stageId), [openStageTest]));
   useAppEvent('review:open', useCallback((p) => void openReview(p ?? {}), [openReview]));
-  useAppEvent('progress:reset', closePractice);
+  useAppEvent(
+    'assessment:open',
+    useCallback(
+      (p) => {
+        if (p.kind === 'test-out' && p.stageId) openAssessment({ kind: 'test-out', stageId: p.stageId });
+        else if (p.kind === 'placement' && p.trackId) openAssessment({ kind: 'placement', trackId: p.trackId });
+      },
+      [openAssessment]
+    )
+  );
+  useAppEvent('progress:reset', closeAll);
 
   // Signing out mid-session closes the modal rather than leaving a stale stage open.
-  useEffect(() => eventBus.on('auth:signedOut', closePractice), [closePractice]);
+  useEffect(() => eventBus.on('auth:signedOut', closeAll), [closeAll]);
 
-  const isOpen = Boolean(activeStage) || isReview;
+  const isOpen = Boolean(activeStage) || isReview || isAssessment;
   const value = useMemo<PracticeSessionType>(
     () => ({
       activeStage,
       activeMode,
       activeReview: isReview ? activeReview : null,
+      assessmentRun: isAssessment ? assessmentRun : null,
+      openAssessment,
+      beginAssessment,
+      resumeAssessment,
+      endRunningAssessment,
+      noteAssessmentResult,
+      continueAssessment,
+      finishPlacement,
+      leaveAssessment,
+      cancelLeave,
       isOpen,
       activeUnit,
       unitPosition,
@@ -541,6 +834,17 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
       activeMode,
       isReview,
       activeReview,
+      isAssessment,
+      assessmentRun,
+      openAssessment,
+      beginAssessment,
+      resumeAssessment,
+      endRunningAssessment,
+      noteAssessmentResult,
+      continueAssessment,
+      finishPlacement,
+      leaveAssessment,
+      cancelLeave,
       isOpen,
       activeUnit,
       unitPosition,
@@ -578,6 +882,16 @@ export function usePracticeSession(): PracticeSessionType {
       activeStage: null,
       activeMode: 'lessons',
       activeReview: null,
+      assessmentRun: null,
+      openAssessment: (request) => intents.openAssessment(request),
+      beginAssessment: async () => {},
+      resumeAssessment: () => {},
+      endRunningAssessment: async () => {},
+      noteAssessmentResult: () => {},
+      continueAssessment: () => {},
+      finishPlacement: async () => {},
+      leaveAssessment: async () => {},
+      cancelLeave: () => {},
       isOpen: false,
       activeUnit: null,
       unitPosition: null,

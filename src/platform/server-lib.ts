@@ -44,3 +44,8 @@ export * from './habits';
 // Practice sessions (Phase 4): the review schedule, the session builder and
 // what an answer pays - the same code a guest's session runs in the browser.
 export * from './review';
+// Stage locks, test-out and placement (Phase 5): the server builds a
+// learner's stages and decides what they may solve, test out of and merge
+// with the same rules the path is drawn with.
+export * from './progress/stages';
+export * from './progress/access';

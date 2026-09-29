@@ -20,6 +20,8 @@ import type { LevelCurve } from '../xp-leveling/leveling';
 import { normalizeUnitsCompleted } from '../xp-leveling/rewards';
 import { normalizeReviewMap } from '../review/schedule';
 import { REVIEW_LOG_MAX, normalizeReviewEvent } from '../review/xp';
+import { normalizeTestedOut } from '../progress/stages';
+import { unionConcepts } from './preferences';
 
 export const INITIAL_STATS: UserStats = {
   xp: 0,
@@ -33,6 +35,7 @@ export const INITIAL_STATS: UserStats = {
   attempts: {},
   unitsCompleted: {},
   review: {},
+  testedOut: {},
   isPremium: false,
   unlockedStages: []
 };
@@ -72,6 +75,9 @@ export function hydrateStats(raw: unknown, curve: LevelCurve = DEFAULT_LEVEL_CUR
     unitsCompleted: normalizeUnitsCompleted(saved.unitsCompleted),
     // The Practice schedule: a save from before it has none.
     review: normalizeReviewMap(saved.review),
+    // Stages tested out of (Phase 5): a save from before has none, so its
+    // stages come out exactly as they did.
+    testedOut: normalizeTestedOut(saved.testedOut),
     isPremium: Boolean(saved.isPremium),
     // A cached copy of what the server said last time; the next restore overwrites it.
     unlockedStages: Array.isArray(saved.unlockedStages) ? saved.unlockedStages.filter((id) => typeof id === 'string') : []
@@ -79,6 +85,11 @@ export function hydrateStats(raw: unknown, curve: LevelCurve = DEFAULT_LEVEL_CUR
   // Freezes, repair and streak history: normalized by the habits engine
   // wherever it is read. A save from before them has none.
   if (!plainObject(saved.habit)) delete stats.habit;
+  // Solves a merge held back (shown on the Learn page) and a guest's claims.
+  const held = Array.isArray(saved.heldChallenges) ? saved.heldChallenges.filter((id): id is string => typeof id === 'string') : [];
+  if (held.length) stats.heldChallenges = held;
+  else delete stats.heldChallenges;
+  if (!plainObject(saved.assessmentClaims)) delete stats.assessmentClaims;
   // Practice answers still to go up with the next merge.
   const pending = pendingReviewLog(saved);
   if (pending.length) stats.unsynced = { reviewLog: pending };
@@ -161,10 +172,24 @@ export type ServerProgressRow = Partial<Omit<UserStats, 'isPremium' | 'unlockedS
 export function adoptAccountProgress(prev: UserStats, progress: ServerProgressRow | null | undefined, curve: LevelCurve = DEFAULT_LEVEL_CURVE): UserStats {
   const row = progress ?? {};
   const xp = Number(row.xp) || 0;
-  const next: UserStats = { ...prev, ...row, xp, level: levelFromXp(xp, curve), streak: rawStreak(row.streak) };
+  const next: UserStats = {
+    ...prev,
+    ...row,
+    xp,
+    level: levelFromXp(xp, curve),
+    streak: rawStreak(row.streak),
+    // The account's own test-outs (an older server has none): a guest's
+    // local ones were sent with the merge as claims, or do not belong here.
+    testedOut: normalizeTestedOut(row.testedOut),
+    // Unioned, never overwritten: the server's list starts empty, and the
+    // teaching this browser already showed must not be shown again.
+    seenConcepts: unionConcepts(prev.seenConcepts, row.seenConcepts)
+  };
   // An older server sends no `habit`: none is better than the previous
   // account's (or a guest's) left behind in this browser.
   if (!plainObject(row.habit)) delete next.habit;
+  // A guest's claims go up with the merge and never stay on an account's copy.
+  delete next.assessmentClaims;
   return next;
 }
 
@@ -185,6 +210,9 @@ export function statsAfterSolve(prev: UserStats, progress: ServerProgressRow, op
     ...progress,
     xp,
     completedChallenges: [...new Set([...prev.completedChallenges, ...(progress.completedChallenges ?? [])])],
+    // Unioned like the solves: the server's list may be behind this tab's.
+    seenConcepts: unionConcepts(prev.seenConcepts, progress.seenConcepts),
+    testedOut: progress.testedOut !== undefined ? normalizeTestedOut(progress.testedOut) : prev.testedOut,
     level: levelFromXp(xp, options.curve),
     streak: rawStreak(progress.streak),
     // An older server sends no `habit`: keep the one this tab worked out.

@@ -204,3 +204,49 @@ describe('the Practice schedule and pending Practice answers in the stats (P4)',
     expect(pendingReviewLog(next)).toHaveLength(1);
   });
 });
+
+describe('test-outs, held-back solves and seen concepts in the stats (P5)', () => {
+  const record = { at: '2026-09-28T10:00:00.000Z', via: 'test-out' as const, clears: true, assessmentId: 'as_1' };
+
+  it('an old save has no test-outs; a saved one is kept, made safe', () => {
+    expect(hydrateStats({ xp: 1 }).testedOut).toEqual({});
+    const saved = hydrateStats({ testedOut: { 'stage-2': record, 'stage-3': 'x' } });
+    expect(saved.testedOut).toEqual({ 'stage-2': record });
+  });
+
+  it('keeps held-back solves and a guest’s claims only when they are well formed', () => {
+    const stats = hydrateStats({ heldChallenges: ['a', 4, 'b'], assessmentClaims: { 'stage-2': { kind: 'test-out' } } });
+    expect(stats.heldChallenges).toEqual(['a', 'b']);
+    expect(stats.assessmentClaims).toEqual({ 'stage-2': { kind: 'test-out' } });
+    const none = hydrateStats({ heldChallenges: [], assessmentClaims: [1] });
+    expect(none).not.toHaveProperty('heldChallenges');
+    expect(none).not.toHaveProperty('assessmentClaims');
+  });
+
+  it('adopting an account row takes its test-outs, unions seen concepts and drops guest claims', () => {
+    const prev = {
+      ...INITIAL_STATS,
+      seenConcepts: ['local-1', 'shared'],
+      testedOut: { 'stage-9': record },
+      assessmentClaims: { 'stage-9': { kind: 'test-out' as const, stageId: 'stage-9', testId: 't', attempts: 1, hintsUsed: 0, at: '' } }
+    };
+    const next = adoptAccountProgress(prev, { xp: 0, completedChallenges: [], seenConcepts: ['shared', 'server-1'], testedOut: { 'stage-2': record } });
+    expect(next.seenConcepts).toEqual(['local-1', 'shared', 'server-1']);
+    expect(next.testedOut).toEqual({ 'stage-2': record });
+    expect(next).not.toHaveProperty('assessmentClaims');
+    // An older server sends neither: nothing seen here is lost, and no test-out is invented.
+    const old = adoptAccountProgress(prev, { xp: 0, completedChallenges: [] });
+    expect(old.seenConcepts).toEqual(['local-1', 'shared']);
+    expect(old.testedOut).toEqual({});
+  });
+
+  it('a solve response unions seen concepts and takes the test-outs it carries', () => {
+    const prev = { ...INITIAL_STATS, seenConcepts: ['local-1'], testedOut: { 'stage-9': record } };
+    const after = statsAfterSolve(prev, { xp: 10, completedChallenges: ['c1'], seenConcepts: ['server-1'] }, { rulesChanged: false, curve: DEFAULT_SETTINGS.levels });
+    expect(after.seenConcepts).toEqual(['local-1', 'server-1']);
+    // A response without `testedOut` (an older server) leaves this tab's as it was.
+    expect(after.testedOut).toEqual({ 'stage-9': record });
+    const withRecord = statsAfterSolve(prev, { xp: 10, completedChallenges: ['c1'], testedOut: {} }, { rulesChanged: false, curve: DEFAULT_SETTINGS.levels });
+    expect(withRecord.testedOut).toEqual({});
+  });
+});

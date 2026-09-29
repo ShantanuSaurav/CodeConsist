@@ -108,6 +108,7 @@ export function resetStore(store, userIds = ['u1', 'u2']) {
   state.activity = {};
   state.reviewSessions = {};
   state.conceptCards = {};
+  state.assessments = {};
   state.settings = { overrides: {}, revision: 0, updatedAt: null, updatedBy: null };
   state.auditLog = [];
   for (const id of userIds) store.insertUser({ id, email: `${id}@example.com`, username: id, passwordHash: 'x', isPremium: false, identities: {} });
@@ -140,6 +141,8 @@ export async function startLearnerApp(store, options = {}) {
       verifySubmission,
       completedStagesFor,
       clearDraftForSolve: (userId, challengeId) => cleared.push([userId, challengeId]),
+      // The tracks a guest's merged track may be (Phase 5).
+      learnerTracks: () => ['core', 'c'],
       // What server/index.js adds on top: the solve rate limit, the access
       // gates, a slotted verifySubmission (premium-gate.test.mjs).
       ...(options.progress ?? {})
@@ -163,8 +166,14 @@ export async function startLearnerApp(store, options = {}) {
     })
   );
   // PATCH /api/me/preferences, with the goal options and the zone cooldown from the settings.
-  const publicUser = (user) => ({ id: user.id, username: user.username, preferences: publicPreferences(store.normalizePreferences(user.preferences)) });
-  app.use('/api', createPreferencesRouter({ requireAuth, publicUser, store, learningDeps }));
+  const publicUser = (user) => ({
+    id: user.id,
+    username: user.username,
+    preferences: publicPreferences(store.normalizePreferences(user.preferences)),
+    onboarding: store.normalizeOnboarding(user.onboarding)
+  });
+  // The tracks a learner may pick (Phase 5): the fixture's own, unless a test says otherwise.
+  app.use('/api', createPreferencesRouter({ requireAuth, publicUser, store, learningDeps, learnerTracks: () => ['core', 'c'], ...(options.preferences ?? {}) }));
   app.use((err, _req, res, _next) => res.status(500).json({ error: err.message }));
 
   const server = await new Promise((resolve) => {

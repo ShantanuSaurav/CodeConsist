@@ -162,6 +162,30 @@ export const SECTION_META: SectionMeta[] = [
     phase: 'P4'
   },
   {
+    id: 'onboarding',
+    title: 'Onboarding',
+    description:
+      'The first-run setup a new learner sees after "Enter": why they are learning, their track, how much they know, a daily goal and a learning mode. Learners who already have progress are never sent to it. Plain text; no {tokens}.',
+    audience: 'public',
+    phase: 'P5'
+  },
+  {
+    id: 'placement',
+    title: 'Placement',
+    description:
+      "A few stage tests in a row, from the first stage a learner has not cleared: each one passed marks its stage as tested out. The rules are copied onto a placement when it starts, so a change applies to the next one.",
+    audience: 'public',
+    phase: 'P5'
+  },
+  {
+    id: 'testOut',
+    title: 'Test-out',
+    description:
+      "Passing one stage's test to skip its lessons. Whether a passed test clears the stage is copied onto the learner's record when they pass, so a later change never locks anyone out again.",
+    audience: 'public',
+    phase: 'P5'
+  },
+  {
     id: 'copy',
     title: 'Site copy',
     description:
@@ -180,7 +204,7 @@ export const SECTION_META: SectionMeta[] = [
     id: 'access',
     title: 'Limits & access',
     description:
-      'Rate limits, code-runner capacity, the proxy chain, CORS, the server-side premium lock and reset-link lifetime. Applied to the next request. Never sent to learners.',
+      'Rate limits, code-runner capacity, the proxy chain, CORS, the server-side premium lock, the stage-order gates and reset-link lifetime. Applied to the next request. Never sent to learners.',
     audience: 'admin',
     phase: 'P1T'
   }
@@ -882,6 +906,296 @@ const REMINDERS_META: Record<string, SettingMeta> = {
   }
 };
 
+/* ---------------------------------------- onboarding, placement, test-out */
+
+/** The first-run setup's steps, in their default order. The ids are fixed. */
+export const ONBOARDING_STEP_IDS = ['motivation', 'track', 'experience', 'goal', 'mode'] as const;
+
+/** The experience answers. The ids are fixed. */
+export const EXPERIENCE_LEVELS: Array<{ key: string; label: string }> = [
+  { key: 'new', label: 'New to coding' },
+  { key: 'some', label: 'Knows a little' },
+  { key: 'experienced', label: 'Has written code before' }
+];
+
+/** The icons a motivation answer may use (lucide names the onboarding module draws). */
+export const ONBOARDING_ICONS = [
+  'briefcase',
+  'graduation-cap',
+  'target',
+  'sparkles',
+  'rocket',
+  'book-open',
+  'code',
+  'heart',
+  'trophy',
+  'lightbulb',
+  'users',
+  'zap'
+];
+
+function plainText(label: string, help: string, maxLength: number, minLength = 1): SettingMeta {
+  return { label, help, kind: 'text', minLength, maxLength, tokens: [] };
+}
+
+const ONBOARDING_META: Record<string, SettingMeta> = {
+  'onboarding.enabled': {
+    label: 'First-run setup',
+    help: 'Off: nobody is sent to the setup, and the dashboard does not ask for it. Learners who already have progress are never sent to it either way.',
+    kind: 'bool'
+  },
+  'onboarding.showAfterEnter': {
+    label: 'Open it after "Enter"',
+    help: 'The landing page\'s Enter button goes to the setup for a learner who has not finished or dismissed it and has solved nothing yet.',
+    kind: 'bool'
+  },
+  'onboarding.dashboardReminder': {
+    label: '"Finish setting up" card',
+    help: 'The dashboard shows a card until the setup is finished or dismissed.',
+    kind: 'bool'
+  },
+  'onboarding.intro.title': plainText('Intro: title', 'The heading above the first step.', 120),
+  'onboarding.intro.body': plainText('Intro: text', 'Under the heading.', 600),
+  'onboarding.finish.title': plainText('Finish: title', 'The heading of the last screen.', 120),
+  'onboarding.finish.body': plainText('Finish: text', 'Under the heading.', 600),
+  'onboarding.finish.ctaLabel': plainText('Finish: start button', 'Opens the path.', 40),
+  'onboarding.finish.placementCtaLabel': plainText('Finish: placement button', 'Shown instead when the learner chose a placement.', 40),
+  'onboarding.steps': {
+    label: 'Steps',
+    help: 'In the order they are shown. Each id at most once; with both on, the track step must come before the experience step (the placement is for the chosen track). The goal step shows only while daily goals are on.',
+    kind: 'rows',
+    minItems: 1,
+    maxItems: ONBOARDING_STEP_IDS.length,
+    rowMeta: [
+      { key: 'id', label: 'Step', kind: 'enum', values: [...ONBOARDING_STEP_IDS] },
+      { key: 'enabled', label: 'On', kind: 'bool' },
+      { key: 'skippable', label: 'Can skip', kind: 'bool' },
+      { key: 'title', label: 'Title', kind: 'string', minLength: 1, maxLength: 120 },
+      { key: 'subtitle', label: 'Subtitle', kind: 'string', minLength: 0, maxLength: 200 }
+    ]
+  },
+  'onboarding.motivation.options': {
+    label: 'Motivation answers',
+    help: 'What "why are you learning?" offers. Id: lower-case letters, digits and dashes (it is stored on accounts; a removed id shows as "other" in the analytics). Icon: one of the listed names.',
+    kind: 'rows',
+    minItems: 2,
+    maxItems: 8,
+    rowMeta: [
+      { key: 'id', label: 'Id', kind: 'string', minLength: 1, maxLength: 32 },
+      { key: 'label', label: 'Label', kind: 'string', minLength: 1, maxLength: 40 },
+      { key: 'description', label: 'Description', kind: 'string', minLength: 0, maxLength: 120 },
+      { key: 'icon', label: 'Icon', kind: 'enum', values: ONBOARDING_ICONS }
+    ]
+  },
+  'onboarding.track.blurbs': {
+    label: 'Track step: text per track',
+    help: 'Optional words under a track on the track step, keyed by track id: {"c": "Systems programming from the ground up"}. At most 160 characters each; a track left out shows its own tagline.',
+    kind: 'map'
+  },
+  ...Object.fromEntries(
+    EXPERIENCE_LEVELS.flatMap(({ key, label }): Array<[string, SettingMeta]> => [
+      [`onboarding.experience.options.${key}.label`, plainText(`Experience "${label}": label`, 'The answer as the learner reads it.', 60)],
+      [`onboarding.experience.options.${key}.description`, plainText(`Experience "${label}": description`, 'Under the label.', 160, 0)],
+      [
+        `onboarding.experience.options.${key}.action`,
+        {
+          label: `Experience "${label}": then`,
+          help: 'start: straight to the path. offer-placement: the placement is offered, with a way to skip it. placement: the finish screen leads into the placement.',
+          kind: 'enum',
+          values: ['start', 'offer-placement', 'placement']
+        }
+      ],
+      [
+        `onboarding.experience.options.${key}.recommendMode`,
+        {
+          label: `Experience "${label}": suggested mode`,
+          help: 'The learning mode preselected on the mode step (none: the learner picks with nothing preselected).',
+          kind: 'enum',
+          values: ['learn', 'practice', 'none']
+        }
+      ]
+    ])
+  ),
+  'onboarding.experience.placementPrompt.title': plainText('Placement offer: title', 'Shown after an answer that offers the placement.', 120),
+  'onboarding.experience.placementPrompt.body': plainText('Placement offer: text', 'Under the title.', 600),
+  'onboarding.experience.placementPrompt.startLabel': plainText('Placement offer: take it', 'The button that chooses the placement.', 40),
+  'onboarding.experience.placementPrompt.skipLabel': plainText('Placement offer: skip it', 'The button that starts from the beginning.', 40),
+  ...Object.fromEntries(
+    [
+      { key: 'learn', label: 'Learn' },
+      { key: 'practice', label: 'Practice' }
+    ].flatMap(({ key, label }): Array<[string, SettingMeta]> => [
+      [`onboarding.mode.options.${key}.title`, plainText(`${label} mode card: title`, 'The card heading, on the mode step and in the lesson chooser.', 60)],
+      [`onboarding.mode.options.${key}.flow`, plainText(`${label} mode card: flow`, 'The one-line shape of a lesson in this mode.', 120)],
+      [`onboarding.mode.options.${key}.blurb`, plainText(`${label} mode card: text`, 'What the mode is like.', 300)]
+    ])
+  )
+};
+
+/** Example values for the placement and test-out tokens, for the live previews. */
+export const ASSESSMENT_SAMPLE: Record<string, string | number> = { stage: 'Stage 03', passMark: 80, maxRuns: 3, when: 'in 45 minutes' };
+
+/** Placement and test-out texts are short copy, capped like the site copy. */
+const ASSESSMENT_COPY_MAX = 300;
+
+function assessmentCopy(label: string, help: string, tokens: string[] = []): SettingMeta {
+  return { label, help, kind: 'text', minLength: 1, maxLength: ASSESSMENT_COPY_MAX, tokens, sample: ASSESSMENT_SAMPLE };
+}
+
+const PASS_MARK_HELP = 'The score a test needs: 100, minus the retry penalty for each run after the first (10 by default) and the hint penalty per hint. A multiple of 10. At 80, three runs can still pass.';
+
+const PLACEMENT_META: Record<string, SettingMeta> = {
+  'placement.enabled': {
+    label: 'Placement',
+    help: 'Off: no placement can start, and the setup and the Learn page do not offer one. Stages already placed stay tested out.',
+    kind: 'bool'
+  },
+  'placement.offerOnLearnPage': {
+    label: 'Offer it on the Learn page',
+    help: '"Find your level" on the Learn page, while a placement is possible for the learner\'s track.',
+    kind: 'bool'
+  },
+  'placement.maxStages': {
+    label: 'Most stage tests per placement',
+    help: 'Counted from the first stage the learner has not cleared.',
+    kind: 'int',
+    min: 1,
+    max: 20,
+    unit: 'tests'
+  },
+  'placement.stopOnFirstFail': {
+    label: 'Stop at the first test not passed',
+    help: 'On: the placement ends there and the learner starts at that stage. Off: it goes on to the next test.',
+    kind: 'bool'
+  },
+  'placement.passMark': { label: 'Pass mark', help: PASS_MARK_HELP, kind: 'int', min: 50, max: 100, step: 10, unit: '%' },
+  'placement.hintsAllowed': {
+    label: 'Hints allowed',
+    help: 'Off: a placement test shows no hints, and a pass that used any is refused.',
+    kind: 'bool'
+  },
+  'placement.xpPercent': {
+    label: 'XP for a passed test',
+    help: "The share of the stage test's own XP a pass pays (0: none).",
+    kind: 'int',
+    min: 0,
+    max: 100,
+    unit: '%'
+  },
+  'placement.retakeAfterDays': {
+    label: 'Retake after',
+    help: 'Days after a placement ends before another can start on the same track. 0: at once.',
+    kind: 'int',
+    min: 0,
+    max: 90,
+    unit: 'days'
+  },
+  'placement.stagesByTrack': {
+    label: 'Stages used, per track',
+    help: 'Which stages a placement may test, keyed by track id: {"core": ["stage-01", "stage-02"]}. A track not listed uses every stage that has a test, in order. The ids must be stages of that track.',
+    kind: 'map'
+  },
+  'placement.copy.introTitle': assessmentCopy('Intro: title', 'The heading before the first test.', ['passMark', 'maxRuns']),
+  'placement.copy.introBody': assessmentCopy('Intro: text', 'What a placement is, before it starts.', ['passMark', 'maxRuns']),
+  'placement.copy.passTitle': assessmentCopy('Passed: title', 'After a test is passed.', ['stage']),
+  'placement.copy.passBody': assessmentCopy('Passed: text', 'Under the title.', ['stage']),
+  'placement.copy.failTitle': assessmentCopy('Ended: title', 'When a test is not passed and the placement ends there.', ['stage']),
+  'placement.copy.failBody': assessmentCopy('Ended: text', 'Under the title. {when} is when a placement can be taken again.', ['stage', 'when']),
+  'placement.copy.learnPageLink': assessmentCopy('Learn page link', 'The "Find your level" link on the Learn page.')
+};
+
+const TEST_OUT_META: Record<string, SettingMeta> = {
+  'testOut.enabled': {
+    label: 'Test-out',
+    help: 'Off: no test-out can start and the path shows no Test out button. Stages already tested out stay that way.',
+    kind: 'bool'
+  },
+  'testOut.allowOnOpenStage': {
+    label: 'Also on an open stage',
+    help: 'Offer a Test out link on a stage that is open but whose lessons are not finished.',
+    kind: 'bool'
+  },
+  'testOut.allowSkipAhead': {
+    label: 'Any locked stage',
+    help: 'On: any locked stage can be tested out of (the stages before it open too). Off: only the first locked stage of a track.',
+    kind: 'bool'
+  },
+  'testOut.countsAsCleared': {
+    label: 'A pass clears the stage',
+    help: 'On: a passed test-out or placement test clears its stage, so the next stage opens. Off: the stage opens but the next one waits for its lessons. Copied onto each pass.',
+    kind: 'bool'
+  },
+  'testOut.countsTowardCertificate': {
+    label: 'Counts toward a certificate',
+    help: 'On: a stage cleared by a test-out counts for the track certificate. Off: a certificate still needs every lesson.',
+    kind: 'bool'
+  },
+  'testOut.passMark': { label: 'Pass mark', help: PASS_MARK_HELP, kind: 'int', min: 50, max: 100, step: 10, unit: '%' },
+  'testOut.hintsAllowed': {
+    label: 'Hints allowed',
+    help: 'Off: a test-out shows no hints, and a pass that used any is refused.',
+    kind: 'bool'
+  },
+  'testOut.maxAttempts': {
+    label: 'Test-outs per stage',
+    help: 'How many test-outs of one stage a learner may start within the window below.',
+    kind: 'int',
+    min: 1,
+    max: 10,
+    unit: 'attempts'
+  },
+  'testOut.attemptWindowHours': {
+    label: 'Attempt window',
+    help: 'The period the attempts above are counted over.',
+    kind: 'int',
+    min: 1,
+    max: 168,
+    unit: 'hours'
+  },
+  'testOut.cooldownMinutes': {
+    label: 'Wait after a failed test-out',
+    help: 'Before the same stage can be tested out of again. 0: at once.',
+    kind: 'int',
+    min: 0,
+    max: 10_080,
+    unit: 'minutes'
+  },
+  'testOut.sessionMinutes': {
+    label: 'Time allowed',
+    help: 'How long a test-out stays open (a placement gets this for each of its tests). One left open past it counts as not passed.',
+    kind: 'int',
+    min: 5,
+    max: 240,
+    unit: 'minutes'
+  },
+  'testOut.xpPercent': {
+    label: 'XP for a pass',
+    help: "The share of the stage test's own XP a pass pays (0: none).",
+    kind: 'int',
+    min: 0,
+    max: 100,
+    unit: '%'
+  },
+  'testOut.disabledStages': {
+    label: 'Stages that cannot be tested out of',
+    help: 'Stage ids. A stage listed here shows no Test out button.',
+    kind: 'stringList',
+    minItems: 0,
+    maxItems: 200,
+    minLength: 1,
+    maxLength: 64
+  },
+  'testOut.copy.buttonLabel': assessmentCopy('Button', 'The Test out button on a locked stage.'),
+  'testOut.copy.confirmTitle': assessmentCopy('Confirm: title', 'Before a test-out starts.', ['stage']),
+  'testOut.copy.confirmBody': assessmentCopy('Confirm: text', 'What will happen, before it starts.', ['stage', 'passMark', 'maxRuns']),
+  'testOut.copy.rulesLine': assessmentCopy('Rules line', 'Beside the test while it runs.', ['passMark', 'maxRuns']),
+  'testOut.copy.passTitle': assessmentCopy('Passed: title', 'After a pass.', ['stage']),
+  'testOut.copy.passBody': assessmentCopy('Passed: text', 'Under the title.', ['stage']),
+  'testOut.copy.failTitle': assessmentCopy('Not passed: title', 'After a test-out that did not pass.', ['stage']),
+  'testOut.copy.failBody': assessmentCopy('Not passed: text', 'Under the title. {when} is when the next try can start.', ['stage', 'when']),
+  'testOut.copy.cooldownLabel': assessmentCopy('Waiting', 'On the disabled button while the learner must wait.', ['when'])
+};
+
 /* ------------------------------------------------------------ site copy */
 
 /** The longest any piece of site copy may be. */
@@ -931,6 +1245,15 @@ const COPY_META: Record<string, SettingMeta> = {
   'copy.landing.finalCta': copyMeta('Final call to action', 'The heading of the last landing page section.'),
   'copy.landing.pathLine': copyMeta('How it works: the path', 'The line under the "How it works" heading.', ['stages']),
   'copy.landing.buildStep': copyMeta('How it works: Build', 'The "Build" step on the landing page. Keep it true: it describes how stages unlock.'),
+  'copy.landing.pathLineWithSkip': copyMeta(
+    'How it works: the path (with skipping)',
+    'Instead of the path line while placement or test-out is switched on.',
+    ['stages']
+  ),
+  'copy.landing.buildStepWithSkip': copyMeta(
+    'How it works: Build (with skipping)',
+    'Instead of the Build step while placement or test-out is switched on. Keep it true: it describes how stages unlock.'
+  ),
   'copy.meta.description': copyMeta(
     'Meta description',
     'The page description search engines and link previews show. Set on the landing page once it loads; the built page carries the build-time numbers.',
@@ -1037,6 +1360,28 @@ const ACCESS_META: Record<string, SettingMeta> = {
     min: 15,
     max: 10_080,
     unit: 'minutes'
+  },
+  'access.solveGate': {
+    label: 'Stage order on solves',
+    help: 'Enforce refuses a solve in a stage the learner has not opened, or a stage test before its lessons (403). Log only counts what would have been refused (see the counters above). Off skips the check. Stages a learner has already worked in always stay open.',
+    kind: 'enum',
+    values: ['off', 'log', 'enforce']
+  },
+  'access.mergeGate': {
+    label: 'Stage order on guest merges',
+    help: 'Enforce keeps back solves a guest (or an offline device) made in stages the account has not opened, and tells the learner which. Log only counts them. Off credits them all, as before.',
+    kind: 'enum',
+    values: ['off', 'log', 'enforce']
+  },
+  'access.requireServerVerification': {
+    label: 'Test-outs need a server check',
+    help: "On: a test-out, placement test or guest claim is only accepted when this server checked the answer itself. A language it cannot run (Python without a local interpreter) cannot be tested out of then.",
+    kind: 'bool'
+  },
+  'access.acceptGuestClaims': {
+    label: 'Keep guest test-outs at sign-in',
+    help: "On: a guest's passed test-outs and placement tests are checked again when they sign in and kept when they hold up. Off: they are dropped and the learner is told why.",
+    kind: 'bool'
   }
 };
 
@@ -1167,6 +1512,11 @@ export const SETTING_META: Record<string, SettingMeta> = {
 
   /* ------------------------------------------------------------ review */
   ...REVIEW_META,
+
+  /* ------------------------------------- onboarding, placement, test-out */
+  ...ONBOARDING_META,
+  ...PLACEMENT_META,
+  ...TEST_OUT_META,
 
   /* -------------------------------------------------------------- copy */
   ...COPY_META,

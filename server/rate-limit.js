@@ -188,35 +188,51 @@ export function sendTooMany(res, retryAfterSeconds, message = (minutes) => `Too 
 }
 
 /**
- * Express middleware over one bucket.
+ * One count against a bucket, called by hand rather than as middleware (the
+ * merge charges each guest claim it runs code for as a solve). Returns
+ * `(req) => verdict`, where `allowed` is true whenever the request may go on:
+ * the mode is 'off', there is no rule or key (fails open), or the mode only logs.
  *
  *   key(req)  -> the thing counted (an account id, an address, 'all'); a
  *                null or empty key skips the check - it fails open, so an
  *                unknown address never lumps everyone into one bucket
  *   rule()    -> `{ limit, windowSeconds }`, read per request; null skips
- *   mode()    -> 'off' skips, 'log' counts and logs only, 'enforce' answers 429
- *   message(minutes) -> the 429 sentence
+ *   mode()    -> 'off' skips, 'log' counts and logs only, 'enforce' refuses
  */
-export function rateLimit({ limiter, bucket, rule, key, mode = () => 'enforce', message }) {
-  return (req, res, next) => {
+export function limitCheck({ limiter, bucket, rule, key, mode = () => 'enforce' }) {
+  const open = { allowed: true, retryAfterSeconds: 0 };
+  return (req) => {
     let currentMode;
     let currentRule;
     let currentKey;
     try {
       currentMode = mode();
-      if (currentMode === 'off') return next();
+      if (currentMode === 'off') return open;
       currentRule = rule();
       currentKey = key(req);
     } catch {
-      return next();
+      return open;
     }
-    if (!currentRule || currentKey === null || currentKey === undefined || currentKey === '') return next();
+    if (!currentRule || currentKey === null || currentKey === undefined || currentKey === '') return open;
     const result = limiter.hit(bucket, String(currentKey), currentRule);
-    if (result.allowed) return next();
+    if (result.allowed) return result;
     if (currentMode !== 'enforce') {
       console.warn(`[rate-limit] would refuse ${bucket} (${result.count}/${result.limit}) - logging only`);
-      return next();
+      return { ...result, allowed: true };
     }
+    return result;
+  };
+}
+
+/**
+ * Express middleware over one bucket: `limitCheck`'s arguments, plus
+ * `message(minutes)`, the 429 sentence.
+ */
+export function rateLimit({ limiter, bucket, rule, key, mode = () => 'enforce', message }) {
+  const check = limitCheck({ limiter, bucket, rule, key, mode });
+  return (req, res, next) => {
+    const result = check(req);
+    if (result.allowed) return next();
     return sendTooMany(res, result.retryAfterSeconds, message);
   };
 }

@@ -17,6 +17,7 @@ vi.mock('node:fs/promises', () => ({
 
 import * as store from '../db.js';
 import { adoptGuestPreferences, createPreferencesRouter, parsePreferencesPatch, publicPreferences } from '../preferences-routes.js';
+import { SEEN_CONCEPTS_MAX, unionSeenConcepts } from '../progress-rules.js';
 import { resetStore, startLearnerApp } from './learning-fixture.mjs';
 
 let server;
@@ -209,5 +210,147 @@ describe('PATCH /api/me/preferences: the daily goal and the time zone', () => {
     expect(parsePreferencesPatch({ dailyGoalId: 'regular' }).error).toBe('That goal is not available.');
     expect(parsePreferencesPatch({ timeZone: 'UTC' }).error).toContain('timeZone');
     expect(adoptGuestPreferences({}, { dailyGoalId: 'regular' })).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------ Phase 5 */
+
+describe('PATCH /api/me/preferences: track, mode and the first-run setup (Phase 5)', () => {
+  const prefs = () => store.normalizePreferences(store.findUserById('u1').preferences);
+  const send = (body) => learner.call('PATCH', '/me/preferences', { user: 'u1', body });
+
+  it('stores the track, the mode and the setup answers, and null puts each back', async () => {
+    const res = await send({ trackId: 'c', learningMode: 'practice', motivation: 'job', experience: 'some' });
+    expect(res.status).toBe(200);
+    expect(res.json.user.preferences).toMatchObject({ trackId: 'c', learningMode: 'practice', motivation: 'job', experience: 'some' });
+    expect(prefs()).toMatchObject({ trackId: 'c', learningMode: 'practice', motivation: 'job', experience: 'some' });
+    const back = await send({ trackId: null, learningMode: null, motivation: null, experience: null });
+    expect(back.json.user.preferences).toMatchObject({ trackId: null, learningMode: null, motivation: null, experience: null });
+  });
+
+  it('answers 400 for a bad value in each field, naming it, and changes nothing', async () => {
+    const cases = [
+      [{ trackId: 'fortran' }, 'trackId'],
+      [{ trackId: 7 }, 'trackId'],
+      [{ learningMode: 'cram' }, 'learningMode'],
+      [{ motivation: 'fame' }, 'motivation'],
+      [{ motivation: '' }, 'motivation'],
+      [{ experience: 'guru' }, 'experience'],
+      [{ onboarding: 'maybe' }, 'onboarding'],
+      [{ onboarding: null }, 'onboarding']
+    ];
+    for (const [body, field] of cases) {
+      const res = await send(body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(res.json.error).toContain(field);
+    }
+    expect(prefs()).toMatchObject({ trackId: null, learningMode: null, motivation: null, experience: null });
+    expect(store.findUserById('u1').onboarding ?? null).toBeNull();
+  });
+
+  it('a motivation answer the admin removed is refused', async () => {
+    const service = learner.learningDeps.settings;
+    const options = service.current().onboarding.motivation.options.filter((o) => o.id !== 'fun');
+    expect(service.update({ revision: service.revision(), patch: { onboarding: { motivation: { options } } } }).ok).toBe(true);
+    expect((await send({ motivation: 'fun' })).status).toBe(400);
+    expect((await send({ motivation: 'job' })).status).toBe(200);
+  });
+
+  it('records the setup finished or dismissed, keeping the other time', async () => {
+    const dismissed = await send({ onboarding: 'dismissed' });
+    expect(dismissed.status).toBe(200);
+    expect(dismissed.json.user.onboarding.dismissedAt).toBeTruthy();
+    expect(dismissed.json.user.onboarding.completedAt).toBeNull();
+    const done = await send({ onboarding: 'completed', motivation: 'fun' });
+    expect(done.json.user.onboarding.completedAt).toBeTruthy();
+    // The dismissal is still there: both are history.
+    expect(done.json.user.onboarding.dismissedAt).toBe(dismissed.json.user.onboarding.dismissedAt);
+    expect(store.normalizeOnboarding(store.findUserById('u1').onboarding)).toEqual(done.json.user.onboarding);
+    // The setup state is not a preference.
+    expect(prefs()).not.toHaveProperty('onboarding');
+  });
+
+  it('refuses a track the server does not show (an unpublished one, or before the content loads)', async () => {
+    const hidden = await startLearnerApp(store, { preferences: { learnerTracks: () => ['core'] } });
+    const early = await startLearnerApp(store, { preferences: { learnerTracks: () => null } });
+    try {
+      expect((await hidden.call('PATCH', '/me/preferences', { user: 'u1', body: { trackId: 'c' } })).status).toBe(400);
+      expect((await hidden.call('PATCH', '/me/preferences', { user: 'u1', body: { trackId: 'core' } })).status).toBe(200);
+      expect((await early.call('PATCH', '/me/preferences', { user: 'u1', body: { trackId: 'core' } })).status).toBe(400);
+    } finally {
+      await hidden.close();
+      await early.close();
+    }
+  });
+
+  it('a guest merge brings their track, mode and answers only where the account has none', async () => {
+    store.updateUser('u1', { preferences: { ...prefs(), learningMode: 'learn' } });
+    const res = await learner.call('POST', '/progress/merge', {
+      user: 'u1',
+      body: { progress: {}, preferences: { trackId: 'c', learningMode: 'practice', motivation: 'college', experience: 'guru' } }
+    });
+    expect(res.status).toBe(200);
+    // Adopted where empty; the account's own mode wins; a bad answer is never adopted.
+    expect(res.json.preferences).toMatchObject({ trackId: 'c', learningMode: 'learn', motivation: 'college', experience: null });
+    expect(adoptGuestPreferences({}, { trackId: 'core' })).toBeNull();
+  });
+});
+
+describe('POST /api/progress/concepts (Phase 5)', () => {
+  const KNOWN = new Set(['concept-vars', 'concept-loops', 'concept-if']);
+  let app;
+  beforeAll(async () => {
+    app = await startLearnerApp(store, { progress: { knownConceptIds: () => KNOWN } });
+  });
+  afterAll(async () => {
+    await app.close();
+  });
+  const post = (conceptIds, user = 'u1') => app.call('POST', '/progress/concepts', { user, body: { conceptIds } });
+
+  it('adds known concepts once each, in first-seen order, and drops unknown ones', async () => {
+    const first = await post(['concept-loops', 'nope', 'concept-vars', 'concept-loops', 42, '__proto__']);
+    expect(first.status).toBe(200);
+    expect(first.json.seenConcepts).toEqual(['concept-loops', 'concept-vars']);
+    const second = await post(['concept-vars', 'concept-if']);
+    expect(second.json.seenConcepts).toEqual(['concept-loops', 'concept-vars', 'concept-if']);
+    expect(store.getProgress('u1').seenConcepts).toEqual(['concept-loops', 'concept-vars', 'concept-if']);
+    // Only this learner's row.
+    expect(store.getProgress('u2').seenConcepts).toEqual([]);
+  });
+
+  it('needs a list and a signed-in learner', async () => {
+    expect((await post('concept-vars')).status).toBe(400);
+    expect((await app.call('POST', '/progress/concepts', { user: 'u1', body: {} })).status).toBe(400);
+    expect((await post(['concept-vars'], null)).status).toBe(401);
+  });
+
+  it('answers 503 while the content is not loaded', async () => {
+    const early = await startLearnerApp(store, { progress: { knownConceptIds: () => null } });
+    try {
+      expect((await early.call('POST', '/progress/concepts', { user: 'u1', body: { conceptIds: ['concept-vars'] } })).status).toBe(503);
+    } finally {
+      await early.close();
+    }
+  });
+
+  it('keeps at most 500, the newest', () => {
+    const many = Array.from({ length: 700 }, (_, i) => `c-${i}`);
+    const stored = many.slice(0, 450);
+    const { list, added } = unionSeenConcepts(stored, many.slice(450), () => true);
+    expect(added).toHaveLength(250);
+    expect(list).toHaveLength(SEEN_CONCEPTS_MAX);
+    expect(list[list.length - 1]).toBe('c-699');
+    expect(list[0]).toBe('c-200');
+    // One request adds at most 500 either way.
+    expect(unionSeenConcepts([], many, () => true).added).toHaveLength(SEEN_CONCEPTS_MAX);
+  });
+
+  it('a merge unions the other device’s concepts - known ones only - and a reset clears them', async () => {
+    store.setProgress('u1', { ...store.getProgress('u1'), seenConcepts: ['concept-if'] });
+    const merged = await app.call('POST', '/progress/merge', { user: 'u1', body: { progress: { seenConcepts: ['concept-vars', 'made-up', 'concept-if'] } } });
+    expect(merged.status).toBe(200);
+    expect(merged.json.progress.seenConcepts).toEqual(['concept-if', 'concept-vars']);
+    const reset = await app.call('POST', '/progress/reset', { user: 'u1' });
+    expect(reset.json.progress.seenConcepts).toEqual([]);
   });
 });

@@ -5,6 +5,8 @@
  */
 export const ROUTES = {
   landing: '/',
+  /** The first-run setup (outside the dashboard frame). `?redo=1` fills it in again from Settings. */
+  onboarding: '/welcome',
   dashboard: '/dashboard',
   learn: '/dashboard/learn',
   /** The reading for a stage; `section` is a heading slug for a deep link. */
@@ -42,6 +44,7 @@ export const ROUTES = {
 /** Static paths (no parameters), for validators that check internal links. */
 export const STATIC_ROUTES: readonly string[] = [
   ROUTES.landing,
+  ROUTES.onboarding,
   ROUTES.dashboard,
   ROUTES.learn,
   ROUTES.challenges,

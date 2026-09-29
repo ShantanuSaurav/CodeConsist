@@ -6,7 +6,7 @@
    it - there are no placeholder keys - and every key has admin metadata in
    meta.ts (a unit test fails otherwise), so it is editable the day it lands.
    ========================================================================== */
-import type { ChallengeType, DailyGoalOption } from '@/types';
+import type { ChallengeType, DailyGoalOption, LearningMode } from '@/types';
 import type { LevelCurve, XpRules } from '../xp-leveling/leveling';
 import type { RankRow } from '../xp-leveling/insights';
 
@@ -282,6 +282,152 @@ export interface ReviewSettings {
   guestMergeWindowDays: number;
 }
 
+/** The steps of the first-run setup, in the order they can be shown. */
+export type OnboardingStepId = 'motivation' | 'track' | 'experience' | 'goal' | 'mode';
+
+/** One step of the first-run setup. */
+export interface OnboardingStep {
+  id: OnboardingStepId;
+  enabled: boolean;
+  /** The learner may go on without answering. */
+  skippable: boolean;
+  title: string;
+  subtitle: string;
+}
+
+/** A "why are you learning?" answer. `icon` is a name from `ONBOARDING_ICONS` (meta.ts). */
+export interface MotivationOption {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+}
+
+/** How much a learner says they already know. The ids are fixed. */
+export type ExperienceLevel = 'new' | 'some' | 'experienced';
+
+/** What an experience answer leads to: straight in, a placement offered, or a placement. */
+export type ExperienceAction = 'start' | 'offer-placement' | 'placement';
+
+export interface ExperienceOption {
+  label: string;
+  description: string;
+  action: ExperienceAction;
+  /**
+   * The learning mode preselected on the mode step, or 'none'. A word rather
+   * than null: in a settings patch null means "back to the default".
+   */
+  recommendMode: LearningMode | 'none';
+}
+
+/** The copy of one learning mode card (moved out of LearningModeChooser.tsx). */
+export interface LearningModeCopy {
+  title: string;
+  flow: string;
+  blurb: string;
+}
+
+/**
+ * The first-run setup: whether it shows, its steps and their answers. The
+ * goal step's options are the daily goal's (`goals.options`).
+ */
+export interface OnboardingSettings {
+  enabled: boolean;
+  /** "Enter" on the landing page goes to the setup for a learner who has not done it. */
+  showAfterEnter: boolean;
+  /** The dashboard shows a "Finish setting up" card until it is done or dismissed. */
+  dashboardReminder: boolean;
+  intro: { title: string; body: string };
+  finish: { title: string; body: string; ctaLabel: string; placementCtaLabel: string };
+  steps: OnboardingStep[];
+  motivation: { options: MotivationOption[] };
+  /** Optional per-track text on the track step, by track id. */
+  track: { blurbs: Record<string, string> };
+  experience: {
+    options: Record<ExperienceLevel, ExperienceOption>;
+    placementPrompt: { title: string; body: string; startLabel: string; skipLabel: string };
+  };
+  mode: { options: Record<LearningMode, LearningModeCopy> };
+}
+
+/** Placement: a few stage tests in a row, from the first stage a learner has not cleared. */
+export interface PlacementSettings {
+  enabled: boolean;
+  /** The Learn page offers "Find your level" while a placement is possible. */
+  offerOnLearnPage: boolean;
+  /** The most stage tests one placement holds. */
+  maxStages: number;
+  /** The first test not passed ends the placement. */
+  stopOnFirstFail: boolean;
+  /** Raw score (100 minus 10 a run after the first, 10 a hint) a test needs; a multiple of 10. */
+  passMark: number;
+  hintsAllowed: boolean;
+  /** Share of a stage test's XP a pass pays. */
+  xpPercent: number;
+  /** Days before a finished placement can be taken again. */
+  retakeAfterDays: number;
+  /** Which stages a placement may use, by track (a track with none listed uses every stage with a test). */
+  stagesByTrack: Record<string, string[]>;
+  copy: {
+    introTitle: string;
+    /** `{passMark}`, `{maxRuns}` */
+    introBody: string;
+    /** `{stage}` */
+    passTitle: string;
+    /** `{stage}` */
+    passBody: string;
+    /** `{stage}` */
+    failTitle: string;
+    /** `{stage}`, `{when}` */
+    failBody: string;
+    learnPageLink: string;
+  };
+}
+
+/** Test-out: pass one stage's test to skip its lessons. */
+export interface TestOutSettings {
+  enabled: boolean;
+  /** Also offered on a stage that is already open (its lessons not finished). */
+  allowOnOpenStage: boolean;
+  /** Any locked stage may be tested out of; off: only the first locked one. */
+  allowSkipAhead: boolean;
+  /** A passed test-out (or placement test) clears the stage, so the next one opens. */
+  countsAsCleared: boolean;
+  /** A tested-out stage counts towards a track certificate. */
+  countsTowardCertificate: boolean;
+  passMark: number;
+  hintsAllowed: boolean;
+  /** Test-outs of one stage allowed within `attemptWindowHours`. */
+  maxAttempts: number;
+  attemptWindowHours: number;
+  /** Wait after a failed test-out before the next one. */
+  cooldownMinutes: number;
+  /** How long a test-out (or each test of a placement) stays open. */
+  sessionMinutes: number;
+  xpPercent: number;
+  /** Stages that cannot be tested out of. */
+  disabledStages: string[];
+  copy: {
+    buttonLabel: string;
+    /** `{stage}` */
+    confirmTitle: string;
+    /** `{stage}`, `{passMark}`, `{maxRuns}` */
+    confirmBody: string;
+    /** `{passMark}`, `{maxRuns}` */
+    rulesLine: string;
+    /** `{stage}` */
+    passTitle: string;
+    /** `{stage}` */
+    passBody: string;
+    /** `{stage}` */
+    failTitle: string;
+    /** `{stage}`, `{when}` */
+    failBody: string;
+    /** `{when}` */
+    cooldownLabel: string;
+  };
+}
+
 /** Data limits. Admin only - never sent to learners. */
 export interface RetentionSettings {
   activityDaysKept: number;
@@ -331,6 +477,10 @@ export interface CopySettings {
     /** `{stages}` */
     pathLine: string;
     buildStep: string;
+    /** `{stages}` - instead of `pathLine` while placement or test-out is on. */
+    pathLineWithSkip: string;
+    /** Instead of `buildStep` while placement or test-out is on. */
+    buildStepWithSkip: string;
   };
   meta: {
     /** `{lessons}`, `{tests}`, `{stages}`, `{tracks}` */
@@ -379,6 +529,8 @@ export type RateLimitMode = 'off' | 'log' | 'enforce';
 export type CorsMode = 'open' | 'report' | 'enforce';
 /** log = record what would be blocked, enforce = block it. */
 export type GateMode = 'log' | 'enforce';
+/** The stage-order gates: off = no check, log = count what would be refused and let it through, enforce = refuse it. */
+export type ProgressionGateMode = 'off' | 'log' | 'enforce';
 
 /** Limits & access. Admin only - never sent to learners. */
 export interface AccessSettings {
@@ -402,6 +554,14 @@ export interface AccessSettings {
   premiumGate: GateMode;
   /** How long an admin-issued password reset link stays valid. */
   passwordResetTtlMinutes: number;
+  /** A solve in a stage the learner has not opened (or a test before its lessons). */
+  solveGate: ProgressionGateMode;
+  /** Merged guest solves in stages the account has not opened. */
+  mergeGate: ProgressionGateMode;
+  /** Test-outs and guest claims need a server-side check of the answer (no "taken on trust"). */
+  requireServerVerification: boolean;
+  /** A guest's passed test-outs and placement tests are checked and kept at sign-in. */
+  acceptGuestClaims: boolean;
 }
 
 export interface Settings {
@@ -415,6 +575,9 @@ export interface Settings {
   badges: BadgeSettings;
   feedback: FeedbackSettings;
   review: ReviewSettings;
+  onboarding: OnboardingSettings;
+  placement: PlacementSettings;
+  testOut: TestOutSettings;
   copy: CopySettings;
   retention: RetentionSettings;
   access: AccessSettings;

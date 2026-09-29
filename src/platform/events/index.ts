@@ -10,7 +10,7 @@
  *   without importing the challenges module.
  */
 import { createTypedEventBus, useBusEvent } from './bus';
-import type { ActivityContext, Challenge, LearningMode, UserProfile } from '@/types';
+import type { ActivityContext, AssessmentKind, Challenge, LearningMode, UserProfile } from '@/types';
 
 export type AppEvents = {
   /* ---------------------------------------------------------- facts */
@@ -53,6 +53,11 @@ export type AppEvents = {
   'habit:streakRepaired': { streak: number };
   /** The streak reached one of the admin's milestones (`streak.milestones`). */
   'habit:milestone': { streak: number };
+  /**
+   * A test-out or a placement is over (passed, failed, finished early or run
+   * out of time): the stages it marked as tested out, if any.
+   */
+  'assessment:finished': { kind: AssessmentKind; passedStageIds: string[] };
   'auth:signedIn': { user: UserProfile };
   'auth:signedOut': Record<string, never>;
   'progress:reset': Record<string, never>;
@@ -68,6 +73,11 @@ export type AppEvents = {
   'practice:openTest': { stageId: string };
   /** Start a Practice session: mistakes, due questions and weak solves - of one stage, or all. */
   'review:open': { stageId?: string };
+  /**
+   * Open a test-out of one stage, or a placement on one track: the practice
+   * session shows its rules first and starts it when the learner says so.
+   */
+  'assessment:open': { kind: AssessmentKind; stageId?: string; trackId?: string };
   'account:openAuth': Record<string, never>;
   /**
    * Open the unlock modal. `stageId` highlights the stage that was locked

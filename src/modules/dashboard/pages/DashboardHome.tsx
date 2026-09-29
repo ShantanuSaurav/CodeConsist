@@ -189,6 +189,39 @@ const PracticeCard: React.FC = () => {
   );
 };
 
+/**
+ * "Finish setting up": the first-run setup was neither finished nor put aside
+ * and nothing is solved yet (`needsOnboarding` - never for a learner with
+ * progress). While the admin has the reminder on. "Not now" puts it aside
+ * for good; Settings can open it again.
+ */
+const SetupCard: React.FC = () => {
+  const { needsOnboarding, settings, dismissOnboarding } = useSession();
+  const onboarding = settings.onboarding;
+  if (!needsOnboarding || !onboarding.enabled || !onboarding.dashboardReminder) return null;
+  return (
+    <section aria-labelledby="setup-heading" className="pb-8 mb-8 border-b border-border-subtle">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h2 id="setup-heading" className="eyebrow">
+            Get started
+          </h2>
+          <h3 className="text-xl font-semibold text-fg tracking-tight">Finish setting up</h3>
+          {onboarding.intro.body && <p className="text-fg-secondary mt-1 max-w-2xl">{onboarding.intro.body}</p>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={dismissOnboarding}>
+            Not now
+          </Button>
+          <ButtonLink to={ROUTES.onboarding} variant="primary">
+            Continue setup <ArrowRight size={15} />
+          </ButtonLink>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 export const DashboardHome: React.FC = () => {
   const { stats, stages, learnerStages, user, activeTrack, activity, todayKey, settings, habits } = useSession();
   const { levelProgress, rankTitle } = useLeveling();
@@ -265,6 +298,9 @@ export const DashboardHome: React.FC = () => {
         </h1>
         <p className="text-fg-secondary mt-1.5">{headline}</p>
       </header>
+
+      {/* ------------------------------------------------- first-run setup */}
+      <SetupCard />
 
       {/* ------------------------------------------------- continue learning */}
       <section aria-labelledby="continue-heading" className="pb-8 mb-8 border-b border-border-subtle">

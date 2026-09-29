@@ -76,7 +76,8 @@ import {
 import { activeResetLink, createPasswordResetAdminRouter } from './password-reset.js';
 import { ipDiagnostics } from './client-ip.js';
 import { BUCKETS, BUCKET_SETTING } from './rate-limit.js';
-import { premiumGateStats } from './progression.js';
+import { premiumGateStats, progressionGateStats } from './progression.js';
+import { assessmentAdminView, clearAssessmentCooldown, onboardingAnalytics } from './assessment-routes.js';
 
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -338,6 +339,22 @@ function mostMissedRows(deps) {
 }
 
 /**
+ * "Stage 03 · Variables" for a stage id - the name learners see (an admin's
+ * rename included), else the authored one (a stage hidden since) - or the id
+ * itself when the content has no such stage (removed since).
+ */
+function stageNamer() {
+  const snapshot = contentSnapshot();
+  if (!snapshot) return (id) => id;
+  const byId = new Map((snapshot.stages ?? []).map((s) => [s.id, s]));
+  for (const s of applyLearnerOverrides(snapshot, store.getContentOverrides(), { concepts: false }).stages) byId.set(s.id, s);
+  return (id) => {
+    const s = byId.get(id);
+    return s ? `Stage ${String(s.index).padStart(2, '0')} · ${s.name}` : id;
+  };
+}
+
+/**
  * Facts the rules page needs to judge a change: what the learner-facing bank
  * holds (to warn when the top rank is out of reach), which engines this
  * server has, and every learner's XP (to preview how many would change level).
@@ -377,7 +394,32 @@ function settingsContext(deps) {
     levels: { learnerXp: store.allUsers().map((u) => Number(allProgress[u.id]?.xp) || 0) },
     // How many learners chose each daily goal ("N learners chose this"), and
     // how many follow the default. Null without the habits service.
-    goals: deps.learning?.habits ? deps.learning.habits.goalChoices() : null
+    goals: deps.learning?.habits ? deps.learning.habits.goalChoices() : null,
+    // Phase 5: every track's stages and their tests, for the placement and
+    // test-out sections - which stages to use or leave out, whether this
+    // server can check each test itself (null: not known yet), and the test
+    // to open in the question editor.
+    path: {
+      tracks: (snapshot?.languageTracks ?? []).map((t) => ({ id: t.id, label: t.label, hidden: hiddenTracks.has(t.id), stageIds: [...(t.stageIds ?? [])] })),
+      stages: merged.stages.map((stage) => {
+        const test = merged.challenges.find((c) => c.stageId === stage.id && c.isStageTest) ?? null;
+        return {
+          id: stage.id,
+          index: stage.index,
+          name: stage.name,
+          isPremium: Boolean(stage.isPremium),
+          test: test
+            ? {
+                id: test.id,
+                title: test.title,
+                type: test.type,
+                language: test.language,
+                verifiable: typeof deps.learning?.canVerify === 'function' ? Boolean(deps.learning.canVerify(test)) : null
+              }
+            : null
+        };
+      })
+    }
   };
 }
 
@@ -473,6 +515,13 @@ export function createAdminRouter(deps = {}) {
       slots: access.slots?.stats() ?? null,
       cors: access.cors?.status() ?? null,
       premium: { mode: setting('access.premiumGate', 'enforce'), ...premiumGateStats() },
+      // The stage-order gates (Phase 5): what they refused, or - in log mode -
+      // would have refused, since boot and in the last 24 hours.
+      progression: {
+        solveGate: setting('access.solveGate', 'log'),
+        mergeGate: setting('access.mergeGate', 'log'),
+        ...progressionGateStats()
+      },
       bootedAt: access.bootedAt ?? null
     });
   });
@@ -714,6 +763,9 @@ export function createAdminRouter(deps = {}) {
     return {
       ...view,
       ...(learning.habits ? learning.habits.userLearning(target) : {}),
+      // Phase 5: the first-run setup and its answers, stages tested out of,
+      // the newest test-outs and placements, and the cooldowns cleared.
+      setup: assessmentAdminView(store, learning.lib, target, { stageName: stageNamer() }),
       misses: view.misses.map((m) => {
         const challenge = getChallenge(m.challengeId);
         const topKey = Object.entries(m.keys ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
@@ -733,6 +785,61 @@ export function createAdminRouter(deps = {}) {
     const learning = deps.learning;
     if (!learning?.activity || !learning.lib) return res.status(503).json({ error: 'Activity is not available yet.' });
     res.json(learningView(target));
+  });
+
+  /**
+   * "Clear test-out cooldowns" (Phase 5): every test-out and placement this
+   * learner started before now stops counting towards their limits and
+   * waits - for one stage (`{ stageId }`), a placement on one track
+   * (`placement:<trackId>`), or everything (no body). Nothing they passed is
+   * touched. Audited. Answers with the drawer's view.
+   */
+  router.post('/users/:id/assessments/clear-cooldown', (req, res) => {
+    const target = store.findUserById(req.params.id);
+    if (!target) return res.status(404).json({ error: 'No such user.' });
+    const learning = deps.learning;
+    if (!learning?.activity || !learning.lib || typeof store.getAssessmentLog !== 'function') {
+      return res.status(503).json({ error: 'Test-outs are not available yet.' });
+    }
+    const raw = req.body?.stageId;
+    let stageId = null;
+    if (raw !== undefined && raw !== null && raw !== '') {
+      const snapshot = contentSnapshot();
+      const stageIds = new Set((snapshot?.stages ?? []).map((s) => s.id));
+      const trackIds = new Set((snapshot?.languageTracks ?? []).map((t) => `placement:${t.id}`));
+      if (typeof raw !== 'string' || raw.length > 80 || !(stageIds.has(raw) || trackIds.has(raw))) {
+        return res.status(400).json({ error: 'stageId must be a stage id, "placement:<track id>", or left out for everything.' });
+      }
+      stageId = raw;
+    }
+    clearAssessmentCooldown(store, learning.lib, target.id, stageId);
+    audit(req, 'assessment.cooldown.clear', target.id, { username: target.username, stageId: stageId ?? '*' });
+    res.json(learningView(store.findUserById(target.id) ?? target));
+  });
+
+  /**
+   * The first-run setup and placement across every account, for the
+   * Analytics card: finished and dismissed, the answers, placements and
+   * test-out pass rates (server/assessment-routes.js onboardingAnalytics).
+   * Guests are not counted - their answers never reach the server.
+   */
+  router.get('/analytics/onboarding', (_req, res) => {
+    const learning = deps.learning;
+    if (!learning?.lib || !learning.settings || typeof store.allAssessmentLogs !== 'function') {
+      return res.status(503).json({ error: 'Onboarding numbers are not available yet.' });
+    }
+    const allProgress = store.allProgress();
+    const logs = store.allAssessmentLogs() ?? {};
+    res.json(
+      onboardingAnalytics({
+        users: store.allUsers(),
+        progressOf: (id) => (Object.hasOwn(allProgress, id) ? allProgress[id] : null),
+        logOf: (id) => (Object.hasOwn(logs, id) ? logs[id] : null),
+        lib: learning.lib,
+        settings: learning.settings.current(),
+        stageName: stageNamer()
+      })
+    );
   });
 
   /**

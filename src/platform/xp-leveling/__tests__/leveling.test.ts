@@ -15,7 +15,8 @@ import {
   rawScore,
   scoreSolve,
   xpForLevel,
-  xpForSolve
+  xpForSolve,
+  xpForTestOut
 } from '../leveling';
 import type { LevelCurve, XpRules } from '../leveling';
 import { DEFAULT_RANKS, achievements, activityGrid, dayTotals, nextRankLevel, rankTitle, solvedOn } from '../insights';
@@ -233,6 +234,26 @@ describe('custom rules', () => {
   it('caps the score when asked to', () => {
     expect(scoreSolve(1, 0, DEFAULT_XP_RULES, 60)).toBe(60);
     expect(xpForSolve(100, 1, 0, DEFAULT_XP_RULES, 60)).toBe(60);
+  });
+
+  it('pays a test-out its share of the solve XP (xpForTestOut)', () => {
+    // 100%: exactly what the same solve pays.
+    for (const [a, h] of [
+      [1, 0],
+      [2, 0],
+      [3, 1]
+    ]) {
+      expect(xpForTestOut(150, 100, a, h)).toBe(xpForSolve(150, a, h));
+    }
+    expect(xpForTestOut(150, 50, 1, 0)).toBe(75);
+    expect(xpForTestOut(150, 50, 3, 0)).toBe(60); // 150 * 80% = 120, half of it
+    // 0% pays nothing - not even the minimum a solve gets.
+    expect(xpForTestOut(150, 0, 1, 0)).toBe(0);
+    expect(xpForTestOut(0, 100, 1, 0)).toBe(xpForSolve(0, 1, 0));
+    // Out-of-range shares are clamped; the rules are the solve's own.
+    expect(xpForTestOut(100, 250, 1, 0)).toBe(100);
+    expect(xpForTestOut(100, -5, 1, 0)).toBe(0);
+    expect(xpForTestOut(100, 100, 2, 0, strict)).toBe(xpForSolve(100, 2, 0, strict));
   });
 
   it('follows a threshold table, then the overflow step', () => {
