@@ -129,5 +129,19 @@ export const STORAGE_KEYS = {
    * refresh never announces the same thing twice and one learner's never
    * hides another's. Pruned to recent days (useHabitState).
    */
-  habitSeen: 'cq-habit-seen-v1'
+  habitSeen: 'cq-habit-seen-v1',
+  /**
+   * The first-run setup in this browser: `{ completedAt, dismissedAt,
+   * pendingSync }` - a guest's own, or a signed-in learner's copy while the
+   * account has not taken it yet (`pendingSync` says whose: 'guest' or the
+   * account id). The answers themselves are preferences (`preferences`).
+   */
+  onboarding: 'cq-onboarding-v1',
+  /**
+   * A guest's test-outs and placements: the same log the server keeps for
+   * an account (`{ records, cooldownClearedAt }`, src/platform/progress/access.ts),
+   * so the same limits and cooldowns apply. Cleared when an account's
+   * progress replaces the guest's.
+   */
+  assessments: 'cq-assessments-v1'
 } as const;

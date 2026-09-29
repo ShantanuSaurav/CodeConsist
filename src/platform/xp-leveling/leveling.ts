@@ -209,3 +209,21 @@ export function xpForSolve(
 ): number {
   return Math.max(rules.minXpPerSolve, Math.round((xpReward * scoreSolve(attempts, hintsUsed, rules, cap)) / 100));
 }
+
+/**
+ * What a stage test passed in a test-out or a placement pays: the solve's
+ * own XP (`xpForSolve`, so the same score and floor), scaled by the admin's
+ * `xpPercent` (0-100). 0% pays nothing at all - the minimum XP per solve is
+ * for solves, and a share of 0 is a deliberate "no XP for skipping".
+ */
+export function xpForTestOut(
+  xpReward: number,
+  xpPercent: number,
+  attempts: number,
+  hintsUsed: number,
+  rules: XpRules = DEFAULT_XP_RULES
+): number {
+  const share = Math.max(0, Math.min(100, Number(xpPercent) || 0));
+  if (share === 0) return 0;
+  return Math.round((xpForSolve(xpReward, attempts, hintsUsed, rules) * share) / 100);
+}

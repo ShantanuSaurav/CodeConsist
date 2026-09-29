@@ -654,6 +654,41 @@ export interface UserLearning {
     revealed: number;
     topWrong: string | null;
   }[];
+  /** The first-run setup and test-outs (Phase 5; absent from an older server). */
+  setup?: UserSetup;
+}
+
+/** One learner's first-run setup, stages tested out of and newest assessments (the Users drawer). */
+export interface UserSetup {
+  onboarding: { completedAt: string | null; dismissedAt: string | null } | null;
+  answers: { motivation: string | null; experience: string | null; trackId: string | null; learningMode: string | null };
+  testedOut: { stageId: string; name: string; at: string; via: 'test-out' | 'placement'; clears: boolean }[];
+  /** The newest 20, newest first. */
+  assessments: {
+    id: string;
+    kind: 'test-out' | 'placement';
+    trackId: string | null;
+    status: string;
+    startedAt: string;
+    finishedAt: string | null;
+    passMark: number | null;
+    stages: { stageId: string; name: string; outcome: 'passed' | 'failed' | null; runs: number | null; score: number | null }[];
+  }[];
+  /** When an admin last cleared cooldowns, by stage id (`placement:<track>`, or `*` for everything). */
+  cooldownClearedAt: Record<string, string>;
+}
+
+/** GET /admin/analytics/onboarding: the first-run setup and placement across every account (guests not counted). */
+export interface OnboardingAnalytics {
+  setup: { accounts: number; completed: number; dismissed: number; notYet: number; notYetWithProgress: number };
+  answers: {
+    motivation: { id: string; label: string; count: number }[];
+    noMotivation: number;
+    experience: { id: string; label: string; count: number }[];
+    noExperience: number;
+  };
+  placements: { started: number; active: number; ended: number; medianStagesPlaced: number | null };
+  testOuts: { stageId: string; name: string; attempts: number; passed: number; passRate: number }[];
 }
 
 /** PATCH /admin/users/:id/learning: any of these; audited with before and after. */
@@ -722,6 +757,18 @@ export interface SettingsContext {
   levels: { learnerXp: number[] };
   /** How many learners chose each daily goal, and how many follow the default (Phase 3; null without it). */
   goals?: { choiceCounts: Record<string, number>; unset: number } | null;
+  /** Every track's stages and their tests, for the placement and test-out sections (Phase 5; absent from an older server). */
+  path?: {
+    tracks: { id: string; label: string; hidden: boolean; stageIds: string[] }[];
+    stages: {
+      id: string;
+      index: string;
+      name: string;
+      isPremium: boolean;
+      /** Null: the stage has no test. `verifiable` null: not known (before the server has booted). */
+      test: { id: string; title: string; type: string; language: string; verifiable: boolean | null } | null;
+    }[];
+  };
 }
 
 export interface CredentialsChangeResult {
@@ -776,7 +823,24 @@ export interface AccessStatus {
     recent: { origin: string; count: number; firstAt: string; lastAt: string; method: string; path: string; refused: boolean }[];
   } | null;
   premium: { mode: string; blocked: number; wouldBlock: number; lastAt: string | null; byRoute: Record<string, number> };
+  /** The stage-order gates (Phase 5). Absent from an older server. */
+  progression?: {
+    solveGate: string;
+    mergeGate: string;
+    solve: ProgressionGateCounter;
+    merge: ProgressionGateCounter;
+  };
   bootedAt: string | null;
+}
+
+/** One stage-order gate's counts since boot and over the last 24 hours (the merge counts solves held back). */
+export interface ProgressionGateCounter {
+  refused: number;
+  wouldRefuse: number;
+  refused24h: number;
+  wouldRefuse24h: number;
+  lastAt: string | null;
+  byReason: Record<string, number>;
 }
 
 /* ------------------------------------------------------- password resets */
@@ -854,6 +918,20 @@ export const adminApi = {
   /** Goals and streaks across every learner. */
   async engagement(): Promise<EngagementSummary> {
     return request('/admin/analytics/engagement');
+  },
+
+  /**
+   * "Clear test-out cooldowns": everything this learner started before now
+   * stops counting towards their limits and waits - one stage, a placement
+   * (`placement:<track id>`), or everything when `stageId` is left out. Audited.
+   */
+  async clearAssessmentCooldown(id: string, stageId?: string): Promise<UserLearning> {
+    return request(`/admin/users/${encodeURIComponent(id)}/assessments/clear-cooldown`, { method: 'POST', body: stageId ? { stageId } : {} });
+  },
+
+  /** The first-run setup and placement across every account (guests are not counted). */
+  async onboardingAnalytics(): Promise<OnboardingAnalytics> {
+    return request('/admin/analytics/onboarding');
   },
 
   /* Rules & rewards: the settings store. Every learner picks a change up within one health probe. */

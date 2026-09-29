@@ -9,6 +9,9 @@ export type {
   MissSubmission
 } from './SessionProvider';
 export type { ReviewAnswerOptions, ReviewAnswerOutcome, ReviewStart } from './useReview';
+export type { AssessmentStartResult, AssessmentSubmitResult, PlacementStatus, TestOutStatus } from './useAssessments';
+export { assessmentBlockText, describeRetry } from './assessments';
+export type { AssessmentRequest } from './assessments';
 export { useLeveling } from './useLeveling';
 export type { Leveling } from './useLeveling';
 export { groupIntoStages, makeBundle, loadFromApi, withUnits } from './content';

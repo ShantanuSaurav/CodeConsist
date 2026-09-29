@@ -4,11 +4,11 @@ import { useLeveling, useSession } from '@/platform/session';
 import { Challenge, ExecutionResult } from '@/types';
 import { Answer, optionOrder } from '@/platform/grading-engine/answers';
 import { isRefusedRun } from '@/platform/execution/compilerService';
-import { stageStatus, unitStates } from '@/platform/progress';
+import { maxRunsFor, stageStatus, unitStates } from '@/platform/progress';
 import { fillCopy, revealCap } from '@/platform/settings';
 import { eventBus, useAppEvent } from '@/platform/events';
 import type { AppEvents } from '@/platform/events';
-import { isPassingSolve, rawScore, scoreSolve, xpForSolve } from '@/platform/xp-leveling/leveling';
+import { isPassingSolve, rawScore, scoreSolve, xpForSolve, xpForTestOut } from '@/platform/xp-leveling/leveling';
 import { achievements } from '@/platform/xp-leveling/insights';
 import { CodeBlock, GoalMetCard, LearningModeSwitch, useBodyScrollLock, useFocusTrap, useToast } from '@/ui';
 import { checkAnswer, definitionFor, emptyAnswer, isAnswerComplete, isCodeChallenge, typeLabel } from '../challenge-types';
@@ -20,6 +20,7 @@ import { ConceptTeaching, LessonComplete, PracticeExercise } from './lesson';
 import { FeedbackBanner } from './lesson/FeedbackBanner';
 import { useAttemptFlow } from './lesson/useAttemptFlow';
 import { LearningModeChooser } from './LearningModeChooser';
+import { AssessmentPanel, assessmentHeading } from './AssessmentPanel';
 
 /**
  * The end screen, with the XP count-up and the level-up screen: fetched when
@@ -65,7 +66,9 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     releaseCelebrations,
     habits,
     completeReview,
-    reviewSummary
+    reviewSummary,
+    submitAssessment,
+    failAssessment
   } = useSession();
   const { notify } = useToast();
   const {
@@ -95,12 +98,23 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     goToChallenge,
     openStageTest,
     openPractice,
-    openUnit
+    openUnit,
+    assessmentRun,
+    noteAssessmentResult,
+    leaveAssessment,
+    cancelLeave
   } = usePracticeSession();
   const { rankTitle, xpForLevel } = useLeveling();
   useBodyScrollLock(isOpen);
 
   const isTestMode = activeMode === 'test';
+  // A test-out or placement (Phase 5): a stage test taken as a test - no
+  // mode choice, no teaching, no answer shown, no skip; its own runs and
+  // pass mark, and the server records the pass.
+  const isAssessment = activeMode === 'assessment' && assessmentRun !== null;
+  const assessmentView = isAssessment && assessmentRun?.screen === 'running' ? assessmentRun.view : null;
+  /** Runs that can still reach the pass mark on this test. */
+  const maxRuns = assessmentView?.rules.maxRuns ?? Infinity;
   // A Practice session (review): questions the learner solved before - no
   // mode choice, no concept teaching, its own tries and XP (`review` rules).
   const isReviewMode = activeMode === 'review' && activeReview !== null;
@@ -112,11 +126,11 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   // The stage test is the same in both modes. Lessons ask for a mode once
   // (`learningMode === null`) and then follow it; Learn mode is the only
   // place concept teaching, practice markers and immediate explanations show.
-  const choosingMode = !isTestMode && !isReviewMode && learningMode === null;
+  const choosingMode = !isTestMode && !isReviewMode && !isAssessment && learningMode === null;
   // Learn mode works on every lesson: a concept is taught first where the
   // lesson has one, the reading starts open, and a wrong answer is explained
   // straight away (its attempt budget, `feedback.attemptsBeforeReveal.learn`).
-  const learnMode = !isTestMode && !isReviewMode && learningMode === 'learn';
+  const learnMode = !isTestMode && !isReviewMode && !isAssessment && learningMode === 'learn';
 
   // "Review the concept" re-opens a teaching sequence that was already seen.
   // Reset per challenge, like every other piece of per-challenge state.
@@ -254,7 +268,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   // Kept per slot of the run (question and round), so a slot gone back to is as it was left.
   const flow = useAttemptFlow({ challenge, slotKey: activeSlot ? slotKey(activeSlot) : null, context: answerContext, learningMode, settings });
   /** Missed questions come back at the end of the unit (never on the stage test) - or once at the end of a Practice session. */
-  const requeueAllowed = isReviewMode ? settings.review.requeueMissed : settings.feedback.requeue.enabled && !isTestMode;
+  const requeueAllowed = isReviewMode ? settings.review.requeueMissed : settings.feedback.requeue.enabled && !isTestMode && !isAssessment;
   const maxRounds = runMaxRounds;
   /** A Practice session: today's Practice XP limit reached, or the session over on the server. */
   const [reviewCapped, setReviewCapped] = useState(false);
@@ -328,7 +342,11 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const badgeOptions = useMemo(() => ({ perfectRequiresNoHints: settings.units.perfectRequiresNoHints }), [settings.units.perfectRequiresNoHints]);
   const runKey = isReviewMode
     ? `review:${activeReview?.sessionId}`
-    : activeStage
+    : isAssessment
+      ? assessmentView
+        ? `assessment:${assessmentView.id}:${assessmentView.current}`
+        : null
+      : activeStage
       ? `${activeStage.id}:${isTestMode ? 'test' : activeUnit?.id ?? 'lessons'}`
       : null;
   const run = useUnitRun(
@@ -410,6 +428,39 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
 
   const award = useCallback(
     async (target: Challenge, usedAttempts: number, submission: { answer?: unknown; code?: string }) => {
+      // A test-out or placement test: the server (or a guest's local engine)
+      // judges the runs against the record's pass mark and records the pass.
+      // Nothing is paid here first - what it paid arrives with the answer.
+      if (isAssessment) {
+        const view = assessmentView;
+        const stageId = view?.current;
+        if (!view || !stageId) return;
+        const owner = slotOnScreen.current;
+        setPendingAwards((n) => n + 1);
+        try {
+          const res = await submitAssessment(view, target, { attempts: usedAttempts, hintsUsed: revealedHints, ...submission });
+          if (res.failed) {
+            // Not recorded (offline, the runner busy): not counted - try again.
+            notify(res.error ?? 'That could not be saved. Try again in a moment.', 'error');
+            if (slotOnScreen.current === owner) {
+              setChecked(false);
+              setIsCorrect(false);
+              setAttempts((n) => Math.max(0, n - 1));
+            }
+            return;
+          }
+          if (res.rejected) {
+            // The server checked it and disagreed: its word wins; the run counted.
+            notify(res.error ?? 'The server did not accept that answer.', 'error');
+            if (slotOnScreen.current === owner) setIsCorrect(false);
+            return;
+          }
+          noteAssessmentResult(res.assessment, { stageId, passed: res.passed, xp: res.awardedXp });
+        } finally {
+          setPendingAwards((n) => Math.max(0, n - 1));
+        }
+        return;
+      }
       const wasAlreadySolved = stats.completedChallenges.includes(target.id);
       // Every try and hint this question took in the run, across the slots
       // it came back in - and whether its answer was shown before this solve.
@@ -522,6 +573,11 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     [
       completeChallenge,
       completeReview,
+      isAssessment,
+      assessmentView,
+      submitAssessment,
+      noteAssessmentResult,
+      notify,
       isReviewMode,
       activeReview,
       noteReviewResolved,
@@ -592,7 +648,9 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
       // XP, no step towards "Show me the solution" - and there is no verdict
       // and no miss. The console shows the server's sentence; "Run tests"
       // stays where it was.
-      if (isRefusedRun(result)) {
+      // A test-out has a fixed number of runs: one that could not run at all
+      // (no engine for the language here) is not one of them either.
+      if (isRefusedRun(result) || (isAssessment && result.engine === 'none' && result.status !== 'passed')) {
         if (stillMine()) {
           setAttempts((n) => Math.max(0, n - 1));
           setExecResult(result);
@@ -640,7 +698,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         setProgressMessage('');
       }
     }
-  }, [challenge, isRunning, attempts, code, executeCode, award, recordMiss, answerContext, noteCheck, playSound]);
+  }, [challenge, isRunning, attempts, code, executeCode, award, recordMiss, answerContext, noteCheck, playSound, isAssessment]);
 
   /**
    * Changing an answer after a wrong check clears the red highlighting, so the
@@ -668,6 +726,29 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
       setAnswer(null);
     }
   }, [challenge]);
+
+  /**
+   * A test-out or placement test with no run left that can reach the pass
+   * mark: it is not passed. "See the result" records that and moves on.
+   */
+  const outOfRuns = Boolean(assessmentView) && checked && !isCorrect && attempts >= maxRuns;
+  const seeAssessmentResult = useCallback(async () => {
+    const view = assessmentView;
+    const stageId = view?.current;
+    if (!view || !stageId || pendingAwards > 0) return;
+    setPendingAwards((n) => n + 1);
+    try {
+      const ended = await failAssessment(view, 'out-of-runs', attempts);
+      // Not recorded (offline, a server error): stay on this test and say so.
+      if (!ended) {
+        notify('That could not be saved. Check your connection and try again.', 'error');
+        return;
+      }
+      noteAssessmentResult(ended, { stageId, passed: false, xp: 0 });
+    } finally {
+      setPendingAwards((n) => Math.max(0, n - 1));
+    }
+  }, [assessmentView, pendingAwards, failAssessment, attempts, noteAssessmentResult, notify]);
 
   /**
    * "Continue" once the answer was shown (or a right answer took too much
@@ -715,11 +796,15 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT');
 
       if (e.key === 'Escape') {
-        closePractice();
+        // A running test-out asks before it is left; Escape again keeps going.
+        if (assessmentRun?.confirmingLeave) cancelLeave();
+        else closePractice();
         return;
       }
 
       if (typing) return;
+      // The leave question and the screens around a test have their own buttons.
+      if (isAssessment && (assessmentRun?.confirmingLeave || !assessmentView)) return;
       // The mode chooser and the concept walk-through have their own buttons;
       // number keys and Enter belong to the question, which is not on screen.
       if (questionHidden) return;
@@ -769,6 +854,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         else if (checked && isCorrect) advance();
         // The answer is shown - just now, or on a slot gone back to: Continue.
         else if (flow.revealed) handleContinue();
+        else if (outOfRuns) void seeAssessmentResult();
         else if (checked) handleTryAgain();
         else if (challenge && isCodeType(challenge)) handleRun();
         else if (challenge && isAnswerComplete(challenge, currentAnswer)) handleCheck();
@@ -796,7 +882,13 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     handleCheck,
     handleRun,
     handleTryAgain,
-    handleContinue
+    handleContinue,
+    isAssessment,
+    assessmentRun?.confirmingLeave,
+    assessmentView,
+    cancelLeave,
+    outOfRuns,
+    seeAssessmentResult
   ]);
 
   // Trap Tab inside the dialog while open, restore focus to the opener on close,
@@ -815,6 +907,63 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   }, [finished, isReviewMode, runKey, sessionSolved.length, challenges, sessionXp]);
 
   /* ----------------------------------------------------------------- render */
+
+  // A test-out or placement: its rules before it starts, another one already
+  // running, a placement test passed, the result - or, rarely, a stage test
+  // this bank no longer holds (changed or hidden while it was open).
+  if (isOpen && isAssessment && assessmentRun && (!assessmentView || !challenge)) {
+    const heading = assessmentRun.view
+      ? assessmentHeading(assessmentRun.view, activeStage, assessmentRun.screen === 'running' ? null : assessmentRun.lastStageId)
+      : assessmentRun.request.kind === 'placement'
+        ? 'Placement'
+        : `Test out${activeStage ? ` · Stage ${String(activeStage.index).padStart(2, '0')}` : ''}`;
+    return (
+      <div className="modal-overlay" onMouseDown={closePractice}>
+        <div
+          className="modal-card practice-card"
+          onMouseDown={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-label={heading}
+          ref={dialogRef}
+          tabIndex={-1}
+        >
+          <div className="modal-header">
+            <div className="modal-header-main">
+              <div className="modal-stage-badge">{heading}</div>
+              <h3 className="modal-title">
+                {activeStage?.name ??
+                  fillCopy(settings.placement.copy.introTitle, {
+                    passMark: settings.placement.passMark,
+                    maxRuns: maxRunsFor(settings.placement.passMark, settings.xp.retryPenalty)
+                  })}
+              </h3>
+            </div>
+            <div className="modal-header-actions">
+              <button type="button" className="modal-close-btn" onClick={closePractice} aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          <div className="modal-body" ref={bodyRef}>
+            {assessmentView ? (
+              <div className="celebration-view">
+                <h2 className="celebration-title">This stage test is not available</h2>
+                <p>It was changed or hidden while the test was open. Closing ends this attempt.</p>
+                <div className="celebration-actions">
+                  <button type="button" className="btn btn-solid btn-lg" onClick={() => void leaveAssessment(0)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <AssessmentPanel run={assessmentRun} />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!isOpen || !challenge) return null;
 
@@ -1020,7 +1169,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={`${isReviewMode || !activeStage ? 'Practice' : activeStage.name}: ${challenge.title}`}
+        aria-label={`${isAssessment && assessmentView ? assessmentHeading(assessmentView, activeStage) : isReviewMode || !activeStage ? 'Practice' : activeStage.name}: ${challenge.title}`}
         ref={dialogRef}
         tabIndex={-1}
       >
@@ -1028,7 +1177,12 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         <div className="modal-header">
           <div className="modal-header-main">
             <div className="modal-stage-badge">
-              {isReviewMode || !activeStage ? (
+              {isAssessment && assessmentView ? (
+                <>
+                  {assessmentHeading(assessmentView, activeStage)}
+                  {activeStage ? ` · ${activeStage.name}` : ''}
+                </>
+              ) : isReviewMode || !activeStage ? (
                 <>Practice{activeStage ? ` · ${activeStage.name}` : ''}</>
               ) : (
                 <>
@@ -1055,9 +1209,14 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
             {!finished && !choosingMode && (
               <div className="modal-meta">
                 <span className={`pill pill-${challenge.difficulty}`}>{challenge.difficulty}</span>
-                {alreadySolved && !isReviewMode && <span className="pill pill-done">solved before</span>}
+                {alreadySolved && !isReviewMode && !isAssessment && <span className="pill pill-done">solved before</span>}
                 {isReviewMode && <span className="pill pill-done">practice</span>}
-                {!isTestMode && !isReviewMode && <LearningModeSwitch size="sm" value={learningMode} onChange={setLearningMode} />}
+                {assessmentView && (
+                  <span className="pill pill-test" aria-live="polite">
+                    Run {Math.min(maxRuns, checked ? Math.max(1, attempts) : attempts + 1)} of {maxRuns} · pass mark {assessmentView.rules.passMark}%
+                  </span>
+                )}
+                {!isTestMode && !isReviewMode && !isAssessment && <LearningModeSwitch size="sm" value={learningMode} onChange={setLearningMode} />}
               </div>
             )}
           </div>
@@ -1085,7 +1244,22 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
           <div className="modal-progress-bar" style={{ width: `${percent}%` }} />
         </div>
 
-        {!finished && !isTestMode && !questionHidden && (
+        {/* Leaving a running test-out ends the attempt: asked, not assumed. */}
+        {assessmentView && assessmentRun?.confirmingLeave && (
+          <div className="assessment-leave" role="alertdialog" aria-label="Leave this test?">
+            <span>Leaving ends this attempt, and it counts as not passed.</span>
+            <div className="assessment-leave-actions">
+              <button type="button" className="btn btn-line btn-sm" onClick={cancelLeave} autoFocus>
+                Keep going
+              </button>
+              <button type="button" className="btn btn-solid btn-sm" onClick={() => void leaveAssessment(attempts)}>
+                End the test
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!finished && !isTestMode && !isAssessment && !questionHidden && (
           <nav className="challenge-dots" aria-label={isReviewMode ? 'Questions in this Practice session' : activeUnit ? 'Questions in this unit' : 'Challenges in this stage'}>
             {challenges.map((c, i) => {
               const slot = slots[i];
@@ -1301,7 +1475,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                       // Once the answer is shown there is nothing left to answer here: Continue.
                       locked={(checked && isCorrect) || flow.revealed || belowPass}
                       reveal={flow.revealed}
-                      notes={flow.notesFor(currentAnswer, checked, isCorrect)}
+                      notes={isAssessment ? [] : flow.notesFor(currentAnswer, checked, isCorrect)}
                       ruledOut={flow.ruledOut}
                     />
                   );
@@ -1341,7 +1515,8 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
               })()}
 
               {/* ------------------------------------------------------ hints */}
-              {hints.length > 0 && (
+              {/* In a test-out or placement, only when its rules allow hints. */}
+              {hints.length > 0 && (!assessmentView || assessmentView.rules.hintsAllowed) && (
                 <div className="hint-area">
                   {hints.slice(0, revealedHints).map((hint, i) => (
                     <div className="hint-card" key={i}>
@@ -1388,7 +1563,10 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                   xpReward={previewXp}
                   runLabel={isReviewMode ? 'session' : 'unit'}
                   practice={
-                    isReviewMode
+                    // A test-out pass: what it paid shows on the next screen, not here.
+                    assessmentView
+                      ? { xp: 0, capped: false, pending: true }
+                      : isReviewMode
                       ? lastAwarded?.challengeId === challenge.id
                         ? { xp: lastAwarded.xp, capped: reviewCapped }
                         : { xp: 0, capped: false, pending: true }
@@ -1440,7 +1618,11 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
           <div className="modal-footer">
             <div className="footer-left">
               <span className="challenge-xp-reward">
-                {isReviewMode ? practiceXpLine(settings.review.xp.correctFirstTry, reviewRemaining) : `+${challenge.xpReward} XP`}
+                {isReviewMode
+                  ? practiceXpLine(settings.review.xp.correctFirstTry, reviewRemaining)
+                  : assessmentView
+                    ? `Up to +${xpForTestOut(challenge.xpReward, assessmentView.rules.xpPercent, 1, 0, settings.xp)} XP`
+                    : `+${challenge.xpReward} XP`}
               </span>
               <span className="footer-count">
                 {activeChallengeIndex + 1} / {challenges.length}
@@ -1458,7 +1640,16 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                 </button>
               )}
 
-              {checked && isCorrect && failedPass !== null ? (
+              {assessmentView && checked && isCorrect ? (
+                // The pass is being recorded; the next screen follows by itself.
+                <button type="button" className="btn btn-solid" disabled>
+                  {pendingAwards > 0 ? 'Checking…' : 'Saved'}
+                </button>
+              ) : outOfRuns ? (
+                <button type="button" className="btn btn-solid" onClick={() => void seeAssessmentResult()} disabled={pendingAwards > 0}>
+                  See the result
+                </button>
+              ) : checked && isCorrect && failedPass !== null ? (
                 <button type="button" className="btn btn-solid" onClick={() => resetForChallenge(challenge)}>
                   Retry lesson
                 </button>
@@ -1479,13 +1670,17 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
               ) : checked ? (
                 <>
                   {/* Skipping is only for a lesson already solved on an earlier visit; an unsolved one gates everything after it. */}
-                  {!isTestMode && stats.completedChallenges.includes(challenge.id) && (
+                  {!isTestMode && !isAssessment && stats.completedChallenges.includes(challenge.id) && (
                     <button type="button" className="btn btn-line" onClick={advance} disabled={finishBlocked}>
                       Skip
                     </button>
                   )}
                   <button type="button" className="btn btn-solid" onClick={handleTryAgain}>
-                    {Number.isFinite(flow.left) && flow.left > 0 && reveal ? `Try again · ${flow.left} left` : 'Try again'}
+                    {assessmentView
+                      ? `Try again · ${Math.max(0, maxRuns - attempts)} ${maxRuns - attempts === 1 ? 'run' : 'runs'} left`
+                      : Number.isFinite(flow.left) && flow.left > 0 && reveal
+                        ? `Try again · ${flow.left} left`
+                        : 'Try again'}
                   </button>
                 </>
               ) : isCodeType(challenge) ? (

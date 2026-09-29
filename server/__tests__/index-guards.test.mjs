@@ -139,8 +139,36 @@ describe('the premium lock is wired into every route that credits or grades a le
     // The routes themselves live in server/progress-routes.js (HTTP tests in
     // premium-gate.test.mjs); this is the wiring that hands them the gate.
     const progress = source.slice(source.indexOf('createProgressRouter({'), source.indexOf('/* ---------------------------------------------------------------- activity */'));
-    expect(progress).toMatch(/checkSolveAccess: \(user, challenge\) => checkSolveAccess\(user, challenge, premiumContext\('solve'\)\)/);
+    // The solve gets the premium context plus the stage order (Phase 5).
+    expect(progress).toMatch(/checkSolveAccess: \(user, challenge\) => checkSolveAccess\(user, challenge, progressionContext\('solve'\)\)/);
     expect(progress).toMatch(/mergeAccess: \(user\) => mergeAccess\(user, premiumContext\('merge'\)\)/);
+    expect(progress).toContain('progressionContext: progressionContent');
+    // The merge's claim checks and stage order (Phase 5).
+    expect(progress).toContain('progression: { verifyClaims, acceptClaims, filterMerge }');
+  });
+
+  it('builds the solve context from the premium one, with the stage order under access.solveGate', () => {
+    const start = source.indexOf('function progressionContext(route)');
+    expect(start).toBeGreaterThan(-1);
+    const fn = source.slice(start, source.indexOf('\n}\n', start));
+    expect(fn).toContain('...premiumContext(route)');
+    expect(fn).toContain("solveGate: setting('access.solveGate', 'log')");
+    expect(fn).toContain('progressFor: (user) => store.getProgress(user.id)');
+  });
+
+  it('the solve route calls checkSolveAccess( before it runs any code (server/progress-routes.js)', async () => {
+    const routes = (await readFile(path.resolve(path.dirname(INDEX), 'progress-routes.js'), 'utf8')).replace(/\r\n/g, '\n');
+    const solve = routes.slice(routes.indexOf("'/progress/solve'"), routes.indexOf("'/progress/merge'"));
+    expect(solve).toContain('checkSolveAccess(');
+    expect(solve.indexOf('checkSolveAccess(')).toBeLessThan(solve.indexOf('verifySubmission('));
+    expect(solve).toContain('status(403)');
+  });
+
+  it('mounts the assessment routes with the solve limit on submits', () => {
+    const mount = source.slice(source.indexOf('createAssessmentRouter({'), source.indexOf('/* ---------------------------------------------------------------- activity */'));
+    expect(mount).toContain('requireAuth');
+    expect(mount).toContain("submitLimit: limitBy('solve.account', byAccount)");
+    expect(mount).toContain('verifySubmission');
   });
 
   it('gates /api/grade before it grades anything', () => {
@@ -215,6 +243,9 @@ describe('rate limits', () => {
     expect(execute).toContain("limitBy('execute.account', byAccount)");
     expect(execute).toContain("limitBy('execute.ip', byAddress)");
     expect(source).toContain("solveLimit: limitBy('solve.account', byAccount)");
+    // A merge is a solve for the limits, and so is each guest claim it runs (Phase 5).
+    expect(source).toContain("mergeLimit: limitBy('solve.account', byAccount)");
+    expect(source).toContain("chargeClaimRun: chargeBy('solve.account', byAccount)");
     expect(source).toContain("writeLimit: limitBy('write.account', byAccount)");
     expect(source).toContain("limit: limitBy('passwordReset.ip', byAddress)");
   });

@@ -18,7 +18,88 @@ import { DEFAULT_GOAL_SETTINGS } from '../habits/goals';
 import { DEFAULT_HABIT_SETTINGS } from '../habits/streak';
 import { DEFAULT_FEEDBACK_SETTINGS } from './budget';
 import { DEFAULT_REVIEW_SETTINGS } from '../review/defaults';
-import type { Settings } from './types';
+import { DEFAULT_PLACEMENT_SETTINGS, DEFAULT_TEST_OUT_SETTINGS } from '../progress/access';
+import type { OnboardingSettings, Settings } from './types';
+
+function jsonCopy<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * The first-run setup (Phase 5). The mode cards' words are the ones
+ * LearningModeChooser.tsx showed before they were editable.
+ */
+export const DEFAULT_ONBOARDING_SETTINGS: OnboardingSettings = {
+  enabled: true,
+  showAfterEnter: true,
+  dashboardReminder: true,
+  intro: {
+    title: 'Welcome to CodeConsist',
+    body: 'A few quick questions so your path fits you. It takes about a minute, and you can change every answer later in Settings.'
+  },
+  finish: {
+    title: "You're set",
+    // No promise of a placement here: one may be switched off or not open to
+    // this learner. When it is, the finish screen offers it itself.
+    body: 'Your path is ready. Every answer can be changed later in Settings.',
+    ctaLabel: 'Start learning',
+    placementCtaLabel: 'Find my level'
+  },
+  steps: [
+    { id: 'motivation', enabled: true, skippable: true, title: 'What brings you here?', subtitle: 'Pick the closest one. It only helps us suggest where to start.' },
+    { id: 'track', enabled: true, skippable: true, title: 'Pick a track', subtitle: 'You can switch tracks at any time.' },
+    { id: 'experience', enabled: true, skippable: true, title: 'How much do you already know?', subtitle: 'There is no wrong answer - you can take a placement later too.' },
+    { id: 'goal', enabled: true, skippable: true, title: 'Set a daily goal', subtitle: 'A small goal you keep beats a big one you skip.' },
+    { id: 'mode', enabled: true, skippable: true, title: 'How do you like to learn?', subtitle: 'You can change this at any time.' }
+  ],
+  motivation: {
+    options: [
+      { id: 'job', label: 'Get a job', description: 'Build the skills employers ask for.', icon: 'briefcase' },
+      { id: 'college', label: 'Do well in college', description: 'Keep up with coursework and exams.', icon: 'graduation-cap' },
+      { id: 'interviews', label: 'Prepare for interviews', description: 'Practise the kind of problems interviews use.', icon: 'target' },
+      { id: 'fun', label: 'Just for fun', description: 'Learn something new at my own pace.', icon: 'sparkles' }
+    ]
+  },
+  track: { blurbs: {} },
+  experience: {
+    options: {
+      new: { label: "I'm new to coding", description: 'Start from the very first lesson.', action: 'start', recommendMode: 'learn' },
+      some: {
+        label: 'I know a little',
+        description: 'Start at the beginning, or take a short placement to skip what you know.',
+        action: 'offer-placement',
+        recommendMode: 'learn'
+      },
+      experienced: {
+        label: "I've written code before",
+        description: 'Take a short placement to find where to start.',
+        action: 'placement',
+        recommendMode: 'practice'
+      }
+    },
+    placementPrompt: {
+      title: 'Want to skip ahead?',
+      body: 'Take a few stage tests. Each one you pass marks that stage as tested out, and you start after it.',
+      startLabel: 'Take the placement',
+      skipLabel: 'Start from the beginning'
+    }
+  },
+  mode: {
+    options: {
+      learn: {
+        title: 'Learn & Understand',
+        flow: 'Theory → Example → Try it → Quick check → Practice',
+        blurb:
+          'New ideas are explained before you are asked about them, wrong answers explain themselves straight away, and the stage article is a click away.'
+      },
+      practice: {
+        title: 'Practice Mode',
+        flow: 'Challenge → Solve → Grade → Next',
+        blurb: 'Straight into the questions. Same challenges, same real grading, same XP - just no walk-through first.'
+      }
+    }
+  }
+};
 
 export const DEFAULT_SETTINGS: Settings = {
   xp: {
@@ -148,6 +229,11 @@ export const DEFAULT_SETTINGS: Settings = {
     itemTypes: [...DEFAULT_REVIEW_SETTINGS.itemTypes],
     xp: { ...DEFAULT_REVIEW_SETTINGS.xp }
   },
+  // Phase 5: the first-run setup, placement and test-out (src/platform/progress/access.ts
+  // reads the last two). Deep copies, so nothing here shares an object with the constants.
+  onboarding: jsonCopy(DEFAULT_ONBOARDING_SETTINGS),
+  placement: jsonCopy(DEFAULT_PLACEMENT_SETTINGS),
+  testOut: jsonCopy(DEFAULT_TEST_OUT_SETTINGS),
   copy: {
     offline: {
       auth: 'Accounts are temporarily unavailable. Keep practising as a guest - your progress is saved on this device.',
@@ -179,7 +265,9 @@ export const DEFAULT_SETTINGS: Settings = {
         'Bite-sized lessons in every stage: quizzes, output prediction, fill-the-blanks, pseudocode ordering. Each new idea is explained before you are asked about it.',
       finalCta: 'Open the first stage. It takes about twenty minutes.',
       pathLine: '{stages} stages, in order, each ending in a coding test.',
-      buildStep: 'Each stage ends in a mandatory test. The next stage stays locked until you clear it.'
+      buildStep: 'Each stage ends in a mandatory test. The next stage stays locked until you clear it.',
+      pathLineWithSkip: '{stages} stages, in order, each ending in a coding test. Already know some? Take a short placement or test out of a stage.',
+      buildStepWithSkip: 'Each stage ends in a mandatory test. The next stage stays locked until you clear it - or test out of it.'
     },
     meta: {
       description:
@@ -244,6 +332,12 @@ export const DEFAULT_SETTINGS: Settings = {
       extraOrigins: []
     },
     premiumGate: 'enforce',
-    passwordResetTtlMinutes: 1440
+    passwordResetTtlMinutes: 1440,
+    // Phase 5: the stage order on the server. Log first - count what would be
+    // refused, change nothing - and enforce once the counts stay clean.
+    solveGate: 'log',
+    mergeGate: 'log',
+    requireServerVerification: true,
+    acceptGuestClaims: true
   }
 };

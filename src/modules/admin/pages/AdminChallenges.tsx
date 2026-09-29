@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, Pencil, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { Dropdown } from '@/ui';
 import { AdminChallengeRow, AdminStageRow, QuestionInput, adminApi } from '../services/adminApi';
@@ -36,8 +37,14 @@ const sourceOf = (c: AdminChallengeRow): Source => (c.custom ? 'custom' : c.modi
  * and can be deleted outright. Removing a question from a stage (hide) works
  * on all three and is reversible. Every save goes through the server's
  * content rules (and, for code, actually runs the solution).
+ *
+ * `?stage=<id>&edit=<question id>` opens that stage with the question in the
+ * wizard - the placement and test-out settings link each stage test here.
  */
 export const AdminChallenges: React.FC = () => {
+  const [params] = useSearchParams();
+  const linkedStage = params.get('stage');
+  const linkedEdit = useRef(params.get('edit'));
   const [stages, setStages] = useState<AdminStageRow[] | null>(null);
   // null until the stages arrive: '' is a real choice (all stages), so it cannot mean "not yet".
   const [stageId, setStageId] = useState<string | null>(null);
@@ -57,7 +64,7 @@ export const AdminChallenges: React.FC = () => {
       .stages()
       .then((res) => {
         setStages(res.stages);
-        setStageId(res.stages[0]?.id ?? ALL_STAGES);
+        setStageId(linkedStage && res.stages.some((s) => s.id === linkedStage) ? linkedStage : res.stages[0]?.id ?? ALL_STAGES);
       })
       .catch((err) => setError(err.message ?? 'Failed to load stages.'));
   }, []);
@@ -72,6 +79,16 @@ export const AdminChallenges: React.FC = () => {
   useEffect(() => {
     if (stageId !== null) loadChallenges(stageId);
   }, [stageId, loadChallenges]);
+
+  // A linked question opens in the wizard once its stage's rows are here (once).
+  useEffect(() => {
+    const id = linkedEdit.current;
+    if (!id || !challenges) return;
+    const row = challenges.find((c) => c.id === id);
+    if (!row) return;
+    linkedEdit.current = null;
+    setWizard({ existing: row });
+  }, [challenges]);
 
   const stageName = (id: string) => stages?.find((s) => s.id === id)?.name ?? id;
 

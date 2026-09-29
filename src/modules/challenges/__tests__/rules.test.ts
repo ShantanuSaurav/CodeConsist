@@ -73,6 +73,16 @@ describe('revealsAnswers', () => {
     expect(contextForMode('lessons')).toBe('lesson');
     // A Practice session: its own budget (review.attemptsBeforeReveal) and notes switch.
     expect(contextForMode('review')).toBe('review');
+    // A test-out or placement (Phase 5): graded like a test, never revealed.
+    expect(contextForMode('assessment')).toBe('assessment');
+  });
+
+  it('never shows the answer or the solution in a test-out or placement, whatever failed', () => {
+    const context = contextForMode('assessment');
+    expect(revealsAnswers(context, { isStageTest: true })).toBe(false);
+    for (const attempts of [0, 2, 5, 50]) {
+      expect(canRevealSolution({ challenge: { isStageTest: true, solutionCode: 'x' }, context, isCorrect: false, attempts, afterFailedRuns: 1 })).toBe(false);
+    }
   });
 });
 

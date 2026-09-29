@@ -18,7 +18,7 @@ export type AnswerContext = 'lesson' | 'test' | 'review' | 'library' | 'assessme
 
 /** The context a practice-session mode puts its questions in. */
 export function contextForMode(mode: PracticeMode): AnswerContext {
-  return mode === 'test' ? 'test' : mode === 'review' ? 'review' : 'lesson';
+  return mode === 'test' ? 'test' : mode === 'review' ? 'review' : mode === 'assessment' ? 'assessment' : 'lesson';
 }
 
 /** Contexts that grade what the learner already knows, so they never give the answer away. */

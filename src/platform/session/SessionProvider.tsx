@@ -10,6 +10,7 @@ import React, {
 import {
   ActivityContext,
   ActivityLog,
+  AssessmentView,
   Challenge,
   CodeDraft,
   DailyGoalOption,
@@ -19,6 +20,8 @@ import {
   LearningMode,
   LeaderboardEntry,
   MissEntry,
+  OnboardingAnswers,
+  OnboardingState,
   ReviewEvent,
   Stage,
   SupportedLanguage,
@@ -59,9 +62,32 @@ import { useHabitState } from './useHabitState';
 import { useReview } from './useReview';
 import type { ReviewAnswerOptions, ReviewAnswerOutcome, ReviewStart } from './useReview';
 import type { SolveHabitEvents } from './useHabitState';
-import { readLocalPreferences, reconcilePreferences, resolveDailyGoalId, resolveSoundOn, settledLocal, writeLocalPreferences } from './preferences';
-import type { LocalPreferences } from './preferences';
+import {
+  effectiveOnboarding,
+  needsOnboarding as learnerNeedsOnboarding,
+  readLocalOnboarding,
+  readLocalPreferences,
+  reconcileOnboarding,
+  reconcilePreferences,
+  resolveAnswers,
+  resolveDailyGoalId,
+  resolveSoundOn,
+  settledLocal,
+  withFieldPending,
+  withoutFieldsPending,
+  writeLocalOnboarding,
+  writeLocalPreferences
+} from './preferences';
+import type { LocalOnboarding, LocalPreferences, SyncedField } from './preferences';
 import { createCelebrationHold } from './celebrationHold';
+import { claimsToRetry, heldChallengesMessage, nextHeldChallenges, rejectedClaimsMessage } from './mergeNotices';
+import type { MergeResponse } from '../api-client/api';
+import { useAssessments } from './useAssessments';
+import type { AssessmentStartResult, AssessmentsApi, PlacementStatus, TestOutStatus } from './useAssessments';
+import type { AssessmentRequest } from './assessments';
+
+/** The 403 reasons of the stage order (server/progression.js): the tab's copy of the rules or progress is behind. */
+const LOCK_REASONS = new Set(['stage-locked', 'test-locked', 'stage-unavailable']);
 
 /**
  * How long a typed answer may be when it is kept as a miss. The real cap is
@@ -200,6 +226,40 @@ export interface SessionContextType {
   learningMode: LearningMode | null;
   setLearningMode: (mode: LearningMode) => void;
 
+  /* first-run setup (Phase 5) */
+  /** Finished, put aside, or null (not yet): the account's, else this browser's. */
+  onboardingState: OnboardingState | null;
+  /**
+   * Send this learner to the setup? Only one who has not finished it, has not
+   * put it aside and has solved nothing - never anyone with progress.
+   */
+  needsOnboarding: boolean;
+  /** The setup's answers so far, to fill it in again ("Redo setup"). */
+  onboardingAnswers: { motivation: string | null; experience: string | null };
+  /** The setup is done: its answers are applied (track, mode, goal) and kept, here and on the account. */
+  completeOnboarding: (answers: OnboardingAnswers) => void;
+  /** "Not now": the setup is put aside and not offered again. */
+  dismissOnboarding: () => void;
+
+  /* test-out and placement (Phase 5) - see ./useAssessments */
+  /** False while a signed-in learner is offline: a test-out cannot start then (its unlock must reach the account). */
+  assessmentsAvailable: boolean;
+  /** The learner's open test-out or placement, if any (one at a time). */
+  activeAssessment: AssessmentView | null;
+  /** May this stage be tested out of now - and if not, why, and until when. */
+  testOutStatus: (stageId: string) => TestOutStatus;
+  /** May a placement start on this track now, and which stage tests it would hold. */
+  placementStatus: (trackId: string) => PlacementStatus;
+  refreshAssessmentStatus: () => Promise<void>;
+  /** Start a test-out or a placement (the server's, or a guest's local one). A running one comes back as `running`. */
+  startAssessment: (request: AssessmentRequest) => Promise<AssessmentStartResult>;
+  /** Hand in the current stage test of a running assessment (the answer already checked here). */
+  submitAssessment: AssessmentsApi['submitAssessment'];
+  /** The current stage test was not passed: given up, or out of runs. */
+  failAssessment: AssessmentsApi['failAssessment'];
+  /** End a placement early. */
+  finishAssessment: AssessmentsApi['finishAssessment'];
+
   /* rules */
   /**
    * The learning rules - XP, levels and ranks, streak - as the server last
@@ -286,8 +346,17 @@ export interface SessionContextType {
    * that does not fit the challenge, is ignored. Never touches XP or attempts.
    */
   recordMiss: (challenge: Challenge, submission: MissSubmission, options?: { context?: ActivityContext; final?: boolean }) => void;
-  /** Record that a Concept's teaching sequence has been shown, so it is not repeated. Local only; earns nothing. */
+  /**
+   * Record that a Concept's teaching sequence has been shown, so it is not
+   * repeated. Earns nothing. Signed in, it goes to the account too (Phase
+   * 5), so another device does not teach it again.
+   */
   markConceptSeen: (conceptId: string) => void;
+  /**
+   * Forget the solves a merge held back (`stats.heldChallenges`, listed on
+   * the Learn page): the learner has read the notice.
+   */
+  dismissHeldChallenges: () => void;
 
   /* Practice sessions (review) */
   /**
@@ -392,6 +461,8 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined);
 const DRAFT_DEBOUNCE_MS = 1500;
 /** How long a daily-goal choice waits before it goes up (the arrow keys pick each option in turn). */
 const GOAL_SEND_DELAY_MS = 600;
+/** How long a track or learning-mode change waits before it goes up to the account (Phase 5). */
+const PREFERENCE_SYNC_DELAY_MS = 1500;
 
 /**
  * Own-property lookup only. A challenge id of `__proto__` or `constructor`
@@ -462,6 +533,27 @@ function skippedLockedMessage(skipped: string[] | undefined): string | null {
   return `${n} ${n === 1 ? 'solve was' : 'solves were'} not added to your account: ${n === 1 ? 'it is' : 'they are'} in premium stages this account has not unlocked.`;
 }
 
+/**
+ * Every info toast after a merge that left something out: premium solves,
+ * solves in stages the account has not opened (Phase 5), and a guest's
+ * test-outs that did not hold up when the server checked them.
+ */
+function mergeMessages(merged: MergeResponse | null | undefined, stageName: (stageId: string) => string): string[] {
+  if (!merged) return [];
+  return [skippedLockedMessage(merged.skippedLocked), heldChallengesMessage(merged.droppedChallenges), rejectedClaimsMessage(merged.claims, stageName)].filter(
+    (m): m is string => Boolean(m)
+  );
+}
+
+/** The stats with the merge's held-back solves remembered (for the Learn page), or none left. */
+function withHeld(stats: UserStats, dropped: readonly string[] | undefined): UserStats {
+  const held = nextHeldChallenges(stats.heldChallenges, dropped, stats.completedChallenges);
+  const next = { ...stats };
+  if (held.length) next.heldChallenges = held;
+  else delete next.heldChallenges;
+  return next;
+}
+
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 }
@@ -501,7 +593,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   // The admin's learning rules, cached, refetched when the server reports a
   // new revision (see useSettingsState). Read through a ref in the long-lived
   // handshake closures below.
-  const { settings, settingsRevision, noteRevision } = useSettingsState();
+  const { settings, settingsRevision, noteRevision, refreshSettings } = useSettingsState();
   const settingsRef = useRef(settings);
   useEffect(() => {
     settingsRef.current = settings;
@@ -589,6 +681,24 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     setLocalPrefsState(next);
     writeLocalPreferences(next);
   }, []);
+
+  // This device's track and learning mode (Phase 5), for the handshake
+  // closures below; kept current by the track and mode section further down.
+  const deviceChoiceRef = useRef<{ trackId: string | null; learningMode: LearningMode | null }>({
+    trackId: readString(STORAGE_KEYS.track) ?? 'core',
+    learningMode: ((raw) => (raw === 'learn' || raw === 'practice' ? raw : null))(readString(STORAGE_KEYS.learningMode))
+  });
+  /** The track and mode the account has, as last heard - so adopting them is never sent back as a change. */
+  const lastSyncedRef = useRef<{ trackId: string | null; learningMode: LearningMode | null } | null>(null);
+  /** Switch this device to the account's track and mode (assigned in the track section below). */
+  const adoptDeviceChoiceRef = useRef<(adopt: { trackId?: string; learningMode?: LearningMode }) => void>(() => {});
+  /** The first-run setup in this browser (Phase 5): a guest's own, or one not on the account yet. */
+  const [localOnboarding, setLocalOnboardingState] = useState<LocalOnboarding>(readLocalOnboarding);
+  const setLocalOnboarding = useCallback((next: LocalOnboarding) => {
+    setLocalOnboardingState(next);
+    writeLocalOnboarding(next);
+  }, []);
+
   const signedInUser = user && user.provider !== 'guest' ? user : null;
   const soundOn = resolveSoundOn(signedInUser?.preferences, localPrefs, settings.celebrations.sound.defaultOn);
   const soundRef = useRef({ soundOn, sound: settings.celebrations.sound });
@@ -686,34 +796,72 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       // A goal choice made here for an option switched off since is dropped
       // rather than sent (the server would refuse the whole patch with it).
       const goals = settingsRef.current.goals;
-      const { patch, local: next } = reconcilePreferences(profile.id, profile.preferences, local, {
+      const bank = bundleRef.current;
+      const visible = bank ? bank.tracks.filter((t) => !bank.hiddenTracks.includes(t.id)).map((t) => t.id) : null;
+      const motivations = settingsRef.current.onboarding.motivation.options;
+      const reconciled = reconcilePreferences(profile.id, profile.preferences, local, {
         zone: browserTimeZone(),
-        isGoalAvailable: (id) => isGoalOptionAvailable(id, goals)
+        isGoalAvailable: (id) => isGoalOptionAvailable(id, goals),
+        // Phase 5: this device's track and mode, and the setup's answers.
+        device: deviceChoiceRef.current,
+        isTrackAvailable: visible ? (id) => visible.includes(id) : undefined,
+        isMotivation: (id) => motivations.some((o) => o.id === id)
       });
+      const next = reconciled.local;
+      // The account's track and mode, on this device - known now, so never sent back.
+      lastSyncedRef.current = { trackId: profile.preferences?.trackId ?? null, learningMode: profile.preferences?.learningMode ?? null };
+      adoptDeviceChoiceRef.current(reconciled.adopt);
+      // The setup, finished or put aside here (as a guest, or offline), goes up with the rest.
+      const onboardingLocal = readLocalOnboarding();
+      const onboarding = reconcileOnboarding(profile.id, profile.onboarding, onboardingLocal);
+      setLocalOnboarding(onboarding.local);
+      const patch: PreferencesPatch | null = onboarding.action ? { ...(reconciled.patch ?? {}), onboarding: onboarding.action } : reconciled.patch;
       if (!patch) {
         setLocalPrefs(next);
         return;
       }
+      const landed = (body: PreferencesPatch) => {
+        if (body.trackId !== undefined || body.learningMode !== undefined) {
+          const synced = lastSyncedRef.current ?? { trackId: null, learningMode: null };
+          lastSyncedRef.current = {
+            trackId: body.trackId !== undefined ? body.trackId ?? null : synced.trackId,
+            learningMode: body.learningMode !== undefined ? body.learningMode ?? null : synced.learningMode
+          };
+        }
+        if (body.onboarding) setLocalOnboarding({ ...readLocalOnboarding(), pendingSync: null });
+      };
       const send = async (body: PreferencesPatch) => {
         const res = await api.updatePreferences(body);
         if (res?.user) setUser((prev) => (prev && prev.id === res.user.id ? { ...prev, ...res.user } : prev));
+        landed(body);
       };
       try {
         await send(patch);
         setLocalPrefs(settledLocal(next, patch));
       } catch (err) {
         // Unreachable: everything stays pending for next time.
-        if (!(err instanceof ApiError && err.status === 400)) return setLocalPrefs(local);
-        // Refused outright, with no goal in it: nothing it carried can ever land.
-        if (!('dailyGoalId' in patch)) return setLocalPrefs(settledLocal(next, patch));
-        // Refused with a goal in it. The goal is the one choice the server may
-        // no longer take (its options are the admin's, and may have changed
-        // since this tab read them): it is dropped - the account's is the one
-        // in use - and the rest goes up once more without it.
+        if (!(err instanceof ApiError && err.status === 400)) {
+          setLocalOnboarding(onboardingLocal);
+          return setLocalPrefs(local);
+        }
+        // The choices the server may no longer take: the goal (its options
+        // are the admin's), the track (one unpublished since) and the setup's
+        // motivation answer (one removed). Refused with none of them in it,
+        // nothing it carried can ever land.
+        const doubtful = (['dailyGoalId', 'trackId', 'motivation'] as const).filter((field) => field in patch);
+        if (doubtful.length === 0) {
+          landed({ onboarding: patch.onboarding });
+          return setLocalPrefs(settledLocal(next, patch));
+        }
+        // Those are dropped - the account's are the ones in use - and the
+        // rest goes up once more without them.
         const accountGoal = typeof profile.preferences?.dailyGoalId === 'string' ? profile.preferences.dailyGoalId : null;
-        const dropped = settledLocal({ ...next, dailyGoalId: accountGoal }, { dailyGoalId: accountGoal });
+        let dropped: LocalPreferences = next;
+        if ('dailyGoalId' in patch) dropped = settledLocal({ ...dropped, dailyGoalId: accountGoal }, { dailyGoalId: accountGoal });
+        if ('motivation' in patch) dropped = { ...dropped, motivation: profile.preferences?.motivation ?? null };
+        dropped = withoutFieldsPending(dropped, doubtful.filter((f) => f !== 'dailyGoalId') as SyncedField[]);
         const rest: PreferencesPatch = { ...patch };
-        delete rest.dailyGoalId;
+        for (const field of doubtful) delete rest[field];
         if (Object.keys(rest).length === 0) return setLocalPrefs(dropped);
         try {
           await send(rest);
@@ -723,15 +871,21 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         }
       }
     },
-    [setLocalPrefs]
+    [setLocalPrefs, setLocalOnboarding]
   );
 
   /** A guest's own choices, to go up with a merge (the server adopts them only where the account has none). */
   const guestPreferences = useCallback(() => {
     const local = readLocalPreferences();
-    const prefs: { soundOn?: boolean; dailyGoalId?: string } = {};
+    const prefs: PreferencesPatch = {};
     if (local.pendingSync === 'guest' && typeof local.soundOn === 'boolean') prefs.soundOn = local.soundOn;
     if (local.goalPendingSync === 'guest' && typeof local.dailyGoalId === 'string') prefs.dailyGoalId = local.dailyGoalId;
+    // Phase 5: this device's track and mode, and the setup's answers a guest gave.
+    const device = deviceChoiceRef.current;
+    if (device.trackId) prefs.trackId = device.trackId;
+    if (device.learningMode) prefs.learningMode = device.learningMode;
+    if (local.fieldsPending?.motivation === 'guest' && local.motivation) prefs.motivation = local.motivation;
+    if (local.fieldsPending?.experience === 'guest' && local.experience) prefs.experience = local.experience;
     return Object.keys(prefs).length > 0 ? prefs : null;
   }, []);
 
@@ -1033,6 +1187,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   const contentReady = bundle !== null;
 
+  /** What the path calls a stage (for a toast), from the bank as it is now. */
+  const stageNameOf = useCallback((stageId: string) => bundleRef.current?.stages.find((s) => s.id === stageId)?.name ?? stageId, []);
+
   /**
    * The server's bank depends on who asks - a premium stage this account has
    * not unlocked is served as stubs - so it is fetched again whenever that
@@ -1045,6 +1202,8 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   /** `refreshAccount`, for callbacks declared before it (it is assigned below). */
   const refreshAccountRef = useRef<() => Promise<void>>(async () => {});
+  /** `refreshProgress`, for callbacks declared before it (it is assigned below). */
+  const refreshProgressRef = useRef<() => Promise<void>>(async () => {});
 
   /* ------------------------------------------------- activity: bookkeeping */
 
@@ -1177,12 +1336,28 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     () => tracks.find((t) => t.track.id === selectedTrackId) ?? tracks[0] ?? EMPTY_TRACK,
     [tracks, selectedTrackId]
   );
+  /**
+   * The learner's own choice of track or mode, signed in: pending on this
+   * device until the account has it (the debounced sync below sends it; a
+   * restore sends one made offline - see ./preferences reconcileField).
+   */
+  const noteDeviceChoice = useCallback(
+    (field: 'trackId' | 'learningMode') => {
+      const account = userRef.current && userRef.current.provider !== 'guest' && getToken() ? userRef.current : null;
+      if (account) setLocalPrefs(withFieldPending(readLocalPreferences(), field, account.id));
+    },
+    [setLocalPrefs]
+  );
+
   const setSelectedTrack = useCallback(
     (trackId: string) => {
       // Only a track that exists (and is visible) can be selected; anything else is ignored.
-      if (visibleTracks.some((t) => t.id === trackId)) setSelectedTrackId(trackId);
+      if (!visibleTracks.some((t) => t.id === trackId)) return;
+      setSelectedTrackId(trackId);
+      deviceChoiceRef.current = { ...deviceChoiceRef.current, trackId };
+      noteDeviceChoice('trackId');
     },
-    [visibleTracks]
+    [visibleTracks, noteDeviceChoice]
   );
 
   /* ---------------------------------------------------------- learning mode */
@@ -1190,10 +1365,73 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     const raw = readString(STORAGE_KEYS.learningMode);
     return raw === 'learn' || raw === 'practice' ? raw : null;
   });
-  const setLearningMode = useCallback((mode: LearningMode) => {
-    setLearningModeState(mode);
-    writeString(STORAGE_KEYS.learningMode, mode);
-  }, []);
+  const setLearningMode = useCallback(
+    (mode: LearningMode) => {
+      setLearningModeState(mode);
+      writeString(STORAGE_KEYS.learningMode, mode);
+      deviceChoiceRef.current = { ...deviceChoiceRef.current, learningMode: mode };
+      noteDeviceChoice('learningMode');
+    },
+    [noteDeviceChoice]
+  );
+
+  // The account's track and mode, taken on this device (a restore or a
+  // sign-in found them). Not the learner's choice here, so nothing is sent back.
+  adoptDeviceChoiceRef.current = (adopt) => {
+    if (adopt.trackId) {
+      setSelectedTrackId(adopt.trackId);
+      deviceChoiceRef.current = { ...deviceChoiceRef.current, trackId: adopt.trackId };
+    }
+    if (adopt.learningMode) {
+      setLearningModeState(adopt.learningMode);
+      writeString(STORAGE_KEYS.learningMode, adopt.learningMode);
+      deviceChoiceRef.current = { ...deviceChoiceRef.current, learningMode: adopt.learningMode };
+    }
+  };
+
+  /**
+   * The track and mode follow the account (Phase 5): a change here goes up
+   * 1.5 s after the last one, only when it differs from what the account was
+   * last known to hold (`lastSyncedRef`) - so adopting the account's own
+   * values is never echoed back. Offline it stays pending, and the next
+   * restore sends it. A track the server refuses (unpublished since) is not
+   * sent again.
+   */
+  const signedInId = user && user.provider !== 'guest' ? user.id : null;
+  useEffect(() => {
+    if (!signedInId || serverStatus !== 'online' || !getToken()) return;
+    const synced = lastSyncedRef.current;
+    // The account's values are not known yet: the restore's reconcile decides.
+    if (!synced) return;
+    const pending = readLocalPreferences().fieldsPending ?? {};
+    const patch: PreferencesPatch = {};
+    if (pending.trackId === signedInId && selectedTrackId !== synced.trackId && visibleTracks.some((t) => t.id === selectedTrackId)) patch.trackId = selectedTrackId;
+    if (pending.learningMode === signedInId && learningMode && learningMode !== synced.learningMode) patch.learningMode = learningMode;
+    const settle = (fields: SyncedField[]) => setLocalPrefs(withoutFieldsPending(readLocalPreferences(), fields));
+    if (Object.keys(patch).length === 0) {
+      // Pending, but the account already holds it: nothing to send.
+      const done = (['trackId', 'learningMode'] as const).filter((f) => pending[f] === signedInId);
+      if (done.length) settle([...done]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      api
+        .updatePreferences(patch)
+        .then((res) => {
+          lastSyncedRef.current = {
+            trackId: patch.trackId !== undefined ? patch.trackId ?? null : synced.trackId,
+            learningMode: patch.learningMode !== undefined ? patch.learningMode ?? null : synced.learningMode
+          };
+          if (res?.user) setUser((prev) => (prev && prev.id === res.user.id ? { ...prev, ...res.user } : prev));
+          settle(Object.keys(patch) as SyncedField[]);
+        })
+        .catch((err) => {
+          // Refused (a track unpublished meanwhile): nothing to retry. Offline: it stays pending.
+          if (err instanceof ApiError && err.status === 400) settle(Object.keys(patch) as SyncedField[]);
+        });
+    }, PREFERENCE_SYNC_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [signedInId, serverStatus, selectedTrackId, learningMode, visibleTracks, setLocalPrefs]);
 
   const learnerStages = activeTrack.stages;
   const learnerChallenges = useMemo(() => {
@@ -1257,29 +1495,43 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         const pendingMisses = logBelongsHere && unsyncedMisses(localLog).length > 0;
         // Practice answered offline (or as a guest) waits to be priced too.
         const pendingReviews = localBelongsHere ? pendingReviewLog(local) : [];
+        // So do a guest's test-outs the server could not check at sign-in (Phase 5).
+        const pendingClaims = localBelongsHere ? local.assessmentClaims : undefined;
+        const claimList = Object.values(pendingClaims ?? {});
         const localIsAhead =
           localBelongsHere &&
           ((local.completedChallenges ?? []).some((id) => !serverSolved.has(id)) ||
             local.xp > (progress.xp ?? 0) ||
             pendingMisses ||
-            pendingReviews.length > 0);
+            pendingReviews.length > 0 ||
+            claimList.length > 0);
 
         let reconciled = progress;
         let mergedActivity: ActivityView | null = null;
         let sentReviews: ReviewEvent[] = [];
+        let dropped: string[] = [];
+        let retryClaims: UserStats['assessmentClaims'];
         if (localIsAhead) {
           try {
             // This account's own log: only what the server has not taken yet.
             const pendingOnly = Boolean(localLog.ownerId);
-            const merged = await api.mergeProgress(local, logBelongsHere ? activityForMerge(local, { pendingOnly }) : undefined, undefined, pendingReviews);
+            const merged = await api.mergeProgress(
+              local,
+              logBelongsHere ? activityForMerge(local, { pendingOnly }) : undefined,
+              undefined,
+              pendingReviews,
+              claimList
+            );
             reconciled = merged.progress;
             mergedActivity = merged.activity ?? null;
             sentReviews = pendingReviews;
-            const skipped = skippedLockedMessage(merged.skippedLocked);
-            if (skipped && !cancelled) notify(skipped, 'info');
+            dropped = merged.droppedChallenges ?? [];
+            retryClaims = claimsToRetry(pendingClaims, merged.claims);
+            if (!cancelled) for (const message of mergeMessages(merged, stageNameOf)) notify(message, 'info');
           } catch {
             // Could not reach the server after all - keep the local copy
             // rather than discarding work.
+            retryClaims = claimList.length ? pendingClaims : undefined;
             reconciled = {
               ...progress,
               // The schedule as this browser has it: the server's is behind too.
@@ -1299,13 +1551,27 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         // Practice answers another account left pending here are never sent
         // into this one; the ones just merged are no longer pending.
         setStats((prev) => {
-          const own = !prev.ownerId || prev.ownerId === me.id ? prev : { ...prev, unsynced: undefined };
-          return {
-            ...withoutPendingReviews(adoptAccountProgress(own, reconciled, settingsRef.current.levels), sentReviews),
-            ...entitlementsOf(me),
-            ownerId: me.id
-          };
+          const own = !prev.ownerId || prev.ownerId === me.id ? prev : { ...prev, unsynced: undefined, heldChallenges: undefined };
+          return withHeld(
+            {
+              ...withoutPendingReviews(adoptAccountProgress(own, reconciled, settingsRef.current.levels), sentReviews),
+              ...entitlementsOf(me),
+              ownerId: me.id,
+              // Test-outs still waiting to be checked stay, to be sent again.
+              ...(retryClaims ? { assessmentClaims: retryClaims } : {})
+            },
+            dropped
+          );
         });
+
+        // Teaching this browser has shown that the account does not know
+        // yet (kept per device before Phase 5, or marked while offline) goes
+        // up; the account's list was unioned into this one above.
+        if (localBelongsHere && Array.isArray(reconciled?.seenConcepts)) {
+          const onAccount = new Set(reconciled.seenConcepts);
+          const extras = (local.seenConcepts ?? []).filter((id) => typeof id === 'string' && !onAccount.has(id));
+          if (extras.length) api.markConceptsSeen(extras.slice(0, 500)).catch(() => {});
+        }
 
         // The account's days and misses, as the server has them. A log that
         // was just merged is adopted from the merge; otherwise it is fetched
@@ -1729,6 +1995,18 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
             notify(getCopy('premium.lockedSolve') || err.message, 'error');
             void refreshAccountRef.current().catch(() => {});
             return { ...NO_OUTCOME, rejected: true };
+          } else if (err instanceof ApiError && err.status === 403 && LOCK_REASONS.has(err.reason ?? '')) {
+            // The stage order (Phase 5): this stage is not open on the
+            // account, or its test comes before its lessons are done. This
+            // tab's rules or progress were behind the server's - rolled back
+            // like a 422, then both are fetched again so the path shows the
+            // server's truth.
+            setStats(stats);
+            activityLog.replaceActivity(activityBefore);
+            notify(err.message, 'error');
+            void refreshSettings();
+            void refreshProgressRef.current().catch(() => {});
+            return { ...NO_OUTCOME, rejected: true };
           } else if (solveWasDeferred(err)) {
             // Too many solves in a row, or every code-runner slot busy while
             // the server re-ran the code: not a verdict on the answer, and
@@ -1769,6 +2047,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       activityLog,
       habitState,
       noteRevision,
+      refreshSettings,
       clearDraftsFromMemory
     ]
   );
@@ -1872,16 +2151,139 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     notify
   });
 
+  /* ------------------------------------------------ test-out and placement */
+  // The server's routes for an account, a local engine for a guest (./useAssessments).
+  const chains = useMemo(() => tracks.map((t) => ({ trackId: t.track.id, stages: t.stages })), [tracks]);
+  const assessments = useAssessments({
+    user,
+    online: serverStatus === 'online',
+    connecting: serverStatus === 'checking',
+    stats,
+    statsRef,
+    setStats,
+    settings,
+    settingsRef,
+    settingsRevision,
+    chains,
+    trackId: activeTrack.track.id,
+    activityLog,
+    habitState,
+    todayKey,
+    dailyGoalId,
+    noteRevision,
+    onSignedOut: endSignedOutSession
+  });
+  const { resetLocalAssessments } = assessments;
+
+  /* ------------------------------------------------------ first-run setup */
+  // Finished or put aside: the account's, else this browser's (./preferences).
+  const onboardingState = useMemo(
+    () => effectiveOnboarding(signedInUser?.id ?? null, signedInUser?.onboarding, localOnboarding),
+    [signedInUser?.id, signedInUser?.onboarding, localOnboarding]
+  );
+  // Never for anyone with progress - every account from before the setup existed.
+  const needsOnboarding = learnerNeedsOnboarding(onboardingState, stats.completedChallenges.length);
+  const onboardingAnswers = useMemo(
+    () => resolveAnswers(signedInUser?.id ?? null, signedInUser?.preferences, localPrefs),
+    [signedInUser?.id, signedInUser?.preferences, localPrefs]
+  );
+
   /**
-   * Beginner teaching is a purely local, per-browser UI affordance ("have I
-   * seen this explanation before") - it does not earn XP and is never
-   * verified by the server, so it stays out of the reconciliation path above.
+   * The setup finished or put aside: remembered here at once (pending until
+   * the account has it), and sent with its answers when signed in and
+   * online. An answer the server no longer takes (a motivation the admin
+   * removed) is dropped and the rest sent again; offline, everything waits
+   * for the next restore.
    */
-  const markConceptSeen = useCallback((conceptId: string) => {
-    setStats((prev) =>
-      prev.seenConcepts.includes(conceptId) ? prev : { ...prev, seenConcepts: [...prev.seenConcepts, conceptId] }
-    );
-  }, []);
+  const recordOnboarding = useCallback(
+    (action: 'completed' | 'dismissed', answers: Pick<OnboardingAnswers, 'motivation' | 'experience'> = {}) => {
+      const account = userRef.current && userRef.current.provider !== 'guest' && getToken() ? userRef.current : null;
+      const who = account ? account.id : 'guest';
+      const at = new Date().toISOString();
+      const patch: PreferencesPatch = { onboarding: action };
+      let local = readLocalPreferences();
+      for (const field of ['motivation', 'experience'] as const) {
+        if (!(field in answers)) continue;
+        const value = answers[field] ?? null;
+        local = { ...local, [field]: value };
+        if (value !== null) local = withFieldPending(local, field, who);
+        patch[field] = value;
+      }
+      setLocalPrefs(local);
+      const before = readLocalOnboarding();
+      setLocalOnboarding({
+        completedAt: action === 'completed' ? at : before.completedAt,
+        dismissedAt: action === 'dismissed' ? at : before.dismissedAt,
+        pendingSync: who
+      });
+      if (!account) return;
+      // The account's copy, at once (the server's answer replaces it).
+      setUser((prev) =>
+        prev && prev.id === account.id
+          ? {
+              ...prev,
+              onboarding: {
+                completedAt: action === 'completed' ? at : prev.onboarding?.completedAt ?? null,
+                dismissedAt: action === 'dismissed' ? at : prev.onboarding?.dismissedAt ?? null
+              },
+              preferences: { ...prev.preferences, ...('motivation' in patch ? { motivation: patch.motivation } : {}), ...('experience' in patch ? { experience: patch.experience } : {}) }
+            }
+          : prev
+      );
+      if (serverStatus !== 'online') return;
+      const landed = (sent: PreferencesPatch) => {
+        setLocalPrefs(settledLocal(readLocalPreferences(), sent));
+        setLocalOnboarding({ ...readLocalOnboarding(), pendingSync: null });
+      };
+      const send = (body: PreferencesPatch): Promise<void> =>
+        api.updatePreferences(body).then((res) => {
+          if (res?.user) setUser((prev) => (prev && prev.id === res.user.id ? { ...prev, ...res.user } : prev));
+          landed(body);
+        });
+      send(patch).catch((err) => {
+        if (!(err instanceof ApiError && err.status === 400)) return; // offline: it goes up with the next restore
+        if ('motivation' in patch) {
+          const rest: PreferencesPatch = { ...patch };
+          delete rest.motivation;
+          setLocalPrefs(withoutFieldsPending(readLocalPreferences(), ['motivation']));
+          send(rest).catch(() => {});
+        } else landed(patch);
+      });
+    },
+    [setLocalPrefs, setLocalOnboarding, serverStatus]
+  );
+
+  const completeOnboarding = useCallback(
+    (answers: OnboardingAnswers) => {
+      // The choices take effect at once, each through its own setter (and its own sync).
+      if (answers.trackId) setSelectedTrack(answers.trackId);
+      if (answers.learningMode) setLearningMode(answers.learningMode);
+      if (typeof answers.dailyGoalId === 'string' && answers.dailyGoalId) setDailyGoal(answers.dailyGoalId);
+      const kept: Pick<OnboardingAnswers, 'motivation' | 'experience'> = {};
+      if ('motivation' in answers) kept.motivation = answers.motivation ?? null;
+      if ('experience' in answers) kept.experience = answers.experience ?? null;
+      recordOnboarding('completed', kept);
+    },
+    [setSelectedTrack, setLearningMode, setDailyGoal, recordOnboarding]
+  );
+
+  const dismissOnboarding = useCallback(() => recordOnboarding('dismissed'), [recordOnboarding]);
+
+  /**
+   * Beginner teaching ("have I seen this explanation before") earns no XP.
+   * Kept here, and - signed in - on the account too (Phase 5), so another
+   * device does not teach it again. One that cannot be sent now goes up with
+   * the next restore (the local list is unioned with the account's there).
+   */
+  const markConceptSeen = useCallback(
+    (conceptId: string) => {
+      if (statsRef.current.seenConcepts.includes(conceptId)) return;
+      setStats((prev) => (prev.seenConcepts.includes(conceptId) ? prev : { ...prev, seenConcepts: [...prev.seenConcepts, conceptId] }));
+      const signedIn = Boolean(userRef.current && userRef.current.provider !== 'guest' && getToken());
+      if (signedIn && serverStatus === 'online') api.markConceptsSeen([conceptId]).catch(() => {});
+    },
+    [serverStatus]
+  );
 
   const executeCode = useCallback(
     (
@@ -1904,18 +2306,21 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   /* -------------------------------------------------------------- account */
 
   const adoptSession = useCallback(
-    (profile: UserProfile, progress: any) => {
+    (profile: UserProfile, progress: any, dropped: readonly string[] = []) => {
       setUser(profile);
       // Login, /auth/me and a merge all hand over the streak already worked
       // out on the learner's own day: taken as it is. Practice answers left
       // pending by another account are never carried into this one.
       setStats((prev) => {
-        const own = !prev.ownerId || prev.ownerId === profile.id ? prev : { ...prev, unsynced: undefined };
-        return {
-          ...adoptAccountProgress(own, progress, settingsRef.current.levels),
-          ...entitlementsOf(profile),
-          ownerId: profile.id
-        };
+        const own = !prev.ownerId || prev.ownerId === profile.id ? prev : { ...prev, unsynced: undefined, heldChallenges: undefined };
+        return withHeld(
+          {
+            ...adoptAccountProgress(own, progress, settingsRef.current.levels),
+            ...entitlementsOf(profile),
+            ownerId: profile.id
+          },
+          dropped
+        );
       });
     },
     []
@@ -1957,33 +2362,58 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       let mergedActivity: ActivityView | null = null;
       const guest = mergeableGuestProgress();
       let sentReviews: ReviewEvent[] = [];
+      let dropped: string[] = [];
+      let retryClaims: UserStats['assessmentClaims'];
       if (guest) {
+        const guestClaims = guest.stats.assessmentClaims;
+        const claims = Object.values(guestClaims ?? {});
         try {
-          // The guest's Practice answers go up to be priced by the server.
+          // The guest's Practice answers go up to be priced by the server,
+          // and their passed test-outs to be checked again (Phase 5).
           const reviews = pendingReviewLog(guest.stats);
-          const merged = await api.mergeProgress(guest.stats, guest.activity, guestPreferences(), reviews);
+          const merged = await api.mergeProgress(guest.stats, guest.activity, guestPreferences(), reviews, claims);
           sentReviews = reviews;
           progress = merged.progress;
           mergedActivity = merged.activity ?? null;
+          dropped = merged.droppedChallenges ?? [];
+          // A test-out the server could not check just now (busy, say) is
+          // kept and sent again with the next restore - never thrown away.
+          retryClaims = claimsToRetry(guestClaims, merged.claims);
           // The guest's sound choice, where the account had none.
           if (merged.preferences) account = { ...profile, preferences: { ...profile.preferences, ...merged.preferences } };
-          const skipped = skippedLockedMessage(merged.skippedLocked);
-          if (skipped) notify(skipped, 'info');
+          for (const message of mergeMessages(merged, stageNameOf)) notify(message, 'info');
         } catch {
-          /* keep the server copy */
+          /* keep the server copy; the test-outs wait to be sent again */
+          retryClaims = claims.length ? guestClaims : undefined;
         }
       }
-      adoptSession(account, progress);
+      adoptSession(account, progress, dropped);
       if (sentReviews.length) setStats((prev) => withoutPendingReviews(prev, sentReviews));
+      if (retryClaims) setStats((prev) => ({ ...prev, assessmentClaims: retryClaims }));
+      // A guest's test-outs went up as claims; from here on the account's own
+      // log (on the server) decides limits and cooldowns.
+      resetLocalAssessments();
       await adoptAccountActivity(profile.id, mergedActivity);
-      // Sound on or off: a choice made here goes up, else the account's is remembered here.
+      // Sound on or off, the goal, the track and mode and the setup's
+      // answers: a choice made here goes up (a guest's only where the account
+      // has none), else the account's is taken here.
       void reconcileAccountPreferences(account);
       // The bank as this account may see it: a premium stage it has unlocked
       // arrives in full, one it has not as stubs. Not awaited - the sign-in
       // window closes now and the lessons swap in when they land.
       void reloadContent();
     },
-    [mergeableGuestProgress, guestPreferences, adoptSession, adoptAccountActivity, reconcileAccountPreferences, reloadContent, notify]
+    [
+      mergeableGuestProgress,
+      guestPreferences,
+      adoptSession,
+      adoptAccountActivity,
+      reconcileAccountPreferences,
+      reloadContent,
+      notify,
+      stageNameOf,
+      resetLocalAssessments
+    ]
   );
 
   const loginWithEmail = useCallback(
@@ -2063,13 +2493,25 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     const logIsTheirs = Boolean(user) && (!log.ownerId || log.ownerId === user?.id);
     const pendingMisses = logIsTheirs && unsyncedMisses(log).length > 0;
     const pendingReviews = pendingReviewLog(stats);
-    if (user && user.provider !== 'guest' && getToken() && (stats.completedChallenges.length > 0 || pendingMisses || pendingReviews.length > 0)) {
+    // Test-outs from guest play still waiting to be checked go up one last time.
+    const pendingClaims = Object.values(stats.assessmentClaims ?? {});
+    if (
+      user &&
+      user.provider !== 'guest' &&
+      getToken() &&
+      (stats.completedChallenges.length > 0 || pendingMisses || pendingReviews.length > 0 || pendingClaims.length > 0)
+    ) {
       try {
         // Their own log sends only what the server has not taken yet - small
         // enough that signing out never trips the body limit.
-        const merged = await api.mergeProgress(stats, logIsTheirs ? activityForMerge(stats, { pendingOnly: Boolean(log.ownerId) }) : undefined, undefined, pendingReviews);
-        const skipped = skippedLockedMessage(merged?.skippedLocked);
-        if (skipped) notify(skipped, 'info');
+        const merged = await api.mergeProgress(
+          stats,
+          logIsTheirs ? activityForMerge(stats, { pendingOnly: Boolean(log.ownerId) }) : undefined,
+          undefined,
+          pendingReviews,
+          pendingClaims
+        );
+        for (const message of mergeMessages(merged, stageNameOf)) notify(message, 'info');
       } catch {
         synced = false;
       }
@@ -2096,7 +2538,31 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
     notify('Signed out. Your progress is saved to your account.', 'info');
     // Back to the bank a visitor sees: premium stages as stubs again.
     void reloadContent();
-  }, [user, stats, activityRef, activityForMerge, resetActivity, flushAllDrafts, clearDraftsFromMemory, notify, reloadContent]);
+  }, [user, stats, activityRef, activityForMerge, resetActivity, flushAllDrafts, clearDraftsFromMemory, notify, reloadContent, stageNameOf]);
+
+  /**
+   * The account's progress again (a 403 from the stage order said this tab
+   * was behind). Work this tab did that the server has not seen yet is kept:
+   * solves are a union, as after a solve.
+   */
+  const refreshProgress = useCallback(async () => {
+    const current = userRef.current;
+    if (!getToken() || !current || current.provider === 'guest') return;
+    const { progress } = await api.progress();
+    setStats((prev) => statsAfterSolve(prev, progress, { rulesChanged: false, curve: settingsRef.current.levels }));
+  }, []);
+  // For completeChallenge, which is declared above and must not depend on it.
+  refreshProgressRef.current = refreshProgress;
+
+  /** The learner has read the "held back" notice on the Learn page. */
+  const dismissHeldChallenges = useCallback(() => {
+    setStats((prev) => {
+      if (!prev.heldChallenges) return prev;
+      const next = { ...prev };
+      delete next.heldChallenges;
+      return next;
+    });
+  }, []);
 
   const refreshAccount = useCallback(async () => {
     // Only a real account has anything to refresh; a guest owns nothing.
@@ -2168,6 +2634,20 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       learnerChallenges,
       learningMode,
       setLearningMode,
+      onboardingState,
+      needsOnboarding,
+      onboardingAnswers,
+      completeOnboarding,
+      dismissOnboarding,
+      assessmentsAvailable: assessments.assessmentsAvailable,
+      activeAssessment: assessments.activeAssessment,
+      testOutStatus: assessments.testOutStatus,
+      placementStatus: assessments.placementStatus,
+      refreshAssessmentStatus: assessments.refreshAssessmentStatus,
+      startAssessment: assessments.startAssessment,
+      submitAssessment: assessments.submitAssessment,
+      failAssessment: assessments.failAssessment,
+      finishAssessment: assessments.finishAssessment,
       settings,
       settingsRevision,
       stats,
@@ -2194,6 +2674,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       completeChallenge,
       recordMiss,
       markConceptSeen,
+      dismissHeldChallenges,
       reviewSummary,
       startReview,
       completeReview,
@@ -2249,6 +2730,20 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       learnerChallenges,
       learningMode,
       setLearningMode,
+      onboardingState,
+      needsOnboarding,
+      onboardingAnswers,
+      completeOnboarding,
+      dismissOnboarding,
+      assessments.assessmentsAvailable,
+      assessments.activeAssessment,
+      assessments.testOutStatus,
+      assessments.placementStatus,
+      assessments.refreshAssessmentStatus,
+      assessments.startAssessment,
+      assessments.submitAssessment,
+      assessments.failAssessment,
+      assessments.finishAssessment,
       stats,
       user,
       serverStatus,
@@ -2259,6 +2754,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       playSound,
       completeChallenge,
       markConceptSeen,
+      dismissHeldChallenges,
       reviewSummary,
       startReview,
       completeReview,

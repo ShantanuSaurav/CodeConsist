@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { RATE_LIMIT_BUCKETS } from '@/platform/settings';
 import { adminApi } from '../../services/adminApi';
-import type { AccessStatus } from '../../services/adminApi';
+import type { AccessStatus, ProgressionGateCounter } from '../../services/adminApi';
 import { Badge, Button, Card, ErrorText, Spinner, Table } from '../ui';
 import { GenericSection } from './GenericSection';
 import type { SectionProps } from './GenericSection';
@@ -215,7 +215,37 @@ const LiveStatus: React.FC = () => {
           {status.premium.lastAt ? ` · last ${when(status.premium.lastAt)}` : ''}.
         </p>
       </section>
+
+      {status.progression && (
+        <section aria-label="Stage order">
+          <h4 className="font-medium text-fg mb-1">Stage order</h4>
+          <p className="text-fg-muted text-xs mb-2">
+            Watch these while the gates only log. Once they stay at 0 for a week, switching to enforce refuses nothing a learner would have been allowed.
+          </p>
+          <GateRow title="Solves" mode={status.progression.solveGate} counter={status.progression.solve} unit="solve" />
+          <GateRow title="Guest merges" mode={status.progression.mergeGate} counter={status.progression.merge} unit="merged solve" />
+        </section>
+      )}
     </div>
+  );
+};
+
+/** One stage-order gate: its mode, and what it refused (or would have) since boot and in the last 24 hours. */
+const GateRow: React.FC<{ title: string; mode: string; counter: ProgressionGateCounter; unit: string }> = ({ title, mode, counter, unit }) => {
+  const plural = (n: number) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+  const tone = mode === 'enforce' ? 'success' : mode === 'log' ? 'warning' : 'default';
+  const label = mode === 'enforce' ? 'enforced' : mode === 'log' ? 'logging only' : 'off';
+  const reasons = Object.entries(counter.byReason);
+  return (
+    <p className="text-fg-secondary mb-1">
+      <span className="font-medium text-fg">{title}</span> <Badge tone={tone}>{label}</Badge>{' '}
+      {mode === 'enforce' || counter.refused > 0 ? `${plural(counter.refused24h)} refused in 24h (${counter.refused} since boot)` : null}
+      {(mode === 'enforce' || counter.refused > 0) && (mode === 'log' || counter.wouldRefuse > 0) ? ' · ' : null}
+      {mode === 'log' || counter.wouldRefuse > 0 ? `${plural(counter.wouldRefuse24h)} would have been refused in 24h (${counter.wouldRefuse} since boot)` : null}
+      {mode === 'off' && counter.refused === 0 && counter.wouldRefuse === 0 ? 'not checked' : null}
+      {reasons.length > 0 && ` - ${reasons.map(([reason, n]) => `${reason}: ${n}`).join(', ')}`}
+      {counter.lastAt ? ` · last ${when(counter.lastAt)}` : ''}.
+    </p>
   );
 };
 

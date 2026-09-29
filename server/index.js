@@ -42,11 +42,12 @@ import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken, l
 import { bootstrapAdminAccount, authenticateAdmin, publicAdmin, requireAdminAuth } from './admin-auth.js';
 import * as excel from './excel.js';
 import { createPaymentProvider } from './payments.js';
-import { entitlementsFor, stageAccessFor, unlockedStageIds } from './billing.js';
+import { entitlementsFor, setCertificateTestOutRule, stageAccessFor, unlockedStageIds } from './billing.js';
 import { clientIp, trustProxyFn } from './client-ip.js';
 import { createCorsPolicy } from './cors-policy.js';
-import { BUCKET_SETTING, BusyError, createExecutionSlots, createLimiter, rateLimit } from './rate-limit.js';
-import { checkSolveAccess, mergeAccess } from './progression.js';
+import { BUCKET_SETTING, BusyError, createExecutionSlots, createLimiter, limitCheck, rateLimit } from './rate-limit.js';
+import { acceptClaims, checkSolveAccess, completedStagesFor as clearedStagesFor, filterMerge, mergeAccess, verifyClaims } from './progression.js';
+import { createAssessmentRouter } from './assessment-routes.js';
 import { createPasswordResetRouter } from './password-reset.js';
 import { createBillingRouter, createWebhookRouter } from './billing-routes.js';
 import { createOAuthProviders, PROVIDER_IDS } from './oauth.js';
@@ -144,9 +145,11 @@ const adminDeps = { validateChallenge: null, validateConcept: null, runSolution:
  *              schedule's "answer shown" reset, the merge's review step and
  *              the admin's Practice numbers;
  *   runtimeInfo - which engines this server has, for the admin's rules page.
+ *   canVerify - can this server check a stage test's answer itself (the
+ *     placement and test-out sections show it per stage; Phase 5).
  * Routers read it per request, so mounting them before bootstrap is fine.
  */
-const learningDeps = { lib: null, settings: null, activity: null, units: null, habits: null, review: null, runtimeInfo: null };
+const learningDeps = { lib: null, settings: null, activity: null, units: null, habits: null, review: null, runtimeInfo: null, canVerify: null };
 adminDeps.learning = learningDeps;
 
 /**
@@ -210,6 +213,11 @@ function limitBy(bucket, key) {
   return rateLimit({ limiter, bucket, rule: () => ruleFor(bucket), key, mode: limitMode, message: tooManyMessage });
 }
 
+/** One count against a bucket, by hand (`limitCheck`): `(req) => { allowed, ... }`. */
+function chargeBy(bucket, key) {
+  return limitCheck({ limiter, bucket, rule: () => ruleFor(bucket), key, mode: limitMode });
+}
+
 /** Per-address limits use the address the trusted proxies vouch for; unknown skips them. */
 const byAddress = (req) => clientIp(req);
 const byAccount = (req) => req.user?.id ?? null;
@@ -227,6 +235,54 @@ function premiumContext(route) {
   };
 }
 
+/**
+ * The premium gate's context plus the stage order (Phase 5): the
+ * `access.solveGate` mode, the shared rules and the learner's row, so
+ * server/progression.js can build their stages the way their browser does.
+ */
+function progressionContext(route) {
+  return {
+    ...premiumContext(route),
+    lib: learningDeps.lib,
+    solveGate: setting('access.solveGate', 'log'),
+    progressFor: (user) => store.getProgress(user.id)
+  };
+}
+
+/**
+ * What the merge and the assessment routes judge the stage order against:
+ * the content and its overrides, and whether the premium gate enforces.
+ * Null until the content and the shared rules are loaded.
+ */
+function progressionContent() {
+  const snapshot = contentSnapshot();
+  if (!snapshot || !learningDeps.lib) return null;
+  return { snapshot, overrides: store.getContentOverrides(), premiumEnforced: setting('access.premiumGate', 'enforce') !== 'log' };
+}
+
+/**
+ * The ids of the tracks learners are shown (an admin can unpublish one):
+ * what a learner's `trackId` preference may be. Null before the content loads.
+ */
+function learnerTrackIds() {
+  const snapshot = contentSnapshot();
+  if (!snapshot) return null;
+  const languages = store.getContentOverrides().languages ?? {};
+  return (snapshot.languageTracks ?? []).filter((t) => !(Object.hasOwn(languages, t.id) && languages[t.id]?.hidden)).map((t) => t.id);
+}
+
+/**
+ * The concept ids learners are served (authored ones and the admin's
+ * teaching cards, as re-shown): all a `seenConcepts` list may hold. Null
+ * before the content loads.
+ */
+function knownConceptIds() {
+  const snapshot = contentSnapshot();
+  if (!snapshot) return null;
+  const merged = applyLearnerOverrides(snapshot, store.getContentOverrides());
+  return new Set(merged.challenges.map((c) => c.concept?.id).filter((id) => typeof id === 'string' && id));
+}
+
 async function bootstrap() {
   await store.load();
 
@@ -241,7 +297,23 @@ async function bootstrap() {
 
   const learningPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'server-lib.ts'), 'learning.mjs');
   learningDeps.lib = await import(pathToFileURL(learningPath).href);
-  learningDeps.settings = createSettingsService({ store, lib: learningDeps.lib });
+  learningDeps.settings = createSettingsService({
+    store,
+    lib: learningDeps.lib,
+    // The tracks and stages, for the checks that need the content (a
+    // placement stage must be a stage of its track) - on save only.
+    contentFacts: () => {
+      const snapshot = contentSnapshot();
+      if (!snapshot) return null;
+      return {
+        tracks: (snapshot.languageTracks ?? []).map((t) => ({ id: t.id, stageIds: [...(t.stageIds ?? [])] })),
+        stageIds: (snapshot.stages ?? []).map((s) => s.id)
+      };
+    }
+  });
+  // A stage cleared by a test-out counts toward a certificate only when the
+  // admin says so (`testOut.countsTowardCertificate`) - server/billing.js.
+  setCertificateTestOutRule(() => setting('testOut.countsTowardCertificate', false) === true);
   learningDeps.activity = createActivityService({
     lib: learningDeps.lib,
     store,
@@ -272,6 +344,7 @@ async function bootstrap() {
     pythonVerifiable: Boolean(findPython()),
     judge0Languages: JUDGE0_CONFIGURED ? Object.keys(JUDGE0_LANGUAGE_IDS) : []
   });
+  learningDeps.canVerify = serverCanVerify;
 
   // The admin console creates questions against the SAME zod schema the
   // authored TypeScript is validated with, so a question written in the
@@ -411,7 +484,10 @@ function publicUser(user) {
     // The learner's own choices - the zone their days are counted in (null
     // until a browser has reported one), sound on or off, ... - every field
     // null until chosen. When the zone was set stays on the server.
-    preferences: publicPreferences(store.normalizePreferences(user.preferences))
+    preferences: publicPreferences(store.normalizePreferences(user.preferences)),
+    // The first-run setup: finished, dismissed, or null (not yet seen). A
+    // learner with progress is never sent to it whatever this says.
+    onboarding: store.normalizeOnboarding(user.onboarding)
   };
 }
 
@@ -883,18 +959,26 @@ async function verifySubmission(challenge, body) {
 /**
  * Which stages a set of solved ids completes. The learner-facing view:
  * authored + admin-authored questions, minus anything an admin hid - the same
- * list the client counts against.
+ * list the client counts against - and, from Phase 5, a stage tested out of
+ * with a record that `clears` (server/progression.js owns the rule).
  */
-function completedStagesFor(completedIds) {
-  // Which lessons exist, not what they teach: the teaching cards are not needed.
-  const merged = applyLearnerOverrides(contentSnapshot(), store.getContentOverrides(), { concepts: false });
-  const solved = new Set(completedIds);
-  return merged.stages
-    .filter((stage) => {
-      const inStage = merged.challenges.filter((c) => c.stageId === stage.id);
-      return inStage.length > 0 && inStage.every((c) => solved.has(c.id));
-    })
-    .map((stage) => stage.id);
+function completedStagesFor(completedIds, testedOut) {
+  return clearedStagesFor(completedIds, testedOut, { snapshot: contentSnapshot(), overrides: store.getContentOverrides() });
+}
+
+/**
+ * Can this server check a stage test's answer itself? Answer-graded ones,
+ * JavaScript and TypeScript always; Python with a local CPython; nothing
+ * else (a DOM test is checked in the browser, Java and C++ code have no
+ * server engine in verifySubmission). With `access.requireServerVerification`
+ * on, a test-out of a test it cannot check is refused up front (503).
+ */
+function serverCanVerify(challenge) {
+  if (challenge.type !== 'code_runner' && challenge.type !== 'debug') return true;
+  if (challenge.language === 'html' || challenge.uiPreview) return false;
+  if (challenge.language === 'javascript' || challenge.language === 'typescript') return true;
+  if (challenge.language === 'python') return Boolean(findPython());
+  return false;
 }
 
 /* ---------------------------------------------------------------- progress */
@@ -924,8 +1008,47 @@ app.use(
     solveLimit: limitBy('solve.account', byAccount),
     // The premium lock (server/progression.js -> billing.js premiumGate):
     // checked before any code runs, and on every id a merge would credit.
-    checkSolveAccess: (user, challenge) => checkSolveAccess(user, challenge, premiumContext('solve')),
-    mergeAccess: (user) => mergeAccess(user, premiumContext('merge'))
+    // Then the stage order under `access.solveGate` (Phase 5).
+    checkSolveAccess: (user, challenge) => checkSolveAccess(user, challenge, progressionContext('solve')),
+    mergeAccess: (user) => mergeAccess(user, premiumContext('merge')),
+    // A guest's test-out claims and the merge's stage order (`access.mergeGate`).
+    progressionContext: progressionContent,
+    progression: { verifyClaims, acceptClaims, filterMerge },
+    // A merge counts as a solve for the limits: the request itself, and each
+    // guest claim whose answer it runs - so a merge is never a way round
+    // `solve.account`, or a way to fill the code-runner slots.
+    mergeLimit: limitBy('solve.account', byAccount),
+    chargeClaimRun: chargeBy('solve.account', byAccount),
+    // Teaching already shown follows the account (Phase 5): POST
+    // /progress/concepts and the merge keep served concepts only.
+    knownConceptIds,
+    learnerTracks: learnerTrackIds,
+    writeLimit: limitBy('write.account', byAccount)
+  })
+);
+
+/* ------------------------------------------------------------- assessments */
+
+// Test-out and placement (server/assessment-routes.js): the learner's own
+// test-outs and placements, their limits and cooldowns, and a pass recorded
+// through the same applySolveCore as a solve. Submits share the solve limit.
+app.use(
+  '/api',
+  createAssessmentRouter({
+    requireAuth,
+    store,
+    learningDeps,
+    getChallengeMerged,
+    verifySubmission,
+    completedStagesFor,
+    clearDraftForSolve,
+    progressionContext: progressionContent,
+    canVerify: serverCanVerify,
+    onProgress: (user, progress) => {
+      if (!excel.shouldThrottle(store, user.id)) excel.syncUser(store, user, progress, 'progress');
+    },
+    submitLimit: limitBy('solve.account', byAccount),
+    writeLimit: limitBy('write.account', byAccount)
   })
 );
 
@@ -980,7 +1103,18 @@ app.use(
 // PATCH /api/me/preferences: the learner's own choices, stored on the
 // account so they survive a progress reset (server/preferences-routes.js).
 // The goal options and the zone cooldown come from the settings, per request.
-app.use('/api', createPreferencesRouter({ requireAuth, publicUser, store, writeLimit: limitBy('write.account', byAccount), learningDeps }));
+app.use(
+  '/api',
+  createPreferencesRouter({
+    requireAuth,
+    publicUser,
+    store,
+    writeLimit: limitBy('write.account', byAccount),
+    learningDeps,
+    // A learner's track (Phase 5) must be one they are shown.
+    learnerTracks: learnerTrackIds
+  })
+);
 
 /* ----------------------------------------------------------------- billing */
 

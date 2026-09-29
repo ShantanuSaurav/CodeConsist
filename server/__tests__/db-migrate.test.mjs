@@ -3,7 +3,8 @@
  * (users gained `preferences`), version 3 added `passwordResets` (users
  * gained `tokenVersion`), version 4 added `contentOverrides.units` and the
  * whole preferences shape, version 5 added `conceptCards` and
- * `reviewSessions` - and nothing a learner earned is ever touched.
+ * `reviewSessions`, version 6 added `assessments` (users gained
+ * `onboarding`) - and nothing a learner earned is ever touched.
  *
  * `migrateState` is pure over the loaded object (like forgetBillingIdentity
  * in db-forget.test.mjs). `load()` is exercised with the file system mocked,
@@ -79,7 +80,7 @@ describe('migrateState', () => {
   it('adds settings and activity, and leaves progress exactly as it was', () => {
     const next = store.migrateState(clone(OLD_DB));
     expect(next.version).toBe(store.SCHEMA_VERSION);
-    expect(store.SCHEMA_VERSION).toBe(5);
+    expect(store.SCHEMA_VERSION).toBe(6);
     expect(next.settings).toEqual({ overrides: {}, revision: 0, updatedAt: null, updatedBy: null });
     expect(next.activity).toEqual({});
     expect(next.progress).toEqual(OLD_DB.progress);
@@ -121,7 +122,7 @@ describe('migrateState', () => {
 
   it('never lets a newer version number go backwards', () => {
     expect(store.migrateState({ version: 7 }).version).toBe(7);
-    expect(store.migrateState({}).version).toBe(5);
+    expect(store.migrateState({}).version).toBe(6);
   });
 
   it('adds password resets and token versions (version 3), leaving orders, overrides and progress alone', () => {
@@ -161,16 +162,24 @@ describe('load() of a version 1 file', () => {
   });
 
   it('keeps a byte-for-byte copy of the old file before migrating', () => {
-    // Named after the version it migrates TO (a file from before version 5).
-    const copy = files.written.find((w) => /db\.json\.pre-v5-\d+$/.test(w.file));
-    expect(copy, 'db.json.pre-v5-<ts>').toBeTruthy();
+    // Named after the version it migrates TO (a file from before version 6).
+    const copy = files.written.find((w) => /db\.json\.pre-v6-\d+$/.test(w.file));
+    expect(copy, 'db.json.pre-v6-<ts>').toBeTruthy();
     expect(copy.text).toBe(JSON.stringify(OLD_DB));
     // Not treated as corrupt.
     expect(files.renamed.filter((r) => r.to.includes('.corrupt-'))).toEqual([]);
   });
 
+  it('writes the migrated file at once, so the copy is made only once', () => {
+    const saved = files.written.find((w) => /db\.json\.tmp$/.test(w.file));
+    expect(saved, 'db.json.tmp written during load').toBeTruthy();
+    expect(JSON.parse(saved.text).version).toBe(6);
+    expect(JSON.parse(saved.text).progress).toEqual(OLD_DB.progress);
+    expect(files.renamed.some((r) => /db\.json\.tmp$/.test(r.from) && /db\.json$/.test(r.to))).toBe(true);
+  });
+
   it('loads the migrated state with progress untouched', () => {
-    expect(store.db().version).toBe(5);
+    expect(store.db().version).toBe(6);
     expect(store.db().progress).toEqual(OLD_DB.progress);
     expect(store.getSettingsRecord().revision).toBe(0);
     expect(store.allActivity()).toEqual({});
@@ -195,6 +204,16 @@ describe('load() of a version 1 file', () => {
     expect(store.passwordResetsForUser('u1')).toEqual([]);
     expect(store.getPasswordReset('pr_two')).toMatchObject({ userId: 'u2' });
     expect(store.findPasswordResetByTokenHash('hash-pr_two')).toMatchObject({ id: 'pr_two' });
+  });
+
+  it('deleteUser takes the learner’s test-out and placement log with it (Phase 5)', () => {
+    const log = (id) => ({ records: [{ id, kind: 'test-out', stageIds: ['s1'], status: 'failed' }], cooldownClearedAt: {} });
+    store.insertUser({ id: 'u8', email: 'h@example.com', username: 'hal', passwordHash: 'hash' });
+    store.putAssessmentLog('u8', log('as_8'));
+    store.putAssessmentLog('u9', log('as_9'));
+    expect(store.deleteUser('u8')).toBe(true);
+    expect(store.getAssessmentLog('u8')).toBeNull();
+    expect(store.getAssessmentLog('u9')).toMatchObject({ records: [{ id: 'as_9' }] });
   });
 
   it('deleteUser takes the learner’s open Practice session with it', () => {
@@ -263,6 +282,80 @@ describe('version 5: teaching cards, Practice sessions, the review schedule', ()
     row.review.c1 = { box: 2, due: '2026-10-01' };
     expect(JSON.stringify(store.db().progress.u8)).toBe(before);
     expect(store.getProgress('u8').review).toEqual({});
+  });
+});
+
+describe('version 6: test-outs, placements and the first-run setup', () => {
+  it('adds assessments and users[].onboarding, leaving progress exactly as it was', () => {
+    const v5 = { ...clone(OLD_DB), version: 5, conceptCards: {}, reviewSessions: {} };
+    const next = store.migrateState(clone(v5));
+    expect(next.version).toBe(6);
+    expect(next.assessments).toEqual({});
+    expect(next.users.map((u) => u.onboarding)).toEqual([null, null]);
+    // No progress row is rewritten: `testedOut` and `seenConcepts` appear only on read.
+    expect(JSON.stringify(next.progress)).toBe(JSON.stringify(OLD_DB.progress));
+  });
+
+  it('keeps stored assessments and onboarding, and repairs nonsense', () => {
+    const logs = { u1: { records: [{ id: 'as_1' }], cooldownClearedAt: {} } };
+    const kept = store.migrateState({
+      assessments: logs,
+      users: [
+        { id: 'u1', onboarding: { completedAt: '2026-09-28T10:00:00.000Z', dismissedAt: null } },
+        { id: 'u2', onboarding: { completedAt: null, dismissedAt: '2026-09-28T11:00:00.000Z' } },
+        { id: 'u3', onboarding: { completedAt: 4 } },
+        { id: 'u4', onboarding: 'done' },
+        { id: 'u5', onboarding: [1] }
+      ]
+    });
+    expect(kept.assessments).toEqual(logs);
+    expect(kept.users.map((u) => u.onboarding)).toEqual([
+      { completedAt: '2026-09-28T10:00:00.000Z', dismissedAt: null },
+      { completedAt: null, dismissedAt: '2026-09-28T11:00:00.000Z' },
+      null,
+      null,
+      null
+    ]);
+    expect(store.migrateState({ assessments: [1] }).assessments).toEqual({});
+    expect(store.migrateState({ assessments: 'x' }).assessments).toEqual({});
+  });
+
+  it('is idempotent', () => {
+    const once = store.migrateState({ ...clone(OLD_DB), users: [{ id: 'u1', onboarding: { completedAt: '2026-09-28T10:00:00.000Z' } }] });
+    expect(store.migrateState(clone(once))).toEqual(once);
+  });
+
+  it('fills testedOut and seenConcepts on read without rewriting the stored row', () => {
+    store.setProgress('u10', clone(OLD_DB.progress.u1));
+    const before = JSON.stringify(store.db().progress.u10);
+    const row = store.getProgress('u10');
+    expect(row.testedOut).toEqual({});
+    expect(row.seenConcepts).toEqual([]);
+    row.testedOut['stage-1'] = { clears: true };
+    row.seenConcepts.push('x');
+    expect(JSON.stringify(store.db().progress.u10)).toBe(before);
+    expect(store.getProgress('u10').testedOut).toEqual({});
+    expect(store.getProgress('u10').seenConcepts).toEqual([]);
+    // A stored list is kept, minus anything that is not an id.
+    store.setProgress('u10', { ...clone(OLD_DB.progress.u1), seenConcepts: ['a', 4, 'b'], testedOut: { 'stage-2': { clears: false } } });
+    expect(store.getProgress('u10').seenConcepts).toEqual(['a', 'b']);
+    expect(store.getProgress('u10').testedOut).toEqual({ 'stage-2': { clears: false } });
+  });
+
+  it('stores a learner’s assessment log safely for any id, and deleteUser takes it with them', () => {
+    store.insertUser({ id: 'u11', email: 'k@example.com', username: 'kay', passwordHash: 'hash' });
+    const entry = { records: [], cooldownClearedAt: { '*': '2026-09-28T10:00:00.000Z' } };
+    store.putAssessmentLog('u11', entry);
+    store.putAssessmentLog('u12', entry);
+    store.putAssessmentLog('__proto__', entry);
+    expect(store.getAssessmentLog('u11')).toEqual(entry);
+    expect(store.getAssessmentLog('constructor')).toBeNull();
+    expect(Object.getPrototypeOf(store.allAssessmentLogs())).toBe(Object.prototype);
+    expect(store.deleteUser('u11')).toBe(true);
+    expect(store.getAssessmentLog('u11')).toBeNull();
+    expect(store.getAssessmentLog('u12')).toEqual(entry);
+    expect(store.deleteAssessmentsForUser('__proto__')).toBe(true);
+    expect(store.deleteAssessmentsForUser('__proto__')).toBe(false);
   });
 });
 
