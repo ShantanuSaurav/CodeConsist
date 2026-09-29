@@ -1,35 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import { Check, Clock, Flag, X } from 'lucide-react';
-import type { AssessmentView, Stage } from '@/types';
+import type { Stage } from '@/types';
 import { describeRetry, useSession } from '@/platform/session';
 import { maxRunsFor } from '@/platform/progress';
 import { fillCopy } from '@/platform/settings';
 import { usePracticeSession } from '../session/PracticeSessionProvider';
 import type { AssessmentRun } from '../session/PracticeSessionProvider';
-
-/** "Stage 03 · Variables" - what the admin's `{stage}` stands for. */
-export function stageLabel(stage: Pick<Stage, 'index' | 'name'> | null | undefined, fallback = 'this stage'): string {
-  if (!stage) return fallback;
-  return `Stage ${String(stage.index).padStart(2, '0')} · ${stage.name}`;
-}
-
-/**
- * "Test out · Stage 03" or "Placement · 2 of 3": the modal header while one
- * runs. `stageId` counts from that stage test instead of the one the record
- * is on now (the screen after a test shows the test just taken).
- */
-export function assessmentHeading(
-  view: Pick<AssessmentView, 'kind' | 'cursor' | 'stageIds'>,
-  stage: Pick<Stage, 'index'> | null | undefined,
-  stageId: string | null = null
-): string {
-  if (view.kind === 'placement') {
-    const at = stageId ? view.stageIds.indexOf(stageId) : -1;
-    const position = at >= 0 ? at + 1 : Math.min(view.cursor + 1, view.stageIds.length);
-    return `Placement · ${position} of ${view.stageIds.length}`;
-  }
-  return `Test out${stage ? ` · Stage ${String(stage.index).padStart(2, '0')}` : ''}`;
-}
+import { assessmentHeading, stageLabel } from './assessmentLabels';
 
 /**
  * The screens of a test-out or placement other than the test itself: its
@@ -37,6 +14,9 @@ export function assessmentHeading(
  * passed with more to come, and the result. Every sentence the learner reads
  * about the rules is the admin's (`testOut.copy`, `placement.copy`), filled
  * with this stage and these numbers.
+ *
+ * Fetched only when a test-out or placement opens (PracticeModal lazy-loads
+ * it), never with the shell.
  */
 export const AssessmentPanel: React.FC<{ run: AssessmentRun }> = ({ run }) => {
   const { stages, tracks, settings, testOutStatus, placementStatus, celebrate, playSound } = useSession();
@@ -320,3 +300,5 @@ export const AssessmentPanel: React.FC<{ run: AssessmentRun }> = ({ run }) => {
     </div>
   );
 };
+
+export default AssessmentPanel;

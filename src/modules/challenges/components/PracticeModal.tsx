@@ -13,14 +13,14 @@ import { achievements } from '@/platform/xp-leveling/insights';
 import { CodeBlock, GoalMetCard, LearningModeSwitch, useBodyScrollLock, useFocusTrap, useToast } from '@/ui';
 import { checkAnswer, definitionFor, emptyAnswer, isAnswerComplete, isCodeChallenge, typeLabel } from '../challenge-types';
 import { usePracticeSession } from '../session/PracticeSessionProvider';
-import { canRevealSolution, contextForMode, practiceXpLine, revealsAnswers } from '../session/rules';
+import { canRevealSolution, contextForMode, lessonXpLine, practiceXpLine, revealsAnswers } from '../session/rules';
 import { levelToAnnounceOnClose, runSummary, useUnitRun } from '../session/useUnitRun';
 import { comesBack, slotDone, slotKey, solveTotals } from '../session/queue';
 import { ConceptTeaching, LessonComplete, PracticeExercise } from './lesson';
 import { FeedbackBanner } from './lesson/FeedbackBanner';
 import { useAttemptFlow } from './lesson/useAttemptFlow';
 import { LearningModeChooser } from './LearningModeChooser';
-import { AssessmentPanel, assessmentHeading } from './AssessmentPanel';
+import { assessmentHeading } from './assessmentLabels';
 
 /**
  * The end screen, with the XP count-up and the level-up screen: fetched when
@@ -29,6 +29,8 @@ import { AssessmentPanel, assessmentHeading } from './AssessmentPanel';
 const UnitComplete = React.lazy(() => import('./lesson/UnitComplete'));
 /** The end of a Practice session - fetched the same way. */
 const ReviewComplete = React.lazy(() => import('./lesson/ReviewComplete'));
+/** A test-out's or placement's screens around the test - fetched when one opens. */
+const AssessmentPanel = React.lazy(() => import('./AssessmentPanel'));
 
 const isCodeType = (c: Challenge) => isCodeChallenge(c);
 
@@ -258,6 +260,17 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   /** The slot on screen, for answers that land after the learner may have moved on. */
   const slotOnScreen = useRef<string | null>(null);
   slotOnScreen.current = currentSlotKey;
+  /**
+   * Was the question on screen solved before this slot's answer was checked?
+   * Frozen from the check on: the solve itself adds it to
+   * `completedChallenges`, and a first-ever solve must not turn into "solved
+   * before" the moment it lands. (Until then it follows the progress, which
+   * may still be arriving from the server.)
+   */
+  const solvedBeforeCheck = useRef<{ slot: string | null; solved: boolean }>({ slot: null, solved: false });
+  if (solvedBeforeCheck.current.slot !== currentSlotKey || !checked) {
+    solvedBeforeCheck.current = { slot: currentSlotKey, solved: Boolean(challenge && stats.completedChallenges.includes(challenge.id)) };
+  }
   useEffect(() => {
     resetForChallenge(challenge);
     bodyRef.current?.scrollTo({ top: 0 });
@@ -957,7 +970,9 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                 </div>
               </div>
             ) : (
-              <AssessmentPanel run={assessmentRun} />
+              <Suspense fallback={<p className="text-sm text-fg-muted">Loading…</p>}>
+                <AssessmentPanel run={assessmentRun} />
+              </Suspense>
             )}
           </div>
         </div>
@@ -1008,7 +1023,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   const trackStages = !activeStage ? [] : learnerStages.some((s) => s.id === activeStage.id) ? learnerStages : [activeStage];
   const nextStage = activeStage ? trackStages[trackStages.findIndex((s) => s.id === activeStage.id) + 1] : undefined;
   const canCheck = isAnswerComplete(challenge, currentAnswer);
-  const alreadySolved = stats.completedChallenges.includes(challenge.id);
+  const alreadySolved = solvedBeforeCheck.current.solved;
   // A stage test (or anything taken as a test) never shows its answer: no
   // expected blanks, no correct option, no explanation after a wrong try and
   // no worked solution. Otherwise one wrong check hands over the answer and
@@ -1622,7 +1637,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
                   ? practiceXpLine(settings.review.xp.correctFirstTry, reviewRemaining)
                   : assessmentView
                     ? `Up to +${xpForTestOut(challenge.xpReward, assessmentView.rules.xpPercent, 1, 0, settings.xp)} XP`
-                    : `+${challenge.xpReward} XP`}
+                    : lessonXpLine(challenge.xpReward, totals.revealed, revealCap(learningMode, settings.feedback), settings.xp)}
               </span>
               <span className="footer-count">
                 {activeChallengeIndex + 1} / {challenges.length}

@@ -15,7 +15,8 @@ import { SECTION_META, SETTING_META, WELCOME_BACK_TOKENS, metaFor, sectionOfPath
 import { GOAL_ID_RE, GOAL_TARGET_BOUNDS } from '../habits/goals';
 import { LEAGUE_TIER_ID_RE } from '../league/league';
 import type { RowFieldMeta, SettingMeta } from './meta';
-import { defaultsWithEnv, getPath, isPlainObject, mergeSettings, normalizeOrigin, overrideLeaves } from './merge';
+import { defaultsWithEnv } from './env';
+import { getPath, isPlainObject, mergeSettings, normalizeOrigin, overrideLeaves } from './merge';
 import type { Settings, SettingsIssue } from './types';
 
 const ORIGIN_RE = /^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?$/;
@@ -468,6 +469,10 @@ export function droppedOverrides(overrides: unknown, merged: Settings): Settings
  * change - is still reported by `resolveSettings` and falls back to its
  * defaults, but never blocks saving something else. The server's PUT and the
  * admin page's pre-check both use this, so they refuse the same patches.
+ *
+ * A wrong type is worded for a refused save - what the value must be ("Must
+ * be a number.", from the setting's own schema) - not as the "ignored" of a
+ * stored override, which would read as if the save half-succeeded.
  */
 export function patchIssues(patch: unknown, overrides: unknown, merged: Settings): SettingsIssue[] {
   const sections = new Set(isPlainObject(patch) ? Object.keys(patch) : []);
@@ -475,8 +480,16 @@ export function patchIssues(patch: unknown, overrides: unknown, merged: Settings
     const value = getPath(patch, path);
     return value !== undefined && value !== null;
   };
+  const wrongType = (issue: SettingsIssue): SettingsIssue => {
+    const meta = metaFor(issue.path);
+    if (!meta) return issue;
+    const check = schemaForMeta(meta).safeParse(getPath(patch, issue.path));
+    return { path: issue.path, message: check.success ? 'Wrong type for this setting.' : check.error.issues[0].message };
+  };
   return [
-    ...droppedOverrides(overrides, merged).filter((issue) => written(issue.path)),
+    ...droppedOverrides(overrides, merged)
+      .filter((issue) => written(issue.path))
+      .map(wrongType),
     ...validateSettings(merged).issues.filter((issue) => sections.has(sectionOfPath(issue.path)))
   ];
 }

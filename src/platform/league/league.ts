@@ -313,3 +313,22 @@ export function weeklyLeagueXp(dayXp: readonly number[], baseline = 0): number {
   const total = dayXp.reduce((sum, xp) => sum + (Number.isFinite(xp) && xp > 0 ? xp : 0), 0);
   return Math.max(0, total - (Number.isFinite(baseline) && baseline > 0 ? baseline : 0));
 }
+
+/**
+ * The XP a learner earned in `week` (their days' `xp` and goal bonus) that
+ * is not league XP - a guest's merged XP or an offline solve, with
+ * `league.countMergedXp` off (the default), or XP earned again after a
+ * progress reset. The board uses it to explain why that XP is missing.
+ */
+export function uncountedLeagueXp(
+  days: Record<string, { xp?: number; goalBonusXp?: number; leagueXp?: number }> | null | undefined,
+  week: Pick<LeagueWeekSpan, 'startDay' | 'endDay'> | null | undefined
+): number {
+  const n = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0);
+  let total = 0;
+  for (const [day, row] of Object.entries(days ?? {})) {
+    if (!weekCovers(week, day)) continue;
+    total += Math.max(0, n(row?.xp) + n(row?.goalBonusXp) - n(row?.leagueXp));
+  }
+  return total;
+}

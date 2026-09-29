@@ -1,5 +1,5 @@
 import React from 'react';
-import { SETTING_META, pathsInSection } from '@/platform/settings';
+import { SETTING_META, pathsInSection } from '@/platform/settings/meta';
 import type { Settings } from '@/platform/settings';
 import type { SettingsContext } from '../../services/adminApi';
 import { SettingField } from './fields';

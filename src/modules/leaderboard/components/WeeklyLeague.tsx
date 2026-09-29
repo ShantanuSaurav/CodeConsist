@@ -5,6 +5,7 @@ import { useSession } from '@/platform/session';
 import { useCopy } from '@/platform/settings';
 import { useAppEvent, intents } from '@/platform/events';
 import { formatDayLabel } from '@/platform/time/days';
+import { uncountedLeagueXp } from '@/platform/league/league';
 import { Button, EmptyState, StreakFlame } from '@/ui';
 
 /** The longest delay setTimeout honours; longer ones fire at once. */
@@ -47,7 +48,7 @@ const zoneRowClass = (zone: LeagueRow['zone']) => (zone === 'up' ? 'league-row-u
  * can watch but is not ranked.
  */
 export const WeeklyLeague: React.FC = () => {
-  const { league, leagueStatus, leagueFetchedAt, refreshLeague, user, serverStatus, habits } = useSession();
+  const { league, leagueStatus, leagueFetchedAt, refreshLeague, user, serverStatus, habits, activity } = useSession();
   const copy = useCopy();
   const signedIn = Boolean(user && user.provider !== 'guest');
   const now = useNow(30_000);
@@ -102,6 +103,10 @@ export const WeeklyLeague: React.FC = () => {
   const open = week.status === 'open';
   const left = endsAt !== null ? endsAt - now : week.endsInMs;
   const pinMe = signedIn && me && !me.inRows;
+  // XP of this week that is not league XP (merged as a guest, synced from
+  // offline): say so, rather than leave the learner wondering where it went.
+  const uncounted = signedIn ? uncountedLeagueXp(activity.days, week) : 0;
+  const uncountedWhy = "XP earned as a guest or while offline doesn't count toward the weekly league.";
 
   return (
     <div>
@@ -141,7 +146,9 @@ export const WeeklyLeague: React.FC = () => {
         </p>
       )}
 
-      {rows.length === 0 ? (
+      {rows.length === 0 && uncounted > 0 ? (
+        <EmptyState title="Your XP this week isn't on the board yet.">{uncountedWhy} Finish a lesson to be first on the board.</EmptyState>
+      ) : rows.length === 0 ? (
         <EmptyState title="No one has earned XP this week yet.">{signedIn ? 'Finish a lesson to be first on the board.' : 'Sign in and finish a lesson to be first.'}</EmptyState>
       ) : (
         <table className="w-full text-sm">
@@ -193,6 +200,12 @@ export const WeeklyLeague: React.FC = () => {
       )}
 
       {signedIn && !me && rows.length > 0 && open && <p className="text-xs text-fg-muted mt-3">Finish a lesson this week to join the board.</p>}
+
+      {rows.length > 0 && uncounted > 0 && (
+        <p className="text-xs text-fg-muted mt-3" data-testid="league-uncounted">
+          {uncounted.toLocaleString()} XP you earned this week is not on the board: {uncountedWhy}
+        </p>
+      )}
 
       {!signedIn && (
         <div className="flex flex-wrap items-center justify-between gap-2 mt-3 text-sm text-fg-secondary" data-testid="league-guest">

@@ -11,6 +11,7 @@ export * from './settings/types';
 export * from './settings/defaults';
 export * from './settings/meta';
 export * from './settings/merge';
+export * from './settings/env';
 export * from './settings/copy';
 export * from './settings/schema';
 export * from './settings/budget';

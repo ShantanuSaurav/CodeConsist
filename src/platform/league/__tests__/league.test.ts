@@ -9,6 +9,7 @@ import {
   solveLeagueXp,
   tierIndexOf,
   tierRulesFrom,
+  uncountedLeagueXp,
   weekCovers,
   weekFor,
   weekLength,
@@ -218,6 +219,20 @@ describe('weekly XP', () => {
     expect(weeklyLeagueXp([40, 60], 70)).toBe(30);
     expect(weeklyLeagueXp([40, 60], 500)).toBe(0);
     expect(weeklyLeagueXp([40, -20, Number.NaN], -5)).toBe(40);
+  });
+
+  it("finds the week's XP the board leaves out (merged or offline XP), so the board can say why", () => {
+    const week = { startDay: '2026-09-28', endDay: '2026-10-04' };
+    // Sign-up merged 278 XP and an offline solve synced 40 more: none of it is league XP.
+    expect(uncountedLeagueXp({ '2026-09-28': { xp: 318, goalBonusXp: 0, leagueXp: 0 } }, week)).toBe(318);
+    // Three online solves (120) plus a synced offline one (40) on the same day.
+    expect(uncountedLeagueXp({ '2026-09-29': { xp: 160, leagueXp: 120 } }, week)).toBe(40);
+    // Fully counted, goal bonus included (it is outside `xp` but inside `leagueXp`).
+    expect(uncountedLeagueXp({ '2026-09-29': { xp: 100, goalBonusXp: 10, leagueXp: 110 } }, week)).toBe(0);
+    // Days outside the week, bad keys and junk values are ignored.
+    expect(uncountedLeagueXp({ '2026-09-27': { xp: 50 }, '2026-10-05': { xp: 50 }, nope: { xp: 50 }, '2026-09-30': { xp: Number.NaN } }, week)).toBe(0);
+    expect(uncountedLeagueXp(null, week)).toBe(0);
+    expect(uncountedLeagueXp({ '2026-09-29': { xp: 40 } }, null)).toBe(0);
   });
 });
 

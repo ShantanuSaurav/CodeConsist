@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { COPY_SAMPLE, SETTING_META, pathsInSection } from '@/platform/settings';
+import { COPY_SAMPLE, SETTING_META, pathsInSection } from '@/platform/settings/meta';
 import type { SettingMeta } from '@/platform/settings';
 import { SettingField } from './fields';
 import type { SectionProps } from './GenericSection';

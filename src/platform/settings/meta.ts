@@ -4,11 +4,20 @@
    This one table drives three things, so they can never disagree:
      - the zod bounds the server and the admin validate with (schema.ts),
      - the form the admin edits it in (modules/admin GenericSection),
-     - which keys a merge treats as leaves (merge.ts).
+     - which keys a merge treats as leaves (leaves.ts, which merge.ts reads,
+       is held to this table by a unit test).
    A setting with no entry here cannot be saved, and a unit test fails when
    a default has no entry - nothing can be added without being editable.
+
+   Imported by the admin chunk, schema.ts and the server bundle only: none
+   of this help text (or the environment variable names) ships in the
+   learner shell. A learner's merge needs only ./leaves.
    ========================================================================== */
 import type { SettingsSectionId } from './types';
+
+// Sections that never leave the server's admin routes, and the groups of
+// settings: structural facts the learner's merge needs too, so they live there.
+export { ADMIN_ONLY_SECTIONS, isSettingsGroup } from './leaves';
 
 export type SettingKind =
   | 'int'
@@ -217,9 +226,6 @@ export const SECTION_META: SectionMeta[] = [
     phase: 'P1T'
   }
 ];
-
-/** Sections that never leave the server's admin routes. */
-export const ADMIN_ONLY_SECTIONS: readonly string[] = ['retention', 'access'];
 
 /* ------------------------------------------------------------------ units */
 
@@ -1711,10 +1717,4 @@ export function pathsInSection(sectionId: string): string[] {
 /** Own-property lookup, so `__proto__` or `constructor` never resolve to something. */
 export function metaFor(path: string): SettingMeta | null {
   return Object.prototype.hasOwnProperty.call(SETTING_META, path) ? SETTING_META[path] : null;
-}
-
-/** Is `path` a section, or a group of settings inside one (a prefix of some setting path)? */
-export function isSettingsGroup(path: string): boolean {
-  const prefix = `${path}.`;
-  return Object.keys(SETTING_META).some((key) => key.startsWith(prefix));
 }

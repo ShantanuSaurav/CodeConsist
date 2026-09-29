@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bell, Users } from 'lucide-react';
-import { REMINDER_SAMPLE, fillCopy } from '@/platform/settings';
+import { fillCopy } from '@/platform/settings';
+import { REMINDER_SAMPLE } from '@/platform/settings/meta';
 import { Card } from '../ui';
 import { GenericSection } from './GenericSection';
 import type { SectionProps } from './GenericSection';
