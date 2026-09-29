@@ -154,6 +154,10 @@ export function createSettingsService({ store, lib, env = process.env, contentFa
       }
     }
     if (issues.length) return { ok: false, status: 422, error: 'Some settings are not valid.', issues };
+    // Nothing stored would change (`{}`, a reset of what is not overridden,
+    // the same value again): no new revision - every learner's browser
+    // refetches the rules on one - and nothing for the audit log.
+    if (changedPaths.length === 0) return { ok: true, status: 200, view: adminView(), changes: {}, changedPaths };
 
     const before = current();
     const now = new Date().toISOString();

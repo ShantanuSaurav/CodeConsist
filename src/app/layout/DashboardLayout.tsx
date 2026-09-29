@@ -78,8 +78,13 @@ export const DashboardLayout: React.FC = () => {
       )}
 
       <div className="lg:ml-64 min-h-screen flex flex-col">
-        {isGuest && (
-          <div className="px-4 sm:px-8 h-10 text-sm bg-surface border-b border-border text-fg-secondary flex items-center justify-between gap-3">
+        {/* Signed in, the sidebar's sync mark says so too - but phones hide the sidebar. */}
+        {(isGuest || serverStatus === 'offline') && (
+          <div
+            className="px-4 sm:px-8 h-10 text-sm bg-surface border-b border-border text-fg-secondary flex items-center justify-between gap-3"
+            role={serverStatus === 'offline' ? 'status' : undefined}
+            data-testid={serverStatus === 'offline' ? 'offline-banner' : undefined}
+          >
             <span className="truncate">
               {serverStatus === 'offline' ? (
                 <>

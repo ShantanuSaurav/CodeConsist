@@ -72,7 +72,8 @@ export function createSettingsAdminRouter({ getService, audit, getContext }) {
         return res.status(result.status).json(payload);
       }
       // Only paths and values of rules - there is nothing secret in settings.
-      audit(req, 'settings.update', 'settings', { revision: result.view.revision, changes: result.changes });
+      // A save that changed nothing (same revision) is not an event.
+      if (result.changedPaths.length > 0) audit(req, 'settings.update', 'settings', { revision: result.view.revision, changes: result.changes });
       res.json(result.view);
     })
   );

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
-import { SETTING_META, applySettingsPatch, getPath, mergeSettings, overrideLeaves, pathsInSection, patchFromEdits } from '@/platform/settings';
+import { applySettingsPatch, getPath, mergeSettings, overrideLeaves, patchFromEdits } from '@/platform/settings';
+import { SETTING_META, pathsInSection } from '@/platform/settings/meta';
 import type { Settings, SettingsIssue } from '@/platform/settings';
 import { patchIssues } from '@/platform/settings/schema';
 import { AdminApiError, adminApi } from '../services/adminApi';
