@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BookOpen, Check, ChevronDown, Dumbbell, Lock, Minus, Star } from 'lucide-react';
 import type { Challenge, ReadingResolver, Stage, Unit, UserStats } from '@/types';
-import { useSession } from '@/platform/session';
+import { assessmentBlockText, describeRetry, useSession } from '@/platform/session';
+import type { TestOutStatus } from '@/platform/session';
+import { fillCopy } from '@/platform/settings';
 import { isPremiumLocked, stageStatus, unitStates } from '@/platform/progress';
 import type { UnitGate } from '@/platform/progress';
 import { isPerfectUnit } from '@/platform/xp-leveling/rewards';
@@ -24,7 +26,15 @@ type Visual = 'completed' | 'current' | 'locked' | 'pro';
  * in progress opens by default; the rest fold to a single line.
  */
 export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
-  const { learnerStages: stages, stats, learningMode, settings, reviewSummary, todayKey } = useSession();
+  const { learnerStages: stages, stats, learningMode, settings, reviewSummary, todayKey, testOutStatus } = useSession();
+  // Test-out (Phase 5): what each stage allows, and the words for it.
+  const testOut = settings.testOut;
+  const offerTestOut = (stage: Stage, premiumLocked: boolean): TestOutStatus | null =>
+    testOut.enabled && stage.test && !premiumLocked && !testOut.disabledStages.includes(stage.id) && (stage.state === 'Locked' || stage.state === 'In progress')
+      ? testOutStatus(stage.id)
+      : null;
+  // Offline, the explanation is said once, on the first stage it applies to.
+  let offlineExplained = false;
   const practiceLine = describeReviewSummary(reviewSummary);
   const nextReview = describeNextReview(reviewSummary.nextDueDay, todayKey);
   const solved = useMemo(() => new Set(stats.completedChallenges), [stats.completedChallenges]);
@@ -80,6 +90,13 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
         const visual: Visual = premiumLocked ? 'pro' : stage.state === 'Completed' ? 'completed' : locked ? 'locked' : 'current';
         const expanded = open.has(stage.id) && !locked;
         const reading = readingFor?.(stage.id) ?? null;
+        const testOutState = offerTestOut(stage, premiumLocked);
+        // A started stage offers a test-out only while the admin allows that.
+        const quietTestOut = Boolean(
+          testOutState && stage.state === 'In progress' && (testOutState.allowed || testOutState.retryAt || (testOutState.offline && testOut.allowOnOpenStage))
+        );
+        const explainOffline = Boolean(testOutState?.offline && (locked || quietTestOut) && !offlineExplained);
+        if (explainOffline) offlineExplained = true;
 
         return (
           <li key={stage.id} className="relative pl-12 pb-8 last:pb-0">
@@ -99,6 +116,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                   <span>Stage {String(stage.index).padStart(2, '0')}</span>
                   {stage.isPremium && <Badge tone="warning">{premiumLocked ? 'Premium' : 'Unlocked'}</Badge>}
                   {stage.state === 'Test pending' && <Badge tone="info">Test ready</Badge>}
+                  {stage.testedOut && <Badge tone="success">Tested out</Badge>}
                 </div>
                 <h3 className={`mt-0.5 text-[1.0625rem] font-semibold tracking-tight ${locked ? 'text-fg-muted' : 'text-fg'}`}>
                   {stage.name}
@@ -128,6 +146,13 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                 )}
               </div>
             </div>
+
+            {/* A locked stage can be tested out of (Phase 5): pass its test to skip its lessons. */}
+            {locked && testOutState && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <TestOutAction stage={stage} status={testOutState} buttonLabel={testOut.copy.buttonLabel} cooldownLabel={testOut.copy.cooldownLabel} explainOffline={explainOffline} />
+              </div>
+            )}
 
             {/* Actions */}
             {!locked && (
@@ -164,6 +189,17 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                     <Dumbbell size={13} aria-hidden="true" />
                     Practice this stage
                   </button>
+                )}
+                {/* An open stage whose lessons are not finished: a quieter Test out. */}
+                {quietTestOut && testOutState && (
+                  <TestOutAction
+                    stage={stage}
+                    status={testOutState}
+                    buttonLabel={testOut.copy.buttonLabel}
+                    cooldownLabel={testOut.copy.cooldownLabel}
+                    explainOffline={explainOffline}
+                    quiet
+                  />
                 )}
                 {reading && (
                   <Link to={reading.href} className="ml-auto inline-flex items-center gap-1.5 text-xs text-fg-secondary hover:text-fg">
@@ -413,6 +449,81 @@ const LessonMark: React.FC<{ state: 'done' | 'next' | 'todo' | 'locked' }> = ({ 
       <Minus size={10} />
     </span>
   );
+};
+
+/**
+ * Test out of a stage (Phase 5): the button when it may start now; "Try
+ * again in 40 minutes" (the admin's `cooldownLabel`) while the learner must
+ * wait; disabled with the reason while a signed-in learner is offline (an
+ * unlock must reach the account). `quiet` is the small link on an open stage.
+ * Every one is at least 44px tall, for a finger at phone width.
+ */
+const TestOutAction: React.FC<{
+  stage: Stage;
+  status: TestOutStatus;
+  buttonLabel: string;
+  cooldownLabel: string;
+  quiet?: boolean;
+  explainOffline?: boolean;
+}> = ({ stage, status, buttonLabel, cooldownLabel, quiet = false, explainOffline = false }) => {
+  const open = () => intents.openAssessment({ kind: 'test-out', stageId: stage.id });
+  const waitText = status.retryAt ? fillCopy(cooldownLabel, { when: describeRetry(status.retryAt) ?? 'later' }) : null;
+  const waiting = !status.allowed && (status.reason === 'cooldown' || status.reason === 'limit') && waitText;
+  if (quiet) {
+    if (status.offline) {
+      return (
+        <>
+          <button
+            type="button"
+            disabled
+            className="inline-flex items-center min-h-[44px] px-2.5 rounded-xs text-xs text-fg-muted cursor-not-allowed"
+            title={assessmentBlockText('offline')}
+          >
+            {buttonLabel}
+          </button>
+          {explainOffline && <span className="text-xs text-fg-muted">{assessmentBlockText('offline')}</span>}
+        </>
+      );
+    }
+    if (status.allowed) {
+      return (
+        <button
+          type="button"
+          onClick={open}
+          className="inline-flex items-center min-h-[44px] px-2.5 rounded-xs text-xs text-fg-secondary hover:bg-surface-2 hover:text-fg"
+          title="Already know this stage? Pass its test to skip the lessons."
+        >
+          {buttonLabel}
+        </button>
+      );
+    }
+    return waiting ? <span className="text-xs text-fg-muted px-2.5">{waitText}</span> : null;
+  }
+  if (status.offline) {
+    return (
+      <>
+        <Button size="sm" variant="secondary" className="min-h-[44px]" disabled title={assessmentBlockText('offline')}>
+          {buttonLabel}
+        </Button>
+        {explainOffline && <span className="text-xs text-fg-muted">{assessmentBlockText('offline')}</span>}
+      </>
+    );
+  }
+  if (status.allowed) {
+    return (
+      <Button size="sm" variant="secondary" className="min-h-[44px]" onClick={open} title="Already know this stage? Pass its test to skip the lessons.">
+        {buttonLabel}
+      </Button>
+    );
+  }
+  if (waiting) {
+    return (
+      <Button size="sm" variant="secondary" className="min-h-[44px]" disabled title={assessmentBlockText(status.reason, describeRetry(status.retryAt))}>
+        {waitText}
+      </Button>
+    );
+  }
+  return null;
 };
 
 const StageAction: React.FC<{ stage: Stage; premiumLocked: boolean; testPending: boolean; done: number }> = ({

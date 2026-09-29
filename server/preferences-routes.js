@@ -10,6 +10,12 @@
  *       timeZone    (an IANA zone; a change inside
  *                    `streak.timeZoneChangeCooldownHours` of the last one is
  *                    not applied - and not an error: `applied.timeZone: false`)
+ *   P5  trackId      (a track learners are shown | null)
+ *       learningMode ('learn' | 'practice' | null)
+ *       motivation   (an id of `onboarding.motivation.options` | null)
+ *       experience   ('new' | 'some' | 'experienced' | null)
+ *       onboarding   ('completed' | 'dismissed': the first-run setup, kept
+ *                    beside the preferences as `users[].onboarding`)
  *
  * Validated in the style of the rest of the server: an early 400 `{ error }`
  * that names the field. A guest's choice travels in the merge body instead
@@ -20,7 +26,10 @@ import express from 'express';
 const passThrough = (_req, _res, next) => next();
 
 /** The fields this build lets a learner set, in the order they are checked. */
-export const PREFERENCE_FIELDS = ['soundOn', 'dailyGoalId', 'timeZone'];
+export const PREFERENCE_FIELDS = ['soundOn', 'dailyGoalId', 'timeZone', 'trackId', 'learningMode', 'motivation', 'experience', 'onboarding'];
+
+/** The experience answers of the first-run setup. The ids are fixed (src/platform/settings/types.ts `ExperienceLevel`). */
+export const EXPERIENCE_IDS = ['new', 'some', 'experienced'];
 
 const MINUTE = 60_000;
 
@@ -47,10 +56,14 @@ export function publicPreferences(prefs) {
  * Check a patch. Returns `{ patch }` (only the fields sent, cleaned) or
  * `{ error }` naming the first bad field. `rules` says which goal options
  * exist and what a valid zone is; without them (an older caller) only
- * `soundOn` can be checked, and the other fields are refused.
+ * `soundOn` can be checked, and the other fields are refused. The Phase 5
+ * fields need their own rules the same way: which tracks are shown
+ * (`isTrackAvailable`) and which motivation answers exist (`isMotivation`);
+ * without them a track or a motivation is refused.
  *
  * @param {unknown} body
- * @param {{ isGoalAvailable?: (id: string) => boolean, isValidTimeZone?: (zone: unknown) => boolean }} [rules]
+ * @param {{ isGoalAvailable?: (id: string) => boolean, isValidTimeZone?: (zone: unknown) => boolean,
+ *           isTrackAvailable?: (id: string) => boolean, isMotivation?: (id: string) => boolean }} [rules]
  */
 export function parsePreferencesPatch(body, rules = {}) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'Send the preferences to change as an object.' };
@@ -76,14 +89,76 @@ export function parsePreferencesPatch(body, rules = {}) {
     if (!zone || !rules.isValidTimeZone?.(zone)) return { error: 'timeZone must be a time zone name such as "Asia/Kolkata".' };
     patch.timeZone = zone;
   }
+  if ('trackId' in body) {
+    if (body.trackId === null) patch.trackId = null;
+    else {
+      const id = typeof body.trackId === 'string' ? body.trackId : '';
+      if (!id || !rules.isTrackAvailable?.(id)) return { error: 'trackId must be a track that is offered, or null.' };
+      patch.trackId = id;
+    }
+  }
+  if ('learningMode' in body) {
+    if (body.learningMode !== null && body.learningMode !== 'learn' && body.learningMode !== 'practice') {
+      return { error: 'learningMode must be "learn", "practice" or null.' };
+    }
+    patch.learningMode = body.learningMode;
+  }
+  if ('motivation' in body) {
+    if (body.motivation === null) patch.motivation = null;
+    else {
+      const id = typeof body.motivation === 'string' ? body.motivation : '';
+      if (!id || !rules.isMotivation?.(id)) return { error: 'motivation must be one of the answers offered, or null.' };
+      patch.motivation = id;
+    }
+  }
+  if ('experience' in body) {
+    if (body.experience !== null && !EXPERIENCE_IDS.includes(body.experience)) {
+      return { error: 'experience must be "new", "some", "experienced" or null.' };
+    }
+    patch.experience = body.experience;
+  }
+  if ('onboarding' in body) {
+    if (body.onboarding !== 'completed' && body.onboarding !== 'dismissed') return { error: 'onboarding must be "completed" or "dismissed".' };
+    patch.onboarding = body.onboarding;
+  }
   return { patch };
+}
+
+/**
+ * The first-run setup's state once a learner finished it (`completed`) or
+ * put it aside (`dismissed`) now. The other time is kept, so an account
+ * that dismissed it and finished it later says both.
+ */
+export function nextOnboardingState(current, action, now = new Date()) {
+  const prev = plainObject(current);
+  const at = now.toISOString();
+  const keep = (value) => (typeof value === 'string' && value ? value : null);
+  return action === 'completed' ? { completedAt: at, dismissedAt: keep(prev.dismissedAt) } : { completedAt: keep(prev.completedAt), dismissedAt: at };
+}
+
+/**
+ * The rules a patch is checked against: the effective settings (the goal
+ * options, the motivation answers), the shared zone check, and the tracks
+ * learners are shown (`learnerTracks()`: their ids, or null before the
+ * content has loaded - a track is refused then).
+ */
+export function preferenceRules(lib, settings, learnerTracks) {
+  const tracks = typeof learnerTracks === 'function' ? learnerTracks() : null;
+  return {
+    isGoalAvailable: lib && settings ? (id) => lib.isGoalOptionAvailable(id, settings.goals) : undefined,
+    isValidTimeZone: lib ? (zone) => lib.isValidTimeZone(zone) : undefined,
+    isTrackAvailable: Array.isArray(tracks) ? (id) => tracks.includes(id) : undefined,
+    isMotivation: settings ? (id) => (settings.onboarding?.motivation?.options ?? []).some((o) => o.id === id) : undefined
+  };
 }
 
 /**
  * A guest's preferences, carried in a merge body: only valid values, and
  * only where the account has none yet. Returns the fields to set, or null.
  * `rules.goals` (the effective `goals` settings) decides which goal ids are
- * valid; without it a guest's goal is not adopted.
+ * valid; without it a guest's goal is not adopted. The Phase 5 fields
+ * (track, mode, motivation, experience) follow the same rule, checked with
+ * `rules.check` (a `preferenceRules` set); without it they are not adopted.
  */
 export function adoptGuestPreferences(accountPrefs, incoming, rules = {}) {
   const account = plainObject(accountPrefs);
@@ -97,6 +172,13 @@ export function adoptGuestPreferences(accountPrefs, incoming, rules = {}) {
     rules.isGoalOptionAvailable?.(guest.dailyGoalId, rules.goals)
   ) {
     patch.dailyGoalId = guest.dailyGoalId;
+  }
+  if (rules.check) {
+    for (const field of ['trackId', 'learningMode', 'motivation', 'experience']) {
+      const value = guest[field];
+      if (typeof value !== 'string' || (account[field] !== null && account[field] !== undefined)) continue;
+      if (parsePreferencesPatch({ [field]: value }, rules.check).patch) patch[field] = value;
+    }
   }
   return Object.keys(patch).length ? patch : null;
 }
@@ -122,23 +204,22 @@ export function applyTimeZone(prefs, zone, { cooldownHours, now = new Date(), is
  * @param {(user) => object} deps.publicUser
  * @param {object} deps.store  server/db.js (findUserById, updateUser, normalizePreferences)
  * @param {Function} [deps.writeLimit]  the `write.account` rate limit
- * @param {{ lib, settings }} [deps.learningDeps]  read per request: the goal options, the zone cooldown
+ * @param {{ lib, settings }} [deps.learningDeps]  read per request: the goal options, the zone cooldown,
+ *   the motivation answers
+ * @param {() => string[] | null} [deps.learnerTracks]  the ids of the tracks learners are shown (null before the content loads)
  */
-export function createPreferencesRouter({ requireAuth, publicUser, store, writeLimit = passThrough, learningDeps = null }) {
+export function createPreferencesRouter({ requireAuth, publicUser, store, writeLimit = passThrough, learningDeps = null, learnerTracks = null }) {
   const router = express.Router();
 
   router.patch('/me/preferences', requireAuth, writeLimit, (req, res) => {
     const lib = learningDeps?.lib ?? null;
     const settings = learningDeps?.settings?.current() ?? null;
-    const { patch, error } = parsePreferencesPatch(req.body, {
-      isGoalAvailable: lib && settings ? (id) => lib.isGoalOptionAvailable(id, settings.goals) : undefined,
-      isValidTimeZone: lib ? (zone) => lib.isValidTimeZone(zone) : undefined
-    });
+    const { patch, error } = parsePreferencesPatch(req.body, preferenceRules(lib, settings, learnerTracks));
     if (error) return res.status(400).json({ error });
     const now = new Date();
     let next = { ...store.normalizePreferences(req.user.preferences) };
     let zoneApplied = false;
-    const { timeZone, ...rest } = patch;
+    const { timeZone, onboarding, ...rest } = patch;
     next = { ...next, ...rest };
     if (timeZone !== undefined) {
       const result = applyTimeZone(next, timeZone, {
@@ -149,7 +230,10 @@ export function createPreferencesRouter({ requireAuth, publicUser, store, writeL
       next = result.prefs;
       zoneApplied = result.applied;
     }
-    const updated = store.updateUser(req.user.id, { preferences: { ...next, updatedAt: now.toISOString() } });
+    const fields = { preferences: { ...next, updatedAt: now.toISOString() } };
+    // The first-run setup (Phase 5) is kept beside the preferences on the user row.
+    if (onboarding !== undefined) fields.onboarding = nextOnboardingState(req.user.onboarding, onboarding, now);
+    const updated = store.updateUser(req.user.id, fields);
     // A zone change inside its cooldown is not an error - the browser sends
     // its zone by itself and should not show one - it is just not applied.
     // `applied.timeZone` answers only a request that sent a zone.

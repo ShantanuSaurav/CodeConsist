@@ -57,7 +57,10 @@ function useMetaDescription(): void {
  * Opening the site shows the welcome intro (the mark, the name, the tagline,
  * "Enter CodeConsist"). Entering goes to the existing /dashboard route -
  * signed-in learners land on their dashboard, guests on the guest flow with
- * its sign-in prompt - so no second home page exists. The intro's quiet
+ * its sign-in prompt - so no second home page exists. A brand-new learner
+ * goes to the first-run setup (/welcome) first, while the admin has it on
+ * (`onboarding.enabled` and `showAfterEnter`); nobody with progress is ever
+ * sent there. The intro's quiet
  * second action ("learn more first") reveals the landing page in place.
  *
  * It is remembered per visit (sessionStorage): coming back to "/" inside the
@@ -67,6 +70,7 @@ function useMetaDescription(): void {
  */
 export const Landing: React.FC = () => {
   const navigate = useNavigate();
+  const { needsOnboarding, settings } = useSession();
   useMetaDescription();
   const [intro, setIntro] = useState(() => {
     remove(STORAGE_KEYS.intro); // the old, permanent flag from a previous build
@@ -75,10 +79,15 @@ export const Landing: React.FC = () => {
 
   const markSeen = useCallback(() => rememberIntro(), []);
 
+  // A new learner (nothing solved, the setup neither finished nor dismissed)
+  // goes through the first-run setup first, while the admin has it on; anyone
+  // with progress goes straight to their dashboard.
+  const onboarding = settings.onboarding;
+  const toSetup = needsOnboarding && onboarding.enabled && onboarding.showAfterEnter;
   const enter = useCallback(() => {
     markSeen();
-    navigate(ROUTES.dashboard);
-  }, [markSeen, navigate]);
+    navigate(toSetup ? ROUTES.onboarding : ROUTES.dashboard);
+  }, [markSeen, navigate, toSetup]);
 
   const explore = useCallback(() => {
     markSeen();

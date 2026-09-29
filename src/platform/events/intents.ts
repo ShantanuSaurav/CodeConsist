@@ -16,6 +16,8 @@ export const intents = {
   openStageTest: (stageId: string) => eventBus.emit('practice:openTest', { stageId }),
   /** Start a Practice session (review) over the whole path, or one stage. */
   openReview: (scope: AppEvents['review:open'] = {}) => eventBus.emit('review:open', scope),
+  /** Offer a test-out of a stage, or a placement on a track (the practice session checks and starts it). */
+  openAssessment: (request: AppEvents['assessment:open']) => eventBus.emit('assessment:open', request),
   openAuth: () => eventBus.emit('account:openAuth', {}),
   /** Open the unlock modal, optionally pointed at the stage/track that was locked or at the certificates tab. */
   openPro: (opts: AppEvents['account:openPro'] = {}) => eventBus.emit('account:openPro', opts)

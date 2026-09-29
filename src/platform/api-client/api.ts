@@ -7,6 +7,8 @@
 import {
   ActivityContext,
   ActivityLog,
+  AssessmentClaim,
+  AssessmentView,
   Challenge,
   CodeDraft,
   DayRecord,
@@ -179,6 +181,10 @@ export interface ServerProgress {
   habit?: HabitState;
   /** The Practice schedule (entries only for questions reviewed or revealed). Absent from an older server. */
   review?: Record<string, ReviewItemState>;
+  /** Stages tested out of (Phase 5). Absent from an older server. */
+  testedOut?: UserStats['testedOut'];
+  /** Teaching sequences already shown, as the account knows them - union with this browser's. Absent from an older server. */
+  seenConcepts?: string[];
 }
 
 /** A bonus paid on top of a solve's own XP. `awardedXp` never includes it. */
@@ -314,6 +320,33 @@ export interface MergeResponse {
   skippedLocked?: string[];
   /** Practice XP the merged review log paid (not in `awardedXp`). Absent from an older server. */
   awardedReviewXp?: number;
+  /**
+   * Solved ids NOT credited because their stage is not open on the account
+   * (the stage order, `access.mergeGate` enforcing). Absent when there were none.
+   */
+  droppedChallenges?: string[];
+  /** What became of a guest's test-out claims, when any were sent. */
+  claims?: { accepted: string[]; rejected: Array<{ stageId: string; reason: string }> };
+}
+
+/** `GET /api/assessments/status`: what the learner may take now, and what is running. */
+export interface AssessmentStatusResponse {
+  placement: { eligible: boolean; reason: string | null; retryAt: string | null; queue: string[] } | null;
+  testOut: Record<string, { allowed: boolean; reason: string | null; retryAt: string | null; attemptsLeft: number }>;
+  active: AssessmentView | null;
+}
+
+/** What a submit in a test-out or a placement returns. */
+export interface AssessmentSubmitResponse {
+  assessment: AssessmentView;
+  passed: boolean;
+  progress: ServerProgress;
+  awardedXp: number;
+  bonusXp?: number;
+  settingsRevision?: number;
+  today?: TodayRow;
+  habits?: HabitStatus;
+  habitEvents?: HabitEventsResponse;
 }
 
 /** What `POST /api/review/session` returns: a session, or nothing to practise and when to come back. */
@@ -349,7 +382,11 @@ export interface ReviewAnswerResponse {
 }
 
 /** What `PATCH /api/me/preferences` accepts (any subset); `null` puts a default back - not for the zone. */
-export type PreferencesPatch = Partial<Pick<LearnerPreferences, 'soundOn' | 'dailyGoalId'>> & { timeZone?: string };
+export type PreferencesPatch = Partial<Pick<LearnerPreferences, 'soundOn' | 'dailyGoalId' | 'trackId' | 'learningMode' | 'motivation' | 'experience'>> & {
+  timeZone?: string;
+  /** The first-run setup was finished or put aside (Phase 5). Not a preference: it is kept beside them. */
+  onboarding?: 'completed' | 'dismissed';
+};
 
 /** What `PATCH /api/me/preferences` returns. */
 export interface PreferencesResponse {
@@ -516,6 +553,16 @@ export function rupees(paise: number): string {
   return `₹${formatted}${rest ? `.${String(rest).padStart(2, '0')}` : ''}`;
 }
 
+/**
+ * A progress copy as a merge sends it: without what only this browser keeps
+ * (a guest's claims go in their own field; held-back solves are a notice).
+ */
+function withoutLocalOnly<T extends object>(progress: T): T {
+  if (!progress || typeof progress !== 'object') return progress;
+  const { assessmentClaims: _claims, heldChallenges: _held, ...rest } = progress as T & { assessmentClaims?: unknown; heldChallenges?: unknown };
+  return rest as T;
+}
+
 /* ----------------------------------------------------------------- methods */
 
 export const api = {
@@ -657,32 +704,81 @@ export const api = {
     progress: Partial<ServerProgress>,
     activity?: Pick<ActivityLog, 'days' | 'misses' | 'missLog'>,
     preferences?: LearnerPreferences | null,
-    reviewLog?: ReviewEvent[] | null
+    reviewLog?: ReviewEvent[] | null,
+    assessmentClaims?: AssessmentClaim[] | null
   ): Promise<MergeResponse> {
     // A guest's own choices (sound on or off, their daily goal) go along; the
     // server adopts them only where the account has none. Their streak
     // freezes and history ride in `progress.habit`, their Practice schedule
     // in `progress.review`; Practice answers the server has not priced yet
-    // go in `reviewLog`.
-    const extra = { ...(preferences ? { preferences } : {}), ...(reviewLog && reviewLog.length ? { reviewLog } : {}) };
+    // go in `reviewLog`, and passed test-outs (with the answer that passed
+    // them, checked again there) in `assessmentClaims` - never inside
+    // `progress`, which would send them twice.
+    const extra = {
+      ...(preferences ? { preferences } : {}),
+      ...(reviewLog && reviewLog.length ? { reviewLog } : {}),
+      ...(assessmentClaims && assessmentClaims.length ? { assessmentClaims } : {})
+    };
+    const sent = withoutLocalOnly(progress);
     try {
-      return await request<MergeResponse>('/progress/merge', { method: 'POST', body: activity ? { progress, activity, ...extra } : { progress, ...extra } });
+      return await request<MergeResponse>('/progress/merge', { method: 'POST', body: activity ? { progress: sent, activity, ...extra } : { progress: sent, ...extra } });
     } catch (err) {
       if (activity && err instanceof ApiError && err.status === 413) {
-        return request<MergeResponse>('/progress/merge', { method: 'POST', body: { progress, ...extra } });
+        return request<MergeResponse>('/progress/merge', { method: 'POST', body: { progress: sent, ...extra } });
       }
       throw err;
     }
   },
 
+  /** The account's progress row, with level and streak as they stand on the learner's today. */
+  async progress(): Promise<{ progress: ServerProgress; habits?: HabitStatus }> {
+    return request('/progress');
+  },
+
+  /* Test-out and placement (Phase 5). The server decides who may start what and records every pass. */
+
+  /** What may be started now (per stage, and a placement on `trackId`), and the one running. */
+  async assessmentStatus(trackId?: string): Promise<AssessmentStatusResponse> {
+    return request(`/assessments/status${trackId ? `?trackId=${encodeURIComponent(trackId)}` : ''}`);
+  },
+
+  /** Start a test-out of one stage, or a placement on a track. A 409 `active-exists` carries the running one. */
+  async startAssessment(input: { kind: 'test-out'; stageId: string } | { kind: 'placement'; trackId: string }): Promise<{ assessment: AssessmentView }> {
+    return request('/assessments', { method: 'POST', body: input });
+  },
+
+  /** Hand in the current test of a running assessment. A wrong answer (422) does not use up the run. */
+  async submitAssessment(
+    id: string,
+    body: { stageId: string; attempts: number; hintsUsed: number; code?: string; answer?: unknown }
+  ): Promise<AssessmentSubmitResponse> {
+    return request(`/assessments/${encodeURIComponent(id)}/submit`, { method: 'POST', body });
+  },
+
+  /** The current test was not passed: the learner gave up, or ran out of runs. */
+  async failAssessment(id: string, body: { stageId: string; reason: 'gave-up' | 'out-of-runs'; runs?: number }): Promise<{ assessment: AssessmentView }> {
+    return request(`/assessments/${encodeURIComponent(id)}/fail`, { method: 'POST', body });
+  },
+
+  /** End a placement early. */
+  async finishAssessment(id: string): Promise<{ assessment: AssessmentView }> {
+    return request(`/assessments/${encodeURIComponent(id)}/finish`, { method: 'POST' });
+  },
+
   /**
    * Change the learner's own preferences: sound (Phase 2), the daily goal and
-   * the time zone (Phase 3); `null` puts a default back. A zone changed again
-   * within the cooldown is not applied (`applied.timeZone: false`) - that is
-   * not an error.
+   * the time zone (Phase 3), the track, the learning mode and the first-run
+   * setup's answers (Phase 5); `null` puts a default back. A zone changed
+   * again within the cooldown is not applied (`applied.timeZone: false`) -
+   * that is not an error.
    */
   async updatePreferences(patch: PreferencesPatch): Promise<PreferencesResponse> {
     return request('/me/preferences', { method: 'PATCH', body: patch });
+  },
+
+  /** Teaching sequences shown in this browser, added to the account's (known ones only). */
+  async markConceptsSeen(conceptIds: string[]): Promise<{ seenConcepts: string[] }> {
+    return request('/progress/concepts', { method: 'POST', body: { conceptIds } });
   },
 
   /** The learner-facing rules. Public: guests play by the same rules. */

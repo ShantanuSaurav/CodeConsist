@@ -68,44 +68,72 @@ export function scoreCapFor(input, feedback, lib) {
   return lib.revealCap(input.learningMode, feedback);
 }
 
+/** A copy of a keyed map with one entry set - safely for any key (see server/db.js defineEntry). */
+export function withEntry(map, key, value) {
+  const out = {};
+  const src = plainObject(map);
+  for (const k of Object.keys(src)) Object.defineProperty(out, k, { value: src[k], writable: true, enumerable: true, configurable: true });
+  Object.defineProperty(out, key, { value, writable: true, enumerable: true, configurable: true });
+  return out;
+}
+
 /**
  * Record one verified, passing solve. Re-solving is allowed and keeps the
  * best score, but pays XP only once. `solvedAt` is the FIRST solve and is
  * never overwritten; `lastSolvedAt` and `solves` track the rest.
  *
+ * A stage test passed inside a test-out or a placement (Phase 5) comes with
+ * `testOut: { stageId, via, clears, assessmentId, xpPercent }`: it is paid
+ * `xpForTestOut` (the solve's XP scaled by `xpPercent`), its attempt row
+ * says `via`, and the stage's `testedOut` record is written - before the
+ * cleared stages are counted, so a record that `clears` counts. The solve
+ * route and the assessment routes both come through here, so the two can
+ * never price or record a test differently.
+ *
  * The streak is not touched here: the habits engine counts the day
  * (server/habits.js recordSolveHabits, pipeline step 11), after the day row
  * it reads has been written.
  */
-export function applySolveCore({ progress, challenge, attempts, hintsUsed, now, lib, xp, levels, completedStagesFor, cap = 100 }) {
+export function applySolveCore({ progress, challenge, attempts, hintsUsed, now, lib, xp, levels, completedStagesFor, cap = 100, testOut = null }) {
   const challengeId = challenge.id;
   const previous = ownEntry(progress.attempts, challengeId);
   // `cap` limits the score (and so the XP) of a solve made after the answer was shown.
   const score = lib.scoreSolve(attempts, hintsUsed, xp, cap);
   const firstSolve = !progress.completedChallenges.includes(challengeId);
-  const awarded = firstSolve ? lib.xpForSolve(challenge.xpReward, attempts, hintsUsed, xp, cap) : 0;
+  let awarded = 0;
+  if (firstSolve) {
+    awarded = testOut
+      ? lib.xpForTestOut(challenge.xpReward, testOut.xpPercent ?? 100, attempts, hintsUsed, xp)
+      : lib.xpForSolve(challenge.xpReward, attempts, hintsUsed, xp, cap);
+  }
   const at = now.toISOString();
 
   const next = {
     ...progress,
     xp: progress.xp + awarded,
     completedChallenges: firstSolve ? [...progress.completedChallenges, challengeId] : progress.completedChallenges,
-    attempts: {
-      ...progress.attempts,
-      [challengeId]: {
-        challengeId,
-        score: Math.max(previous?.score ?? 0, score),
-        attempts: (previous?.attempts ?? 0) + attempts,
-        hintsUsed: (previous?.hintsUsed ?? 0) + hintsUsed,
-        solvedAt: typeof previous?.solvedAt === 'string' && previous.solvedAt ? previous.solvedAt : at,
-        lastSolvedAt: at,
-        // A row from before `solves` existed was solved at least once.
-        solves: (Number.isInteger(previous?.solves) ? previous.solves : previous ? 1 : 0) + 1
-      }
-    }
+    attempts: withEntry(progress.attempts, challengeId, {
+      challengeId,
+      score: Math.max(previous?.score ?? 0, score),
+      attempts: (previous?.attempts ?? 0) + attempts,
+      hintsUsed: (previous?.hintsUsed ?? 0) + hintsUsed,
+      solvedAt: typeof previous?.solvedAt === 'string' && previous.solvedAt ? previous.solvedAt : at,
+      lastSolvedAt: at,
+      // A row from before `solves` existed was solved at least once.
+      solves: (Number.isInteger(previous?.solves) ? previous.solves : previous ? 1 : 0) + 1,
+      ...(previous?.via ? { via: previous.via } : testOut && firstSolve ? { via: testOut.via } : {})
+    })
   };
+  if (testOut) {
+    next.testedOut = withEntry(progress.testedOut, testOut.stageId, {
+      at,
+      via: testOut.via,
+      clears: testOut.clears === true,
+      assessmentId: String(testOut.assessmentId ?? '')
+    });
+  }
   next.level = lib.levelFromXp(next.xp, levels);
-  next.completedStages = completedStagesFor(next.completedChallenges);
+  next.completedStages = completedStagesFor(next.completedChallenges, next.testedOut);
   return { next, awarded, score, firstSolve };
 }
 
@@ -170,6 +198,7 @@ export function mergeCore({
   today,
   now,
   allows = () => true,
+  filterNew = null,
   unitFor = null
 }) {
   const incoming = plainObject(raw);
@@ -183,12 +212,18 @@ export function mergeCore({
   // Only ids that exist, only ones this account has not already been paid
   // for, and only ones it may open.
   const skippedLocked = [];
-  const newIds = [...new Set(incomingIds)].filter((id) => {
+  const unlocked = [...new Set(incomingIds)].filter((id) => {
     if (known.has(id) || !getChallenge(id)) return false;
     if (allows(getChallengeMerged(id) ?? getChallenge(id))) return true;
     skippedLocked.push(id);
     return false;
   });
+  // Then the stage order (Phase 5, server/progression.js filterMerge under
+  // `access.mergeGate`): a solve in a stage the account has not opened is
+  // held back and comes back in `droppedChallenges`.
+  const filtered = filterNew ? filterNew(unlocked) : { accepted: unlocked, dropped: [] };
+  const newIds = filtered.accepted;
+  const droppedChallenges = filtered.dropped;
 
   const incomingAttempts = plainObject(incoming.attempts);
   const attempts = { ...(current.attempts ?? {}) };
@@ -229,7 +264,7 @@ export function mergeCore({
     ...current,
     xp: current.xp + awarded,
     completedChallenges,
-    completedStages: completedStagesFor(completedChallenges),
+    completedStages: completedStagesFor(completedChallenges, current.testedOut),
     attempts
   };
 
@@ -256,16 +291,49 @@ export function mergeCore({
     }
   }
   result.level = lib.levelFromXp(result.xp, settings.levels);
-  return { merged: result, newIds, awarded, bonusXp, unitRewards, credits, skippedLocked };
+  return { merged: result, newIds, awarded, bonusXp, unitRewards, credits, skippedLocked, droppedChallenges };
 }
 
 /**
  * A fresh progress row. Built from new objects every time - spreading the
  * shared EMPTY_PROGRESS constant's arrays or maps would let one learner's
- * later writes leak into it.
+ * later writes leak into it. Tested-out stages go with the rest of the
+ * progress; the assessment log (and its cooldowns) is not progress and stays.
  */
 export function resetProgress(emptyProgress) {
-  return { ...emptyProgress, attempts: {}, completedChallenges: [], completedStages: [], unitsCompleted: {}, review: {} };
+  return {
+    ...emptyProgress,
+    attempts: {},
+    completedChallenges: [],
+    completedStages: [],
+    unitsCompleted: {},
+    review: {},
+    testedOut: {},
+    seenConcepts: []
+  };
+}
+
+/** The most teaching sequences a learner's `seenConcepts` keeps (and one request may add). */
+export const SEEN_CONCEPTS_MAX = 500;
+
+/**
+ * Teaching sequences already shown (Phase 5): the stored list with the ids
+ * in `incoming` added - each once, in first-seen order, only the ones
+ * `isKnown` accepts (a concept learners are served), at most
+ * `SEEN_CONCEPTS_MAX` of them from one request, and the newest
+ * `SEEN_CONCEPTS_MAX` kept. `added` says which were new.
+ */
+export function unionSeenConcepts(stored, incoming, isKnown, max = SEEN_CONCEPTS_MAX) {
+  const list = Array.isArray(stored) ? stored.filter((id) => typeof id === 'string' && id) : [];
+  const seen = new Set(list);
+  const added = [];
+  for (const id of Array.isArray(incoming) ? incoming.slice(0, max) : []) {
+    if (typeof id !== 'string' || !id || id.length > 200 || seen.has(id) || !isKnown(id)) continue;
+    seen.add(id);
+    list.push(id);
+    added.push(id);
+  }
+  return { list: list.slice(-max), added };
 }
 
 /**

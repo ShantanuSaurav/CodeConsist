@@ -34,7 +34,7 @@ const STEPS: Step[] = [
     icon: Hammer,
     // Not "a coding problem with hidden cases": the C and C++ stage tests are
     // fill-in-the-blank programs. Editable, and it must stay true about how
-    // stages unlock.
+    // stages unlock (`buildStepWithSkip` while placement or test-out is on).
     copyKey: 'copy.landing.buildStep'
   },
   {
@@ -49,11 +49,17 @@ export const HowItWorks: React.FC = () => {
   // Counted from the content, not written down: "ten stages" stopped being
   // true the day the C and C++ tracks arrived. The sentence around the count
   // is admin-editable (`copy.landing.pathLine`).
-  const { contentReady } = useSession();
+  const { contentReady, settings } = useSession();
   const stats = useContentStats();
   const copy = useCopy();
+  // While placement or test-out is on, the lines say a learner can skip
+  // ahead (`…WithSkip`); with both off, the base lines - both admin-editable.
+  const canSkip = settings.placement.enabled || settings.testOut.enabled;
   const pathLine =
-    contentReady && stats.stages > 0 ? copy('copy.landing.pathLine', { stages: stats.stages }) : 'Stages in order, each ending in a coding test.';
+    contentReady && stats.stages > 0
+      ? copy(canSkip ? 'copy.landing.pathLineWithSkip' : 'copy.landing.pathLine', { stages: stats.stages })
+      : 'Stages in order, each ending in a coding test.';
+  const copyKeyOf = (step: Step) => (step.copyKey === 'copy.landing.buildStep' && canSkip ? 'copy.landing.buildStepWithSkip' : step.copyKey);
 
   return (
     <section className="py-20 sm:py-28">
@@ -77,7 +83,7 @@ export const HowItWorks: React.FC = () => {
                     <Icon size={18} className="step-icon" aria-hidden="true" />
                   </div>
                   <h3 className="text-lg font-semibold text-fg tracking-tight mb-2">{s.title}</h3>
-                  <p className="text-sm text-fg-secondary leading-relaxed">{s.copyKey ? copy(s.copyKey, { ...stats }) : s.desc}</p>
+                  <p className="text-sm text-fg-secondary leading-relaxed">{s.copyKey ? copy(copyKeyOf(s) ?? s.copyKey, { ...stats }) : s.desc}</p>
                 </div>
               </Reveal>
             );

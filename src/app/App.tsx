@@ -47,6 +47,8 @@ const VerifyPage = lazyPage(() => import('@/modules/account'), 'VerifyPage');
 const OAuthCallbackPage = lazyPage(() => import('@/modules/account'), 'OAuthCallbackPage');
 /* Where an admin-issued password reset link lands (the token is in the URL fragment). */
 const ResetPasswordPage = lazyPage(() => import('@/modules/account'), 'ResetPasswordPage');
+/* The first-run setup (/welcome): full page, outside the dashboard frame. */
+const OnboardingPage = lazyPage(() => import('@/modules/onboarding'), 'OnboardingPage');
 /* The administrator console - a separate session and its own chunk, fetched only on /admin. */
 const AdminApp = lazyPage(() => import('@/modules/admin'), 'AdminApp');
 
@@ -86,6 +88,16 @@ const AppRoutes: React.FC = () => (
       element={
         <Suspense fallback={<AppSplash />}>
           <Landing />
+        </Suspense>
+      }
+    />
+
+    {/* The first-run setup: after "Enter" for a new learner, or "Redo setup" in Settings. */}
+    <Route
+      path={ROUTES.onboarding}
+      element={
+        <Suspense fallback={<AppSplash />}>
+          <OnboardingPage />
         </Suspense>
       }
     />

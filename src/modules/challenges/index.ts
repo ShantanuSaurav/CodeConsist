@@ -4,7 +4,8 @@
  * Owns: the challenge bank, the seven challenge types and their grading, the
  * practice modal and session, the learning path and the library.
  * Emits (via the session): challenge:completed, stage:completed.
- * Listens: practice:open, practice:openTest, progress:reset, auth:signedOut.
+ * Listens: practice:open, practice:openTest, practice:openUnit, review:open,
+ * assessment:open (test-out and placement), progress:reset, auth:signedOut.
  *
  * The bank itself is NOT re-exported here. It lives behind a second entry,
  * `@/modules/challenges/content`, which the app imports dynamically so the

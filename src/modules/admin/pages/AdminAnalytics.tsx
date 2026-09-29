@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Pencil } from 'lucide-react';
-import { AdminChallengeRow, AdminStageRow, AnalyticsSummary, ChallengeMisses, MostMissedRow, adminApi } from '../services/adminApi';
+import { AdminChallengeRow, AdminStageRow, AnalyticsSummary, ChallengeMisses, MostMissedRow, OnboardingAnalytics, adminApi } from '../services/adminApi';
 import { AdminPageHeader, Badge, Button, Card, Drawer, EmptyState, ErrorText, Spinner, Table } from '../components/ui';
 import { QuestionWizard } from '../components/QuestionWizard';
 import { ProgressBar } from '@/ui';
@@ -111,6 +111,111 @@ const MissesDrawer: React.FC<{ row: MostMissedRow | null; onClose: () => void }>
 };
 
 /**
+ * The first-run setup and placement (Phase 5), from every account: how many
+ * finished or dismissed the setup, what they answered, placements, and each
+ * stage's test-out pass rate. Guests are not counted - their answers stay in
+ * their browser - and the card says so.
+ */
+const OnboardingCard: React.FC = () => {
+  const [data, setData] = useState<OnboardingAnalytics | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    adminApi
+      .onboardingAnalytics()
+      .then(setData)
+      .catch((err) => setError(err.message ?? 'Could not load the onboarding numbers.'));
+  }, []);
+  const bars = (rows: { id: string; label: string; count: number }[]) => {
+    const max = Math.max(1, ...rows.map((r) => r.count));
+    return (
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.id} className="flex items-center gap-3">
+            <span className="w-44 text-sm text-fg-secondary truncate" title={r.label}>
+              {r.label}
+            </span>
+            <ProgressBar value={(r.count / max) * 100} size="sm" tone="neutral" className="flex-1" label={`${r.count} learners`} />
+            <span className="text-xs font-mono tabular-nums text-fg w-8 text-right">{r.count}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+  return (
+    <Card className="mb-6">
+      <h2 className="text-sm font-medium text-fg mb-1">Onboarding and placement</h2>
+      <p className="text-xs text-fg-muted mb-4">
+        Accounts only - guests are not counted, their answers stay in their browser. The setup's words and steps are under{' '}
+        <Link to="/admin/rules/onboarding" className="underline">
+          Onboarding
+        </Link>
+        .
+      </p>
+      {error && <ErrorText>{error}</ErrorText>}
+      {!data && !error && <Spinner label="Loading onboarding numbers…" />}
+      {data && (
+        <div className="grid lg:grid-cols-2 gap-6">
+          <section>
+            <div className="flex flex-wrap gap-6 mb-4">
+              <div>
+                <div className="text-2xl font-semibold text-fg tabular-nums">{data.setup.completed}</div>
+                <div className="text-xs text-fg-muted">finished the setup</div>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold text-fg tabular-nums">{data.setup.dismissed}</div>
+                <div className="text-xs text-fg-muted">dismissed it</div>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold text-fg tabular-nums">{data.setup.notYet}</div>
+                <div className="text-xs text-fg-muted">not yet ({data.setup.notYetWithProgress} with progress, never asked)</div>
+              </div>
+            </div>
+            <h3 className="text-xs font-medium text-fg-secondary uppercase tracking-wide mb-2">Why they are learning</h3>
+            {bars(data.answers.motivation.filter((r) => r.id !== 'other' || r.count > 0))}
+            <p className="text-xs text-fg-muted mt-1">{data.answers.noMotivation} gave no answer.</p>
+            <h3 className="text-xs font-medium text-fg-secondary uppercase tracking-wide mt-4 mb-2">How much they knew</h3>
+            {bars(data.answers.experience)}
+            <p className="text-xs text-fg-muted mt-1">{data.answers.noExperience} gave no answer.</p>
+          </section>
+          <section>
+            <h3 className="text-xs font-medium text-fg-secondary uppercase tracking-wide mb-2">Placements</h3>
+            <p className="text-sm text-fg-secondary">
+              {data.placements.started} started · {data.placements.ended} ended · {data.placements.active} running
+              {data.placements.medianStagesPlaced !== null ? ` · median ${data.placements.medianStagesPlaced} ${data.placements.medianStagesPlaced === 1 ? 'stage' : 'stages'} tested out` : ''}
+            </p>
+            <h3 className="text-xs font-medium text-fg-secondary uppercase tracking-wide mt-4 mb-2">Test-outs by stage</h3>
+            {data.testOuts.length === 0 ? (
+              <EmptyState>No test-outs yet.</EmptyState>
+            ) : (
+              <Table>
+                <thead>
+                  <tr>
+                    <th>Stage</th>
+                    <th>Taken</th>
+                    <th>Passed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.testOuts.map((t) => (
+                    <tr key={t.stageId}>
+                      <td className="cell-primary">{t.name}</td>
+                      <td className="cell-num">{t.attempts}</td>
+                      <td className="cell-num">
+                        {t.passed} ({t.passRate}%)
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </section>
+        </div>
+      )}
+    </Card>
+  );
+};
+
+/**
  * /admin/analytics. Every number here is derived from real records in
  * server/db.js: solves from the progress store, and "Most missed" from the
  * wrong answers learners actually gave (the activity store) - an honest
@@ -213,6 +318,8 @@ export const AdminAnalytics: React.FC = () => {
           )}
         </Card>
       </div>
+
+      <OnboardingCard />
 
       <Card className="p-0 overflow-hidden">
         <div className="panel-head">

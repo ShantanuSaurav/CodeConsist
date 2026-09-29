@@ -42,8 +42,12 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
  *       read - progress `review`. `contentOverrides.challenges[id]` may
  *       now carry `optionFeedback`, `blankFeedback` and `feedbackBasis`
  *       (wrong-answer notes on a built-in question - server/content.js).
+ *   6 - `assessments` (each learner's test-outs and placements, and the
+ *       cooldowns an admin cleared), plus `users[].onboarding` (the first-run
+ *       setup: finished, dismissed, or null) and - lazily, on first read -
+ *       progress `testedOut` and `seenConcepts`.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const EMPTY = {
   version: SCHEMA_VERSION,
@@ -147,7 +151,15 @@ const EMPTY = {
    * `{ id, createdAt, stageId?, items, answered, bonusPaid }`. A new session
    * replaces the old one. Deleted with the account.
    */
-  reviewSessions: {}
+  reviewSessions: {},
+  /**
+   * Each learner's test-outs and placements, keyed by user id:
+   * `{ records: AssessmentRecord[] (the newest 100), cooldownClearedAt:
+   * { [stageId | '*']: iso } }` - see src/platform/progress/access.ts and
+   * server/assessment-routes.js. Kept apart from progress on purpose: a
+   * progress reset must not reset the cooldowns. Deleted with the account.
+   */
+  assessments: {}
 };
 
 let state = null;
@@ -218,6 +230,19 @@ export function normalizePreferences(raw) {
 }
 
 /**
+ * The first-run setup's state on a user row: `{ completedAt, dismissedAt }`,
+ * or null when the learner has not been through it (every account from
+ * before it existed). Anything else stored there reads as null.
+ */
+export function normalizeOnboarding(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const at = (value) => (typeof value === 'string' && value ? value : null);
+  const completedAt = at(raw.completedAt);
+  const dismissedAt = at(raw.dismissedAt);
+  return completedAt || dismissedAt ? { completedAt, dismissedAt } : null;
+}
+
+/**
  * Fill in fields added to the schema after some rows already existed.
  *
  * Pure, idempotent and order-independent: it only ADDS what is missing and
@@ -271,6 +296,7 @@ function migrate(loaded) {
   next.passwordResets = plainObject(loaded.passwordResets);
   next.conceptCards = plainObject(loaded.conceptCards);
   next.reviewSessions = plainObject(loaded.reviewSessions);
+  next.assessments = plainObject(loaded.assessments);
   next.users = (loaded.users ?? []).map((u) => {
     // `role` was a field from the old, retired admin-via-user-account
     // system. It is no longer read anywhere - administrators now live
@@ -286,6 +312,9 @@ function migrate(loaded) {
       passwordHash: rest.passwordHash ?? null,
       identities: plainObject(rest.identities),
       preferences: normalizePreferences(rest.preferences),
+      // Null for every account from before the first-run setup existed - and
+      // one with progress is never sent to it (`needsOnboarding`).
+      onboarding: normalizeOnboarding(rest.onboarding),
       // Stamped into every learner token as `tv`; a password reset bumps it,
       // which signs out every session issued before (server/auth.js). A
       // token from before this existed has no `tv` and reads as 0, so
@@ -340,6 +369,10 @@ export async function load() {
       // the server with the file untouched, never move a readable database
       // aside as "corrupt" and start empty.
       state = migrate(parsed);
+      // Persist the upgrade straight away, so the version on disk matches and
+      // the copy above is made once - not again at every restart that happens
+      // before the first write.
+      if (from < SCHEMA_VERSION) await flush();
     }
   } else {
     state = clone(EMPTY);
@@ -438,6 +471,8 @@ export function deleteUser(id) {
   deletePasswordResetsForUser(id);
   // And their open Practice session.
   deleteReviewSession(id);
+  // And their test-outs and placements.
+  deleteAssessmentsForUser(id);
 
   forgetBillingIdentity(db(), id);
 
@@ -624,7 +659,18 @@ export const EMPTY_PROGRESS = {
    * without an entry has a state derived from its solve
    * (src/platform/review/schedule.ts `reviewStateOf`).
    */
-  review: {}
+  review: {},
+  /**
+   * `{ [stageId]: { at, via: 'test-out' | 'placement', clears, assessmentId } }`
+   * - the stages tested out of. Written only by the assessment routes and a
+   * verified guest claim (server/assessment-routes.js, server/progression.js).
+   */
+  testedOut: {},
+  /**
+   * Teaching sequences (concept ids) already shown to this learner, so a new
+   * device does not repeat them. Kept per device before Phase 5.
+   */
+  seenConcepts: []
 };
 
 /**
@@ -639,7 +685,9 @@ export function normalizeProgress(row) {
     ...clone(EMPTY_PROGRESS),
     ...src,
     unitsCompleted: { ...plainObject(src.unitsCompleted) },
-    review: { ...plainObject(src.review) }
+    review: { ...plainObject(src.review) },
+    testedOut: { ...plainObject(src.testedOut) },
+    seenConcepts: Array.isArray(src.seenConcepts) ? src.seenConcepts.filter((id) => typeof id === 'string') : []
   };
 }
 
@@ -788,6 +836,38 @@ export function putReviewSession(userId, record) {
   defineEntry(db().reviewSessions, String(userId), record);
   persist();
   return record;
+}
+
+/* ------------------------------------------------------------ assessments */
+
+/**
+ * A learner's test-outs and placements as stored: `{ records, cooldownClearedAt }`,
+ * or null when they have none. Own-property lookup only. Normalized by the
+ * caller (src/platform/progress/access.ts `normalizeAssessmentLog`).
+ */
+export function getAssessmentLog(userId) {
+  return ownEntry(db().assessments, String(userId ?? ''));
+}
+
+/** Replace a learner's assessment log (built and bounded by server/assessment-routes.js). */
+export function putAssessmentLog(userId, log) {
+  defineEntry(db().assessments, String(userId), log);
+  persist();
+  return log;
+}
+
+/** Every stored log, keyed by user id - for the admin's analytics. */
+export function allAssessmentLogs() {
+  return db().assessments;
+}
+
+export function deleteAssessmentsForUser(userId) {
+  const logs = db().assessments;
+  const id = String(userId ?? '');
+  if (!logs || !Object.hasOwn(logs, id)) return false;
+  delete logs[id];
+  persist();
+  return true;
 }
 
 export function deleteReviewSession(userId) {

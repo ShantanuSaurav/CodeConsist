@@ -552,6 +552,16 @@ export const SettingsPage: React.FC = () => {
             />
           </Row>
         )}
+        {settings.onboarding.enabled && (
+          <Row
+            title="First-run setup"
+            description="Answer the setup questions again: why you are learning, your track, how much you know, a daily goal and a learning mode. Your progress stays as it is."
+          >
+            <Link to={`${ROUTES.onboarding}?redo=1`} className="btn btn-secondary">
+              Redo setup
+            </Link>
+          </Row>
+        )}
       </Section>
 
       <Section id="settings-danger" title="Danger zone">

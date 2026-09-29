@@ -5,6 +5,7 @@ import { AdminUserRow, UserLearning, adminApi } from '../services/adminApi';
 import { AdminPageHeader, Badge, Button, Card, ConfirmDialog, Drawer, EmptyState, ErrorText, Spinner, Table, Toggle } from '../components/ui';
 import { PasswordResetDialog } from '../components/PasswordResetDialog';
 import { UserHabitsPanel } from '../components/UserHabitsPanel';
+import { UserSetupPanel } from '../components/UserSetupPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { google: 'Google', github: 'GitHub' };
 /* The same heat scale as the learner dashboard. */
@@ -17,11 +18,14 @@ function shortDate(iso: string | null | undefined): string {
   return Number.isNaN(at.getTime()) ? '—' : at.toISOString().slice(0, 10);
 }
 
-/** One learner's time zone, their last 14 weeks, the questions they miss most, and their streak and goal. */
+/**
+ * One learner's time zone, their last 14 weeks, the questions they miss
+ * most, their streak and goal, and their first-run setup and test-outs.
+ */
 const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void; onChanged: () => void }> = ({ user, onClose, onChanged }) => {
   const [data, setData] = useState<UserLearning | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'activity' | 'habits'>('activity');
+  const [tab, setTab] = useState<'activity' | 'habits' | 'setup'>('activity');
 
   useEffect(() => {
     setData(null);
@@ -48,12 +52,13 @@ const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void;
     <Drawer open={Boolean(user)} title={user ? `Learning: ${user.username}` : ''} onClose={onClose} size="lg">
       {error && <ErrorText>{error}</ErrorText>}
       {!data && !error && <Spinner label="Loading activity…" />}
-      {data && data.summary && (
+      {data && (data.summary || data.setup) && (
         <div className="flex gap-1 mb-4 border-b border-border" role="tablist" aria-label="Learner details">
           {(
             [
               ['activity', 'Activity'],
-              ['habits', 'Streak & goal']
+              ...(data.summary ? ([['habits', 'Streak & goal']] as const) : []),
+              ...(data.setup ? ([['setup', 'Setup & test-outs']] as const) : [])
             ] as const
           ).map(([id, label]) => (
             <button
@@ -73,6 +78,16 @@ const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void;
         <UserHabitsPanel
           user={user}
           data={data}
+          onSaved={(next) => {
+            setData(next);
+            onChanged();
+          }}
+        />
+      )}
+      {data && user && tab === 'setup' && data.setup && (
+        <UserSetupPanel
+          user={user}
+          setup={data.setup}
           onSaved={(next) => {
             setData(next);
             onChanged();

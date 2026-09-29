@@ -285,6 +285,69 @@ const REFINEMENTS: Partial<Record<string, Refiner>> = {
       if (targetSize > maxSize) add('targetSize', `Must be at most the largest size (${maxSize}).`);
     }
   },
+  onboarding: (onboarding, add) => {
+    const steps: unknown = onboarding?.steps;
+    if (Array.isArray(steps)) {
+      const seen = new Set<string>();
+      steps.forEach((step: any, i: number) => {
+        if (typeof step?.id !== 'string') return;
+        if (seen.has(step.id)) add(`steps.${i}.id`, `The "${step.id}" step is listed twice.`);
+        seen.add(step.id);
+        for (const key of ['title', 'subtitle'] as const) {
+          const bad = typeof step?.[key] === 'string' ? tokensIn(step[key]) : [];
+          if (bad.length) add(`steps.${i}.${key}`, `Plain text only (not ${bad.map((t) => `{${t}}`).join(', ')}).`);
+        }
+      });
+      const on = (id: string) => steps.findIndex((s: any) => s?.id === id && s?.enabled === true);
+      const track = on('track');
+      const experience = on('experience');
+      if (track !== -1 && experience !== -1 && track > experience) {
+        add(`steps.${track}.id`, 'The track step must come before the experience step (the placement is for the chosen track).');
+      }
+    }
+    const options: unknown = onboarding?.motivation?.options;
+    if (Array.isArray(options)) {
+      const seen = new Set<string>();
+      options.forEach((option: any, i: number) => {
+        const id = option?.id;
+        if (typeof id === 'string') {
+          if (!SLUG_RE.test(id)) add(`motivation.options.${i}.id`, 'Use lower-case letters, digits and dashes (at most 32).');
+          else if (seen.has(id)) add(`motivation.options.${i}.id`, `"${id}" is used by two answers.`);
+          seen.add(id);
+        }
+        for (const key of ['label', 'description'] as const) {
+          const bad = typeof option?.[key] === 'string' ? tokensIn(option[key]) : [];
+          if (bad.length) add(`motivation.options.${i}.${key}`, `Plain text only (not ${bad.map((t) => `{${t}}`).join(', ')}).`);
+        }
+      });
+    }
+    const blurbs: unknown = onboarding?.track?.blurbs;
+    if (isPlainObject(blurbs)) {
+      for (const [trackId, text] of Object.entries(blurbs)) {
+        if (typeof text !== 'string') add(`track.blurbs.${trackId}`, 'Must be text.');
+        else if (text.length > 160) add(`track.blurbs.${trackId}`, 'At most 160 characters.');
+        else if (tokensIn(text).length) add(`track.blurbs.${trackId}`, 'Plain text only - no {tokens}.');
+      }
+    }
+  },
+  placement: (placement, add) => {
+    multipleOfTen(placement?.passMark, 'passMark', add);
+    const byTrack: unknown = placement?.stagesByTrack;
+    if (isPlainObject(byTrack)) {
+      for (const [trackId, ids] of Object.entries(byTrack)) {
+        if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || id.length === 0 || id.length > 64)) {
+          add(`stagesByTrack.${trackId}`, 'Must be a list of stage ids.');
+        } else if (new Set(ids).size !== ids.length) {
+          add(`stagesByTrack.${trackId}`, 'A stage is listed twice.');
+        }
+      }
+    }
+  },
+  testOut: (testOut, add) => {
+    multipleOfTen(testOut?.passMark, 'passMark', add);
+    const ids: unknown = testOut?.disabledStages;
+    if (Array.isArray(ids) && new Set(ids).size !== ids.length) add('disabledStages', 'A stage is listed twice.');
+  },
   badges: (badges, add) => {
     const families: unknown = badges?.families;
     if (!Array.isArray(families)) return;
@@ -314,6 +377,14 @@ const REFINEMENTS: Partial<Record<string, Refiner>> = {
 
 /** A badge family id: it becomes part of every badge id (`streak-3`). */
 const BADGE_FAMILY_ID_RE = /^[a-z0-9-]{1,32}$/;
+
+/** An id stored on accounts (a motivation answer). */
+const SLUG_RE = /^[a-z0-9-]{1,32}$/;
+
+/** Pass marks move in steps of the retry penalty's default (10), so "at most N runs" is exact. */
+function multipleOfTen(value: unknown, path: string, add: (path: string, message: string) => void): void {
+  if (typeof value === 'number' && Number.isInteger(value) && value % 10 !== 0) add(path, 'Must be a multiple of 10.');
+}
 
 const SECTION_SCHEMAS: Record<string, z.ZodTypeAny> = Object.fromEntries(
   SECTION_META.map((section) => {
@@ -386,6 +457,42 @@ export function patchIssues(patch: unknown, overrides: unknown, merged: Settings
     ...droppedOverrides(overrides, merged).filter((issue) => written(issue.path)),
     ...validateSettings(merged).issues.filter((issue) => sections.has(sectionOfPath(issue.path)))
   ];
+}
+
+/** What the content-dependent checks need: the tracks (with their stage ids) and every stage id. */
+export interface SettingsContentFacts {
+  tracks: Array<{ id: string; stageIds: string[] }>;
+  stageIds: string[];
+}
+
+/**
+ * The rules that need the content to judge: a track blurb for a track that
+ * exists, placement stages that are stages of their track, test-out
+ * exclusions that are stages. Checked when an admin SAVES (server/settings.js)
+ * - never when stored settings are resolved, so a stage removed from the
+ * content later does not throw a whole section back to its defaults (the
+ * code that reads these lists ignores an id it does not know).
+ */
+export function settingsContentIssues(settings: Pick<Settings, 'onboarding' | 'placement' | 'testOut'>, content: SettingsContentFacts): SettingsIssue[] {
+  const issues: SettingsIssue[] = [];
+  const tracks = new Map(content.tracks.map((t) => [t.id, new Set(t.stageIds)]));
+  const stages = new Set(content.stageIds);
+  for (const trackId of Object.keys(settings.onboarding?.track?.blurbs ?? {})) {
+    if (!tracks.has(trackId)) issues.push({ path: `onboarding.track.blurbs.${trackId}`, message: `There is no track "${trackId}".` });
+  }
+  for (const [trackId, ids] of Object.entries(settings.placement?.stagesByTrack ?? {})) {
+    const inTrack = tracks.get(trackId);
+    if (!inTrack) {
+      issues.push({ path: `placement.stagesByTrack.${trackId}`, message: `There is no track "${trackId}".` });
+      continue;
+    }
+    const stray = (Array.isArray(ids) ? ids : []).filter((id) => !inTrack.has(id));
+    if (stray.length) issues.push({ path: `placement.stagesByTrack.${trackId}`, message: `Not a stage of this track: ${stray.join(', ')}.` });
+  }
+  (settings.testOut?.disabledStages ?? []).forEach((id, i) => {
+    if (!stages.has(id)) issues.push({ path: `testOut.disabledStages.${i}`, message: `There is no stage "${id}".` });
+  });
+  return issues;
 }
 
 /**

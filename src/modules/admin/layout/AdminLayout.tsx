@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   BarChart3,
   BookOpen,
+  Compass,
   CreditCard,
   FileSpreadsheet,
   Gauge,
@@ -36,7 +37,7 @@ interface NavItem {
 }
 
 /** Rules sections that have their own navigation item, so "Rules & rewards" is not lit on them. */
-const OWN_RULE_PAGES = ['/admin/rules/copy', '/admin/rules/access'];
+const OWN_RULE_PAGES = ['/admin/rules/copy', '/admin/rules/access', '/admin/rules/onboarding'];
 const underPath = (pathname: string, path: string) => pathname === path || pathname.startsWith(`${path}/`);
 
 const GROUPS: Array<{ label: string; items: NavItem[] }> = [
@@ -67,6 +68,8 @@ const GROUPS: Array<{ label: string; items: NavItem[] }> = [
         path: '/admin/rules',
         activeWhen: (pathname) => underPath(pathname, '/admin/rules') && !OWN_RULE_PAGES.some((own) => underPath(pathname, own))
       },
+      // The first-run setup: its steps, answers and words, with a live preview.
+      { icon: <Compass size={ICON} />, label: 'Onboarding', path: '/admin/rules/onboarding' },
       // Learn mode's teaching cards (concepts), per lesson, stage start or unit start.
       { icon: <GraduationCap size={ICON} />, label: 'Teaching', path: '/admin/teaching' },
       // The notes a learner reads after a wrong answer (the tries themselves are a Rules section).

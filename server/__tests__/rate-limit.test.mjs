@@ -5,7 +5,7 @@
  */
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { BUCKETS, BUCKET_SETTING, BusyError, createExecutionSlots, createLimiter, rateLimit, retryMinutes, sendTooMany } from '../rate-limit.js';
+import { BUCKETS, BUCKET_SETTING, BusyError, createExecutionSlots, createLimiter, limitCheck, rateLimit, retryMinutes, sendTooMany } from '../rate-limit.js';
 
 const rule = (limit, windowSeconds = 60) => ({ limit, windowSeconds });
 
@@ -224,6 +224,33 @@ describe('rateLimit middleware', () => {
     expect((await get('k4')).status).toBe(200);
     state.rule = null;
     expect((await get('k5')).status).toBe(200);
+  });
+});
+
+describe('limitCheck (one count by hand)', () => {
+  it('counts per key and refuses past the limit only while enforcing; off, no rule or no key let it through', () => {
+    const limiter = createLimiter({ now: clock().now });
+    let mode = 'enforce';
+    let key = 'u1';
+    let currentRule = rule(2);
+    const check = limitCheck({ limiter, bucket: 'solve.account', rule: () => currentRule, key: () => key, mode: () => mode });
+    expect(check({}).allowed).toBe(true);
+    expect(check({}).allowed).toBe(true);
+    expect(check({})).toMatchObject({ allowed: false, count: 3, limit: 2 });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mode = 'log';
+    expect(check({}).allowed).toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('would refuse solve.account'));
+    warn.mockRestore();
+    mode = 'off';
+    expect(check({}).allowed).toBe(true);
+    mode = 'enforce';
+    key = null;
+    expect(check({}).allowed).toBe(true);
+    key = 'u1';
+    currentRule = null;
+    expect(check({}).allowed).toBe(true);
+    expect(limiter.stats().buckets['solve.account'].blocked).toBe(2);
   });
 });
 

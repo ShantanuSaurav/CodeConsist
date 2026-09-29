@@ -18,6 +18,8 @@ import { StreakSection } from './StreakSection';
 import { RemindersSection } from './RemindersSection';
 import { FeedbackSection } from './FeedbackSection';
 import { ReviewSection } from './ReviewSection';
+import { OnboardingSection } from './OnboardingSection';
+import { PlacementSection, TestOutSection } from './AssessmentSections';
 
 export interface SectionEntry extends Pick<SectionMeta, 'id' | 'title' | 'description' | 'audience'> {
   Component?: React.FC<SectionProps>;
@@ -37,6 +39,12 @@ const CUSTOM: Partial<Record<string, React.FC<SectionProps>>> = {
   feedback: FeedbackSection,
   // Practice sessions, with what the schedule and the XP mean at these values.
   review: ReviewSection,
+  // The first-run setup, with a live preview drawn with the learner's own primitives.
+  onboarding: OnboardingSection,
+  // Placement and test-out: the runs a pass mark allows, and a stage checklist
+  // (whether this server can check each stage test, and a link to edit it).
+  placement: PlacementSection,
+  testOut: TestOutSection,
   // Site copy, grouped by where it appears, with previews in the real counts.
   copy: CopySection,
   // Limits & access, with the live status card (proxy diagnostic, limiter, CORS).

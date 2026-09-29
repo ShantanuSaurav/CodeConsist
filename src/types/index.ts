@@ -283,6 +283,11 @@ export interface Stage {
    * never in a unit.
    */
   units?: Unit[];
+  /**
+   * The learner tested out of this stage (a test-out or a placement). Set by
+   * `applyProgress`; the state stays one of the four above.
+   */
+  testedOut?: boolean;
 }
 
 /* ==========================================================================
@@ -470,6 +475,109 @@ export interface ChallengeAttempt {
    * pays under it too. Absent on an ordinary solve.
    */
   scoreCap?: number;
+  /**
+   * How a stage test was passed when it was passed inside a test-out or a
+   * placement (Phase 5). Absent on an ordinary solve.
+   */
+  via?: AssessmentKind;
+}
+
+/* ==========================================================================
+   Test-out and placement (src/platform/progress/access.ts)
+   ========================================================================== */
+
+/** A test-out of one stage, or a placement: a few stage tests in a row. */
+export type AssessmentKind = 'test-out' | 'placement';
+
+/**
+ * The record that a stage was tested out of. Written only by the server (or,
+ * for a guest, by the local engine - and then checked again at sign-in).
+ * `clears` is copied from the rules when the test was passed, so a later
+ * admin change never locks anyone out again.
+ */
+export interface TestOutRecord {
+  at: string;
+  via: AssessmentKind;
+  /** The stage counts as cleared: the next stage opens. */
+  clears: boolean;
+  assessmentId: string;
+}
+
+export type AssessmentStatus = 'active' | 'passed' | 'failed' | 'finished' | 'abandoned' | 'expired';
+
+/** The rules an assessment runs under, copied when it starts. */
+export interface AssessmentRules {
+  passMark: number;
+  hintsAllowed: boolean;
+  /** At most this many runs can still reach the pass mark (`maxRunsFor`). */
+  maxRuns: number;
+  xpPercent: number;
+  clears: boolean;
+  /** Placement only: the first test not passed ends it. */
+  stopOnFirstFail?: boolean;
+}
+
+/** How one stage test went inside an assessment. */
+export interface AssessmentResult {
+  outcome: 'passed' | 'failed';
+  runs: number;
+  hintsUsed: number;
+  score: number;
+  verified: boolean;
+  at: string;
+}
+
+/** One test-out or placement, as the server keeps it (the newest 100 per learner). */
+export interface AssessmentRecord {
+  id: string;
+  kind: AssessmentKind;
+  trackId: string | null;
+  stageIds: string[];
+  cursor: number;
+  status: AssessmentStatus;
+  results: Record<string, AssessmentResult>;
+  rules: AssessmentRules;
+  startedAt: string;
+  expiresAt: string;
+  finishedAt: string | null;
+}
+
+/** What the learner is sent: the record plus the stage test it is on (null once it is over). */
+export interface AssessmentView extends AssessmentRecord {
+  current: string | null;
+}
+
+/**
+ * A guest's passed test-out or placement test, kept with the answer that
+ * passed it so the server can check it again at sign-in.
+ */
+export interface AssessmentClaim {
+  kind: AssessmentKind;
+  stageId: string;
+  testId: string;
+  attempts: number;
+  hintsUsed: number;
+  code?: string;
+  answer?: unknown;
+  at: string;
+}
+
+/** The first-run setup: finished or put aside (both null until either). */
+export interface OnboardingState {
+  completedAt: string | null;
+  dismissedAt: string | null;
+}
+
+/**
+ * What a learner answered in the first-run setup. A step skipped (or
+ * switched off) leaves its field out; `null` is "no answer".
+ */
+export interface OnboardingAnswers {
+  motivation?: string | null;
+  trackId?: string | null;
+  experience?: string | null;
+  dailyGoalId?: string | null;
+  learningMode?: LearningMode | null;
 }
 
 /* ==========================================================================
@@ -747,6 +855,23 @@ export interface UserStats {
    * made offline): sent with the next merge, then cleared.
    */
   unsynced?: { reviewLog: ReviewEvent[] };
+  /**
+   * Stages tested out of, by stage id (a test-out or a placement). Written by
+   * the server for an account; a guest's local engine writes its own, which
+   * the server checks again at sign-in. Optional: an old save has none.
+   */
+  testedOut?: Record<string, TestOutRecord>;
+  /**
+   * Guest only: the passed tests behind the local `testedOut`, by stage id,
+   * with the answer or code that passed them - sent with the merge at sign-in.
+   */
+  assessmentClaims?: Record<string, AssessmentClaim>;
+  /**
+   * Solves a merge did not credit because their stage is not open on the
+   * account (the server's `droppedChallenges`). Shown on the Learn page
+   * until dismissed.
+   */
+  heldChallenges?: string[];
   /** Lifetime licence (or the legacy Pro flag): every premium stage is open. Server-set, mirrored here. */
   isPremium?: boolean;
   /**
@@ -799,6 +924,11 @@ export interface UserProfile {
    * no such field.
    */
   preferences?: LearnerPreferences;
+  /**
+   * The first-run setup: finished, put aside, or not yet seen (null).
+   * Optional because older servers, and cached profiles, have none.
+   */
+  onboarding?: OnboardingState | null;
 }
 
 /** Account-level preferences. Every field is nullable: null means "use the default". */
@@ -808,6 +938,16 @@ export interface LearnerPreferences {
   dailyGoalId?: string | null;
   /** Sound effects on or off; null = the default (`celebrations.sound.defaultOn`). */
   soundOn?: boolean | null;
+  /** The track the learner follows (Phase 5); null = this device's choice, else the first track. */
+  trackId?: string | null;
+  /** Learn or Practice (Phase 5); null = not chosen yet (the first stage asks). */
+  learningMode?: LearningMode | null;
+  /** The first-run setup's "why are you learning?" answer (an option id), or null. */
+  motivation?: string | null;
+  /** The first-run setup's "how much do you know?" answer: 'new' | 'some' | 'experienced', or null. */
+  experience?: string | null;
+  /** When any preference last changed on the server. */
+  updatedAt?: string | null;
 }
 
 /**

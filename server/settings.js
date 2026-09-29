@@ -37,8 +37,12 @@ function auditValue(value) {
  * @param {object} deps.store  server/db.js (getSettingsRecord / setSettingsRecord)
  * @param {object} deps.lib    the compiled src/platform/server-lib.ts
  * @param {object} [deps.env]  process.env by default
+ * @param {() => ({ tracks: Array<{ id, stageIds }>, stageIds: string[] } | null)} [deps.contentFacts]
+ *   the tracks and stages, for the checks that need the content (a placement
+ *   stage must be a stage of its track) - run on save only. Null before the
+ *   content has loaded, and then those checks are skipped.
  */
-export function createSettingsService({ store, lib, env = process.env }) {
+export function createSettingsService({ store, lib, env = process.env, contentFacts = null }) {
   let memo = null;
 
   /** Resolved once per revision (and per stored object), not per request. */
@@ -141,6 +145,14 @@ export function createSettingsService({ store, lib, env = process.env }) {
     const base = lib.defaultsWithEnv(env);
     const merged = lib.mergeSettings(base, overrides);
     const issues = lib.patchIssues(patch, overrides, merged);
+    // The checks that need the content, for the sections this patch touches.
+    const facts = typeof contentFacts === 'function' ? contentFacts() : null;
+    if (facts && typeof lib.settingsContentIssues === 'function') {
+      const touched = new Set(Object.keys(patch));
+      for (const issue of lib.settingsContentIssues(merged, facts)) {
+        if (touched.has(issue.path.split('.')[0])) issues.push(issue);
+      }
+    }
     if (issues.length) return { ok: false, status: 422, error: 'Some settings are not valid.', issues };
 
     const before = current();
