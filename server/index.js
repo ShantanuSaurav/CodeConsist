@@ -62,6 +62,8 @@ import { createUnitsService } from './units.js';
 import { createHabitsService } from './habits.js';
 import { createPreferencesRouter, publicPreferences } from './preferences-routes.js';
 import { createReviewRouter, createReviewService } from './review-routes.js';
+import { createLeaguesService } from './leagues.js';
+import { createLeaguesRouter } from './leagues-routes.js';
 import {
   JUDGE0_LANGUAGE_IDS,
   JUDGE0_STDIN_LIMIT,
@@ -76,6 +78,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 // Deliberately not `PORT`: dev harnesses set that for the *web* server, and the
 const PORT = Number(process.env.PORT || process.env.API_PORT || 4000);
+/** How often the weekly league closes weeks past their final time (server/leagues.js closeDueWeeks). */
+const LEAGUE_CLOSE_EVERY_MS = 10 * 60_000;
 
 /**
  * Judge0 configuration. Server-side only - server/judge0.js is the one place
@@ -144,12 +148,15 @@ const adminDeps = { validateChallenge: null, validateConcept: null, runSolution:
  *   review   - server/review-routes.js: Practice sessions, the review
  *              schedule's "answer shown" reset, the merge's review step and
  *              the admin's Practice numbers;
+ *   leagues  - server/leagues.js: the weekly league (who joined which week,
+ *              standings from the activity log, closing weeks, the admin's
+ *              reset and exclusions);
  *   runtimeInfo - which engines this server has, for the admin's rules page.
  *   canVerify - can this server check a stage test's answer itself (the
  *     placement and test-out sections show it per stage; Phase 5).
  * Routers read it per request, so mounting them before bootstrap is fine.
  */
-const learningDeps = { lib: null, settings: null, activity: null, units: null, habits: null, review: null, runtimeInfo: null, canVerify: null };
+const learningDeps = { lib: null, settings: null, activity: null, units: null, habits: null, review: null, leagues: null, runtimeInfo: null, canVerify: null };
 adminDeps.learning = learningDeps;
 
 /**
@@ -329,13 +336,21 @@ async function bootstrap() {
     settings: learningDeps.settings,
     activity: learningDeps.activity
   });
+  learningDeps.leagues = createLeaguesService({
+    lib: learningDeps.lib,
+    store,
+    settings: learningDeps.settings,
+    activity: learningDeps.activity,
+    habits: learningDeps.habits
+  });
   learningDeps.review = createReviewService({
     lib: learningDeps.lib,
     store,
     settings: learningDeps.settings,
     activity: learningDeps.activity,
     habits: learningDeps.habits,
-    getChallengeMerged
+    getChallengeMerged,
+    leagues: learningDeps.leagues
   });
   // A teaching card anchored to "the start of a unit" lands on that unit's
   // first lesson, as the units service groups the stage (server/content.js).
@@ -1126,15 +1141,19 @@ app.use('/api', createBillingRouter({ ...billingDeps, requireAuth, optionalAuth,
 
 /* ------------------------------------------------------------- leaderboard */
 
-app.get('/api/leaderboard', (_req, res) => {
+app.get('/api/leaderboard', (req, res) => {
   // store.db().users never contains the administrator - see server/db.js's
   // separate `admin` field - so the leaderboard is learner-only by
   // construction, not by filtering something out here.
   const all = store.allProgress();
-  const { lib, settings, habits } = learningDeps;
-  const levels = settings.current().levels;
+  const { lib, settings, habits, leagues } = learningDeps;
+  const rules = settings.current();
+  const levels = rules.levels;
   const now = new Date();
-  const rows = store
+  // Weeks past their final time close on any board read, not only on the timer.
+  leagues?.closeDueWeeks(now);
+  const viewerId = req.user?.id ?? null;
+  const sorted = store
     .db()
     .users.map((u) => {
       const p = all[u.id] ?? store.EMPTY_PROGRESS;
@@ -1145,13 +1164,22 @@ app.get('/api/leaderboard', (_req, res) => {
         // As of THIS learner's today, in their own zone, with their freezes
         // applied (server/habits.js) - the number their own screens show.
         streak: habits.streakFor(u, p, now),
-        solved: (p.completedChallenges ?? []).length
+        solved: (p.completedChallenges ?? []).length,
+        isYou: viewerId !== null && u.id === viewerId
       };
     })
-    .sort((a, b) => b.xp - a.xp || b.solved - a.solved)
-    .slice(0, 50);
-  res.json({ leaderboard: rows });
+    .sort((a, b) => b.xp - a.xp || b.solved - a.solved);
+  // The viewer's own place, worked out before the board is cut, so a
+  // learner below the shown rows still sees where they stand.
+  const at = viewerId === null ? -1 : sorted.findIndex((row) => row.isYou);
+  const me = at === -1 ? null : { rank: at + 1, ...sorted[at] };
+  res.json({ leaderboard: sorted.slice(0, rules.league.boardSize), me });
 });
+
+/* ----------------------------------------------------------- weekly league */
+
+// GET /api/leagues/current (the global optionalAuth above): the weekly board.
+app.use('/api', createLeaguesRouter({ learningDeps }));
 
 /* ------------------------------------------------------------------ grading */
 
@@ -1552,6 +1580,21 @@ bootstrap()
       );
       process.exit(1);
     });
+
+    // The weekly league: weeks past their final time close once now, then
+    // every ten minutes (and lazily on any board read). Unref'd, so it never
+    // keeps the process alive; closeDueWeeks never throws, and this guard
+    // makes sure a failure is logged rather than taking the server down.
+    const closeDueLeagueWeeks = () => {
+      try {
+        const closed = learningDeps.leagues?.closeDueWeeks(new Date()) ?? [];
+        if (closed.length) console.log(`[leagues] closed ${closed.join(', ')}`);
+      } catch (err) {
+        console.error('[leagues] could not close due weeks:', err?.message ?? err);
+      }
+    };
+    closeDueLeagueWeeks();
+    setInterval(closeDueLeagueWeeks, LEAGUE_CLOSE_EVERY_MS).unref();
 
     server.listen(PORT);
   })

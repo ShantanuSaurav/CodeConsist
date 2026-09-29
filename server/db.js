@@ -46,8 +46,11 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
  *       cooldowns an admin cleared), plus `users[].onboarding` (the first-run
  *       setup: finished, dismissed, or null) and - lazily, on first read -
  *       progress `testedOut` and `seenConcepts`.
+ *   7 - `leagues` (the weekly league: each learner's tier and every week's
+ *       joins, groups, baselines, exclusions and results), plus - lazily,
+ *       on first read - progress `everSolved`.
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const EMPTY = {
   version: SCHEMA_VERSION,
@@ -159,7 +162,17 @@ const EMPTY = {
    * server/assessment-routes.js. Kept apart from progress on purpose: a
    * progress reset must not reset the cooldowns. Deleted with the account.
    */
-  assessments: {}
+  assessments: {},
+  /**
+   * The weekly league (server/leagues.js). `members` is each learner's tier,
+   * keyed by user id: `{ tierId, since }` (tiers only). `weeks` is keyed by
+   * week id (its first day): `{ id, startDay, endDay, weekStartsOn, rules,
+   * status, groups, joinedAt, baseline, excluded, closedAt, closedBy,
+   * results }`. A week's XP is never stored here - it is summed from each
+   * learner's activity days (`leagueXp`). A deleted learner is forgotten
+   * (forgetLeagueIdentity); closed weeks past `retention.leagueWeeksKept` go.
+   */
+  leagues: { members: {}, weeks: {} }
 };
 
 let state = null;
@@ -297,6 +310,8 @@ function migrate(loaded) {
   next.conceptCards = plainObject(loaded.conceptCards);
   next.reviewSessions = plainObject(loaded.reviewSessions);
   next.assessments = plainObject(loaded.assessments);
+  const leagues = plainObject(loaded.leagues);
+  next.leagues = { ...leagues, members: plainObject(leagues.members), weeks: plainObject(leagues.weeks) };
   next.users = (loaded.users ?? []).map((u) => {
     // `role` was a field from the old, retired admin-via-user-account
     // system. It is no longer read anywhere - administrators now live
@@ -475,6 +490,8 @@ export function deleteUser(id) {
   deleteAssessmentsForUser(id);
 
   forgetBillingIdentity(db(), id);
+  // Their league tier, and their name on every week's board.
+  forgetLeagueIdentity(db(), id);
 
   persist();
   return db().users.length < before;
@@ -607,6 +624,45 @@ export function forgetBillingIdentity(state, userId) {
   return removed;
 }
 
+/**
+ * What a deleted account leaves behind in the weekly league: nothing that
+ * names it. Its tier record goes, and so does its entry in every week's
+ * joins, baselines, exclusions and groups. A closed week's results keep the
+ * row - the other learners' ranks were worked out with it - but its
+ * `userId` and `username` become null. Pure over the state object, like
+ * forgetBillingIdentity. Returns how many weeks it touched.
+ */
+export function forgetLeagueIdentity(state, userId) {
+  const leagues = state?.leagues;
+  if (!leagues || typeof leagues !== 'object') return 0;
+  const id = String(userId ?? '');
+  if (leagues.members && Object.hasOwn(leagues.members, id)) delete leagues.members[id];
+  let touched = 0;
+  for (const week of Object.values(plainObject(leagues.weeks))) {
+    if (!week || typeof week !== 'object') continue;
+    let changed = false;
+    for (const key of ['joinedAt', 'baseline', 'excluded']) {
+      if (week[key] && typeof week[key] === 'object' && Object.hasOwn(week[key], id)) {
+        delete week[key][id];
+        changed = true;
+      }
+    }
+    for (const group of Object.values(plainObject(week.groups))) {
+      if (!Array.isArray(group?.memberIds) || !group.memberIds.includes(id)) continue;
+      group.memberIds = group.memberIds.filter((member) => member !== id);
+      changed = true;
+    }
+    for (const row of Array.isArray(week.results) ? week.results : []) {
+      if (row?.userId !== id) continue;
+      row.userId = null;
+      row.username = null;
+      changed = true;
+    }
+    if (changed) touched += 1;
+  }
+  return touched;
+}
+
 /* ------------------------------------------------------------------ admin */
 
 /**
@@ -670,8 +726,29 @@ export const EMPTY_PROGRESS = {
    * Teaching sequences (concept ids) already shown to this learner, so a new
    * device does not repeat them. Kept per device before Phase 5.
    */
-  seenConcepts: []
+  seenConcepts: [],
+  /**
+   * Every challenge this account has ever been paid for (Phase 6). Unlike
+   * `completedChallenges` it survives a progress reset, so XP earned again
+   * after a reset never counts for the weekly league. A row from before it
+   * existed reads as its `completedChallenges`.
+   */
+  everSolved: []
 };
+
+/** The ids in `a`, then those in `b` not already listed - strings only, each once. */
+function unionIds(a, b) {
+  const out = [];
+  const seen = new Set();
+  for (const list of [a, b]) {
+    for (const id of Array.isArray(list) ? list : []) {
+      if (typeof id !== 'string' || !id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
 
 /**
  * A progress row with every field present, WITHOUT touching the stored row:
@@ -687,7 +764,10 @@ export function normalizeProgress(row) {
     unitsCompleted: { ...plainObject(src.unitsCompleted) },
     review: { ...plainObject(src.review) },
     testedOut: { ...plainObject(src.testedOut) },
-    seenConcepts: Array.isArray(src.seenConcepts) ? src.seenConcepts.filter((id) => typeof id === 'string') : []
+    seenConcepts: Array.isArray(src.seenConcepts) ? src.seenConcepts.filter((id) => typeof id === 'string') : [],
+    // Never less than what is solved now: a row from before Phase 6 (or one a
+    // merge added solves to) reads as its union with `completedChallenges`.
+    everSolved: unionIds(src.everSolved, src.completedChallenges)
   };
 }
 
@@ -877,6 +957,62 @@ export function deleteReviewSession(userId) {
   delete sessions[id];
   persist();
   return true;
+}
+
+/* ---------------------------------------------------------------- leagues */
+
+/** The league store, created on demand (a state loaded without one). */
+function leaguesStore() {
+  const state = db();
+  if (!state.leagues || typeof state.leagues !== 'object' || Array.isArray(state.leagues)) state.leagues = { members: {}, weeks: {} };
+  state.leagues.members = plainObject(state.leagues.members);
+  state.leagues.weeks = plainObject(state.leagues.weeks);
+  return state.leagues;
+}
+
+/** One league week as stored, or null. Own-property lookup only. */
+export function getLeagueWeek(id) {
+  return ownEntry(leaguesStore().weeks, String(id ?? ''));
+}
+
+/** Store a league week (built by server/leagues.js), keyed by its id. */
+export function putLeagueWeek(week) {
+  defineEntry(leaguesStore().weeks, String(week.id), week);
+  persist();
+  return week;
+}
+
+/** Every stored week, oldest first. */
+export function allLeagueWeeks() {
+  const weeks = leaguesStore().weeks;
+  return Object.keys(weeks)
+    .map((id) => weeks[id])
+    .filter((week) => week && typeof week === 'object')
+    .sort((a, b) => String(a.startDay ?? a.id).localeCompare(String(b.startDay ?? b.id)));
+}
+
+export function deleteLeagueWeek(id) {
+  const weeks = leaguesStore().weeks;
+  const key = String(id ?? '');
+  if (!Object.hasOwn(weeks, key)) return false;
+  delete weeks[key];
+  persist();
+  return true;
+}
+
+/** A learner's league record (`{ tierId, since }`), or null. Own-property lookup only. */
+export function getLeagueMember(userId) {
+  return ownEntry(leaguesStore().members, String(userId ?? ''));
+}
+
+/** Change a learner's league record; returns it. */
+export function setLeagueMember(userId, patch) {
+  const members = leaguesStore().members;
+  const id = String(userId);
+  const record = { ...(ownEntry(members, id) ?? {}), ...plainObject(patch) };
+  defineEntry(members, id, record);
+  persist();
+  return record;
 }
 
 /* --------------------------------------------------------- password resets */

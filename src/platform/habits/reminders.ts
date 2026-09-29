@@ -6,16 +6,30 @@
      2. streak broken  - a repair is on offer: how many lessons, by when
      3. freeze used    - a freeze kept the streak alive over a missed day
      4. at risk        - a live streak, today not counted yet, and late enough
-   Each can be dismissed for the day; the caller says which are.
+     5. league result  - last week's place in the weekly league (Phase 6),
+                         once that week has closed
+   Each can be dismissed (the streak ones for the day, the league result for
+   that week); the caller says which are.
 
    Texts come from `settings.reminders` through `fillCopy`, so every word is
    the admin's. Pure: the browser's HabitBanner renders what this returns.
    ========================================================================== */
 import type { ReminderSettings, WelcomeBackTier } from '../settings/types';
 import { fillCopy } from '../settings/copy';
+import type { LeagueOutcome } from '@/types';
 import type { HabitStatus } from './types';
 
-export type HabitBannerKind = 'welcomeBack' | 'streakBroken' | 'freezeUsed' | 'atRisk';
+export type HabitBannerKind = 'welcomeBack' | 'streakBroken' | 'freezeUsed' | 'atRisk' | 'leagueResult';
+
+/** A learner's result in the last closed league week (LeagueView['lastResult']). */
+export interface LeagueResultInfo {
+  weekId: string;
+  rank: number;
+  xp: number;
+  outcome: LeagueOutcome;
+  /** The tier moved to or stayed in (tiers on), else null. */
+  tierName: string | null;
+}
 
 export interface HabitBanner {
   kind: HabitBannerKind;
@@ -23,7 +37,7 @@ export interface HabitBanner {
   body: string;
   /** The button's words (it opens the next lesson), or null for none. */
   cta: string | null;
-  /** What dismissing it for the day records: `${kind}:${day}`. */
+  /** What dismissing it records: `${kind}:${day}` (`leagueResult:${weekId}` for the league). */
   key: string;
 }
 
@@ -59,6 +73,23 @@ export interface BannerOptions {
   dismissed?: (key: string) => boolean;
   /** How a day key is written in a sentence (`{deadline}`, `{days}`); the key itself when left out. */
   formatDay?: (day: string) => string;
+  /** Last week's league result (signed in, once that week closed), or null. */
+  leagueResult?: LeagueResultInfo | null;
+}
+
+/**
+ * Last week's league result as a banner, or null (off, or nothing to say).
+ * With tiers the text says where the learner went; a tier outcome with no
+ * tier name falls back to the plain sentence.
+ */
+export function leagueResultBanner(result: LeagueResultInfo | null | undefined, reminders: ReminderSettings): HabitBanner | null {
+  const copy = reminders.leagueResult;
+  if (!copy?.enabled || !result || !Number.isFinite(result.rank) || result.rank < 1) return null;
+  const vars = { rank: result.rank, xp: result.xp, tier: result.tierName ?? '' };
+  const template = result.outcome !== 'single' && result.tierName ? copy[result.outcome] : copy.single;
+  const title = fillCopy(template, vars);
+  if (!title) return null;
+  return { kind: 'leagueResult', title, body: '', cta: null, key: `leagueResult:${result.weekId}` };
 }
 
 /**
@@ -66,7 +97,9 @@ export interface BannerOptions {
  * agrees with every other screen) and the admin's reminder texts.
  */
 export function pickHabitBanner(status: HabitStatus | null | undefined, reminders: ReminderSettings, options: BannerOptions): HabitBanner | null {
-  if (!status) return null;
+  const isDismissedAny = options.dismissed ?? (() => false);
+  const league = leagueResultBanner(options.leagueResult, reminders);
+  if (!status) return league && !isDismissedAny(league.key) ? league : null;
   const day = status.day;
   const format = options.formatDay ?? ((d: string) => d);
   const isDismissed = options.dismissed ?? (() => false);
@@ -123,6 +156,9 @@ export function pickHabitBanner(status: HabitStatus | null | undefined, reminder
       key: `atRisk:${day}`
     });
   }
+
+  // 5. Last week's league result: the least urgent, so it waits behind the streak.
+  if (league) candidates.push(league);
 
   return candidates.find((banner) => !isDismissed(banner.key)) ?? null;
 }

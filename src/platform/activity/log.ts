@@ -111,6 +111,7 @@ export function emptyDay(source: DayRecord['source'] = 'live'): DayRecord {
     goalBonusXp: 0,
     reviews: 0,
     reviewXp: 0,
+    leagueXp: 0,
     firstAt: null,
     lastAt: null,
     source
@@ -145,6 +146,7 @@ export function normalizeDay(raw: unknown): DayRecord {
     goalBonusXp: count(src.goalBonusXp),
     reviews: count(src.reviews),
     reviewXp: count(src.reviewXp),
+    leagueXp: count(src.leagueXp),
     firstAt: isoOrNull(src.firstAt),
     lastAt: isoOrNull(src.lastAt),
     source
@@ -277,6 +279,11 @@ export type ActivityEvent =
       unitCompleted?: boolean;
       /** The perfect-unit bonus it paid, on top of `awardedXp`. */
       perfectBonusXp?: number;
+      /**
+       * The part of `awardedXp` that counts for the weekly league (Phase 6):
+       * the server decides it (first-ever, checked XP). A browser never sets it.
+       */
+      leagueXp?: number;
     }
   | {
       type: 'miss';
@@ -304,6 +311,8 @@ export type ActivityEvent =
       xp: number;
       /** First try, no hint, answer not shown: the mistake is fixed. */
       clean?: boolean;
+      /** The part of `xp` that counts for the weekly league (`league.countReviewXp`). */
+      leagueXp?: number;
     }
   | {
       /**
@@ -315,6 +324,8 @@ export type ActivityEvent =
       type: 'goal';
       goal: DayGoal;
       bonusXp: number;
+      /** The part of the bonus that counts for the weekly league (only when the snapshot lands). */
+      leagueXp?: number;
     };
 
 export interface EventContext {
@@ -355,6 +366,7 @@ export function applyActivityEvent(log: ActivityLog, event: ActivityEvent, ctx: 
     else if (event.isTest) row.tests += 1;
     else row.lessons += 1;
     row.xp += count(event.awardedXp);
+    row.leagueXp += Math.min(count(event.awardedXp), count(event.leagueXp));
     applyUnitCredit(row, event);
   } else if (event.type === 'miss') {
     row.mistakes += 1;
@@ -375,6 +387,7 @@ export function applyActivityEvent(log: ActivityLog, event: ActivityEvent, ctx: 
     const xp = count(event.xp);
     row.reviewXp += xp;
     row.xp += xp;
+    row.leagueXp += Math.min(xp, count(event.leagueXp));
     const id = event.challengeId;
     if (event.clean && id && hasOwn(next.misses, id) && next.misses[id].open) {
       define(next.misses, id, { ...next.misses[id], keys: { ...next.misses[id].keys }, open: false });
@@ -385,6 +398,7 @@ export function applyActivityEvent(log: ActivityLog, event: ActivityEvent, ctx: 
     if (row.goal || !goal) return log;
     row.goal = goal;
     row.goalBonusXp += count(event.bonusXp);
+    row.leagueXp += Math.min(count(event.bonusXp), count(event.leagueXp));
   }
 
   define(next.days, ctx.day, row);
@@ -458,6 +472,8 @@ export interface SolveCredit {
   unitCompleted?: boolean;
   /** The perfect-unit bonus that completion paid. */
   perfectBonusXp?: number;
+  /** The part of `awardedXp` that counts for the weekly league (0 unless `league.countMergedXp`). */
+  leagueXp?: number;
 }
 
 export interface MergeContext {
@@ -583,6 +599,7 @@ export function mergeActivityLogs(server: unknown, incoming: unknown, ctx: Merge
     if (credit.isTest) row.tests += 1;
     else row.lessons += 1;
     row.xp += count(credit.awardedXp);
+    row.leagueXp += Math.min(count(credit.awardedXp), count(credit.leagueXp));
     applyUnitCredit(row, credit);
     touch(row, credit.at);
     define(next.days, credit.day, row);
@@ -866,8 +883,14 @@ export function trimActivityForMerge(
     wantMiss = (id) => ids.has(id);
   }
 
+  // A day's `leagueXp` stays behind: the server decides league XP itself and
+  // never reads a browser's (it would only weigh the request down).
   const days: Record<string, DayRecord> = {};
-  for (const day of Object.keys(log.days)) if (wantDay(day)) define(days, day, log.days[day]);
+  for (const day of Object.keys(log.days)) {
+    if (!wantDay(day)) continue;
+    const { leagueXp: _serverOnly, ...row } = log.days[day];
+    define(days, day, row as DayRecord);
+  }
   const misses: Record<string, MissSummary> = {};
   for (const id of Object.keys(log.misses)) if (wantMiss(id)) define(misses, id, log.misses[id]);
 

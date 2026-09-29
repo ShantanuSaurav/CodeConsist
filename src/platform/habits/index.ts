@@ -49,5 +49,5 @@ export {
 export type { ApplySolveInput, HabitStatusInput, ReplayDay } from './streak';
 export { learnerGoal, learnerHabitStatus, learnerRules, learnerSolve } from './learner';
 export type { HabitSettingsView, LearnerContext, StreakRow } from './learner';
-export { pickHabitBanner, welcomeBackTier, withoutName } from './reminders';
-export type { BannerOptions, HabitBanner, HabitBannerKind } from './reminders';
+export { leagueResultBanner, pickHabitBanner, welcomeBackTier, withoutName } from './reminders';
+export type { BannerOptions, HabitBanner, HabitBannerKind, LeagueResultInfo } from './reminders';

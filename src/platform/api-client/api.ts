@@ -14,7 +14,8 @@ import {
   DayRecord,
   ExecutionResult,
   HabitState,
-  LeaderboardEntry,
+  LeaderboardResponse,
+  LeagueView,
   LearnerPreferences,
   LearningMode,
   MissSummary,
@@ -185,6 +186,12 @@ export interface ServerProgress {
   testedOut?: UserStats['testedOut'];
   /** Teaching sequences already shown, as the account knows them - union with this browser's. Absent from an older server. */
   seenConcepts?: string[];
+  /**
+   * Every challenge this account was ever paid for (Phase 6): kept by a
+   * progress reset, so XP earned again never counts for the weekly league.
+   * Server bookkeeping - the browser never sends it. Absent from an older server.
+   */
+  everSolved?: string[];
 }
 
 /** A bonus paid on top of a solve's own XP. `awardedXp` never includes it. */
@@ -866,8 +873,24 @@ export const api = {
     return request(`/verify/${encodeURIComponent(code)}`, { auth: false });
   },
 
-  async leaderboard(): Promise<{ leaderboard: LeaderboardEntry[] }> {
-    return request('/leaderboard', { auth: false });
+  /**
+   * The all-time board. With the session when there is one, so the server
+   * can mark the learner's own row (`isYou`) and send their place even
+   * below the shown rows (`me`); a guest (or a token the server no longer
+   * accepts) simply gets the board.
+   */
+  async leaderboard(): Promise<LeaderboardResponse> {
+    return request('/leaderboard');
+  },
+
+  /**
+   * This week's league (Phase 6): the board, the countdown, the learner's
+   * own place and last week's result. A guest passes their zone (`tz`) so
+   * the week and the countdown are in it; an account's own zone is used
+   * otherwise. 404 from an older server that has no league.
+   */
+  async leagueCurrent(tz?: string | null): Promise<LeagueView> {
+    return request(`/leagues/current${tz ? `?tz=${encodeURIComponent(tz)}` : ''}`, { timeoutMs: 10000 });
   },
 
   /** With the session, so a premium lesson is graded for a learner who has unlocked it. */

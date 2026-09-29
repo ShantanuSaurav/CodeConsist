@@ -4,7 +4,8 @@
  * gained `tokenVersion`), version 4 added `contentOverrides.units` and the
  * whole preferences shape, version 5 added `conceptCards` and
  * `reviewSessions`, version 6 added `assessments` (users gained
- * `onboarding`) - and nothing a learner earned is ever touched.
+ * `onboarding`), version 7 added `leagues` - and nothing a learner earned is
+ * ever touched.
  *
  * `migrateState` is pure over the loaded object (like forgetBillingIdentity
  * in db-forget.test.mjs). `load()` is exercised with the file system mocked,
@@ -80,7 +81,7 @@ describe('migrateState', () => {
   it('adds settings and activity, and leaves progress exactly as it was', () => {
     const next = store.migrateState(clone(OLD_DB));
     expect(next.version).toBe(store.SCHEMA_VERSION);
-    expect(store.SCHEMA_VERSION).toBe(6);
+    expect(store.SCHEMA_VERSION).toBe(7);
     expect(next.settings).toEqual({ overrides: {}, revision: 0, updatedAt: null, updatedBy: null });
     expect(next.activity).toEqual({});
     expect(next.progress).toEqual(OLD_DB.progress);
@@ -121,8 +122,8 @@ describe('migrateState', () => {
   });
 
   it('never lets a newer version number go backwards', () => {
-    expect(store.migrateState({ version: 7 }).version).toBe(7);
-    expect(store.migrateState({}).version).toBe(6);
+    expect(store.migrateState({ version: 8 }).version).toBe(8);
+    expect(store.migrateState({}).version).toBe(7);
   });
 
   it('adds password resets and token versions (version 3), leaving orders, overrides and progress alone', () => {
@@ -162,9 +163,9 @@ describe('load() of a version 1 file', () => {
   });
 
   it('keeps a byte-for-byte copy of the old file before migrating', () => {
-    // Named after the version it migrates TO (a file from before version 6).
-    const copy = files.written.find((w) => /db\.json\.pre-v6-\d+$/.test(w.file));
-    expect(copy, 'db.json.pre-v6-<ts>').toBeTruthy();
+    // Named after the version it migrates TO (a file from before version 7).
+    const copy = files.written.find((w) => /db\.json\.pre-v7-\d+$/.test(w.file));
+    expect(copy, 'db.json.pre-v7-<ts>').toBeTruthy();
     expect(copy.text).toBe(JSON.stringify(OLD_DB));
     // Not treated as corrupt.
     expect(files.renamed.filter((r) => r.to.includes('.corrupt-'))).toEqual([]);
@@ -173,13 +174,13 @@ describe('load() of a version 1 file', () => {
   it('writes the migrated file at once, so the copy is made only once', () => {
     const saved = files.written.find((w) => /db\.json\.tmp$/.test(w.file));
     expect(saved, 'db.json.tmp written during load').toBeTruthy();
-    expect(JSON.parse(saved.text).version).toBe(6);
+    expect(JSON.parse(saved.text).version).toBe(7);
     expect(JSON.parse(saved.text).progress).toEqual(OLD_DB.progress);
     expect(files.renamed.some((r) => /db\.json\.tmp$/.test(r.from) && /db\.json$/.test(r.to))).toBe(true);
   });
 
   it('loads the migrated state with progress untouched', () => {
-    expect(store.db().version).toBe(6);
+    expect(store.db().version).toBe(7);
     expect(store.db().progress).toEqual(OLD_DB.progress);
     expect(store.getSettingsRecord().revision).toBe(0);
     expect(store.allActivity()).toEqual({});
@@ -289,7 +290,7 @@ describe('version 6: test-outs, placements and the first-run setup', () => {
   it('adds assessments and users[].onboarding, leaving progress exactly as it was', () => {
     const v5 = { ...clone(OLD_DB), version: 5, conceptCards: {}, reviewSessions: {} };
     const next = store.migrateState(clone(v5));
-    expect(next.version).toBe(6);
+    expect(next.version).toBe(store.SCHEMA_VERSION);
     expect(next.assessments).toEqual({});
     expect(next.users.map((u) => u.onboarding)).toEqual([null, null]);
     // No progress row is rewritten: `testedOut` and `seenConcepts` appear only on read.
@@ -403,5 +404,88 @@ describe('version 4: units and preferences', () => {
     store.setUnitOverride('__proto__', null);
     expect(store.getUnitOverride('stage-3')).toBeNull();
     expect(Object.keys(store.getContentOverrides().units)).toEqual([]);
+  });
+});
+
+describe('version 7: the weekly league', () => {
+  it('adds leagues, leaving progress exactly as it was', () => {
+    const v6 = { ...clone(OLD_DB), version: 6, conceptCards: {}, reviewSessions: {}, assessments: {} };
+    const next = store.migrateState(clone(v6));
+    expect(next.version).toBe(7);
+    expect(next.leagues).toEqual({ members: {}, weeks: {} });
+    // No progress row is rewritten: `everSolved` appears only on read.
+    expect(JSON.stringify(next.progress)).toBe(JSON.stringify(OLD_DB.progress));
+  });
+
+  it('keeps stored weeks and members, and repairs nonsense', () => {
+    const leagues = {
+      members: { u1: { tierId: 'silver', since: '2026-09-21T00:00:00.000Z' } },
+      weeks: { '2026-09-21': { id: '2026-09-21', startDay: '2026-09-21', endDay: '2026-09-27', status: 'open', joinedAt: { u1: '2026-09-21T10:00:00.000Z' } } }
+    };
+    expect(store.migrateState({ leagues: clone(leagues) }).leagues).toEqual(leagues);
+    expect(store.migrateState({ leagues: [1] }).leagues).toEqual({ members: {}, weeks: {} });
+    expect(store.migrateState({ leagues: { members: 'x', weeks: [2] } }).leagues).toEqual({ members: {}, weeks: {} });
+  });
+
+  it('is idempotent', () => {
+    const once = store.migrateState({ ...clone(OLD_DB), leagues: { members: { u1: { tierId: 'gold' } }, weeks: {} } });
+    expect(store.migrateState(clone(once))).toEqual(once);
+  });
+
+  it('reads everSolved as the solves of a row that has none, without rewriting the row', () => {
+    store.setProgress('u20', clone(OLD_DB.progress.u1));
+    const before = JSON.stringify(store.db().progress.u20);
+    const row = store.getProgress('u20');
+    expect(row.everSolved).toEqual(['c1', 'c2']);
+    row.everSolved.push('x');
+    expect(JSON.stringify(store.db().progress.u20)).toBe(before);
+    // A stored list is kept and never reads as less than what is solved now.
+    store.setProgress('u20', { ...clone(OLD_DB.progress.u1), completedChallenges: ['c2', 'c3'], everSolved: ['c1', 'c2', 7] });
+    expect(store.getProgress('u20').everSolved).toEqual(['c1', 'c2', 'c3']);
+  });
+
+  it('stores weeks and members safely for any key, and deleteUser forgets the learner in every week', () => {
+    store.insertUser({ id: 'u21', email: 'l@example.com', username: 'lin', passwordHash: 'hash' });
+    const week = {
+      id: '2026-09-21',
+      startDay: '2026-09-21',
+      endDay: '2026-09-27',
+      status: 'closed',
+      joinedAt: { u21: '2026-09-21T10:00:00.000Z', u22: '2026-09-22T10:00:00.000Z' },
+      baseline: { u21: 40 },
+      excluded: {},
+      groups: { 'bronze-1': { tierId: 'bronze', memberIds: ['u21', 'u22'] } },
+      results: [
+        { userId: 'u22', username: 'max', xp: 90, rank: 1 },
+        { userId: 'u21', username: 'lin', xp: 60, rank: 2 }
+      ]
+    };
+    store.putLeagueWeek(week);
+    store.putLeagueWeek({ id: '2026-09-14', startDay: '2026-09-14', endDay: '2026-09-20', status: 'closed' });
+    store.putLeagueWeek({ id: '__proto__', startDay: '2026-08-31', endDay: '2026-09-06', status: 'closed' });
+    expect(store.getLeagueWeek('2026-09-21')).toEqual(week);
+    expect(store.getLeagueWeek('constructor')).toBeNull();
+    expect(store.getLeagueWeek('__proto__')).toMatchObject({ startDay: '2026-08-31' });
+    expect(store.allLeagueWeeks().map((w) => w.id)).toEqual(['__proto__', '2026-09-14', '2026-09-21']);
+    expect(store.deleteLeagueWeek('__proto__')).toBe(true);
+    expect(store.deleteLeagueWeek('__proto__')).toBe(false);
+
+    expect(store.getLeagueMember('u21')).toBeNull();
+    expect(store.setLeagueMember('u21', { tierId: 'silver', since: 'a' })).toEqual({ tierId: 'silver', since: 'a' });
+    expect(store.setLeagueMember('u21', { tierId: 'gold' })).toEqual({ tierId: 'gold', since: 'a' });
+    store.setLeagueMember('u22', { tierId: 'bronze' });
+
+    expect(store.deleteUser('u21')).toBe(true);
+    expect(store.getLeagueMember('u21')).toBeNull();
+    expect(store.getLeagueMember('u22')).toEqual({ tierId: 'bronze' });
+    const after = store.getLeagueWeek('2026-09-21');
+    expect(after.joinedAt).toEqual({ u22: '2026-09-22T10:00:00.000Z' });
+    expect(after.baseline).toEqual({});
+    expect(after.groups['bronze-1'].memberIds).toEqual(['u22']);
+    // The row stays (the others' ranks were worked out with it), nameless.
+    expect(after.results).toEqual([
+      { userId: 'u22', username: 'max', xp: 90, rank: 1 },
+      { userId: null, username: null, xp: 60, rank: 2 }
+    ]);
   });
 });

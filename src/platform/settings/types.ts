@@ -121,6 +121,21 @@ export interface ReminderSettings {
     cta: string;
     tiers: WelcomeBackTier[];
   };
+  /**
+   * Last week's league result, shown once the week has closed (Phase 6).
+   * `single` when tiers are off; with tiers, the one for what happened.
+   */
+  leagueResult: {
+    enabled: boolean;
+    /** `{rank}`, `{xp}` */
+    single: string;
+    /** `{rank}`, `{xp}`, `{tier}` */
+    promoted: string;
+    /** `{rank}`, `{xp}`, `{tier}` */
+    demoted: string;
+    /** `{rank}`, `{xp}`, `{tier}` */
+    stayed: string;
+  };
 }
 
 /**
@@ -428,6 +443,44 @@ export interface TestOutSettings {
   };
 }
 
+/** One league tier (Bronze, Silver, ...), lowest first. */
+export interface LeagueTier {
+  /** Stored on learners' league records - a slug. */
+  id: string;
+  name: string;
+}
+
+/**
+ * The weekly league (Phase 6): a race for the XP earned in one week, on each
+ * learner's own calendar. Tiers (groups that promote and demote) are off
+ * until there are enough weekly learners to fill groups.
+ */
+export interface LeagueSettings {
+  enabled: boolean;
+  /** 1 = weeks run Monday to Sunday, 0 = Sunday to Saturday. */
+  weekStartsOn: number;
+  /** A week's results become final this long after UTC midnight after its last day. */
+  finalizeDelayHours: number;
+  /** Rows shown on the weekly board and the all-time board. */
+  boardSize: number;
+  /** XP brought in by a guest or offline merge counts for the week. */
+  countMergedXp: boolean;
+  /** XP from a solve the server could not check itself counts for the week. */
+  countUnverifiedSolves: boolean;
+  /** Practice-session XP counts for the week. */
+  countReviewXp: boolean;
+  tiers: {
+    enabled: boolean;
+    /** Lowest first. */
+    list: LeagueTier[];
+    groupSize: number;
+    promoteCount: number;
+    demoteCount: number;
+    /** The least weekly XP a learner needs to move up. */
+    minXpToPromote: number;
+  };
+}
+
 /** Data limits. Admin only - never sent to learners. */
 export interface RetentionSettings {
   activityDaysKept: number;
@@ -436,6 +489,8 @@ export interface RetentionSettings {
   missesPerItemPerDay: number;
   answerMaxChars: number;
   mostMissedMinLearners: number;
+  /** Closed league weeks kept (results and standings); older ones are deleted. */
+  leagueWeeksKept: number;
 }
 
 /**
@@ -578,6 +633,7 @@ export interface Settings {
   onboarding: OnboardingSettings;
   placement: PlacementSettings;
   testOut: TestOutSettings;
+  league: LeagueSettings;
   copy: CopySettings;
   retention: RetentionSettings;
   access: AccessSettings;

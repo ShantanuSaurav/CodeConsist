@@ -17,6 +17,7 @@ import {
   ScrollText,
   ShieldCheck,
   SlidersHorizontal,
+  Trophy,
   Type,
   Users,
   X
@@ -73,7 +74,9 @@ const GROUPS: Array<{ label: string; items: NavItem[] }> = [
       // Learn mode's teaching cards (concepts), per lesson, stage start or unit start.
       { icon: <GraduationCap size={ICON} />, label: 'Teaching', path: '/admin/teaching' },
       // The notes a learner reads after a wrong answer (the tries themselves are a Rules section).
-      { icon: <MessageSquareText size={ICON} />, label: 'Answer feedback', path: '/admin/feedback' }
+      { icon: <MessageSquareText size={ICON} />, label: 'Answer feedback', path: '/admin/feedback' },
+      // The weekly league: standings and past weeks (its rules are the Rules page's league section).
+      { icon: <Trophy size={ICON} />, label: 'Leagues', path: '/admin/leagues' }
     ]
   },
   {

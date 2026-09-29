@@ -328,3 +328,24 @@ describe('streaks, freezes and the daily goal (Phase 3)', () => {
     expect(admin).toContain("audit(req, 'learning.user.update'");
   });
 });
+
+describe('the weekly league in server/index.js (Phase 6)', () => {
+  it('marks the viewer on the all-time board and finds their place before cutting it to league.boardSize', () => {
+    const board = handlerSource('/api/leaderboard');
+    expect(board).toContain('isYou: viewerId !== null && u.id === viewerId');
+    expect(board).toMatch(/const me = at === -1 \? null : \{ rank: at \+ 1, \.\.\.sorted\[at\] \}/);
+    expect(board.indexOf('const me =')).toBeLessThan(board.indexOf('sorted.slice(0, rules.league.boardSize)'));
+    expect(board).not.toContain('slice(0, 50)');
+    // Weeks past their final time close on a board read too.
+    expect(board).toContain('leagues?.closeDueWeeks(now)');
+  });
+
+  it('closes due weeks once at start, then on an unref’d ten-minute timer beside the listen call', () => {
+    const start = source.slice(source.indexOf('\nbootstrap()'));
+    expect(source).toContain('const LEAGUE_CLOSE_EVERY_MS = 10 * 60_000;');
+    expect(start).toMatch(/closeDueLeagueWeeks\(\);\s*setInterval\(closeDueLeagueWeeks, LEAGUE_CLOSE_EVERY_MS\)\.unref\(\);\s*server\.listen\(PORT\);/);
+    // A failure is logged, never thrown into the timer.
+    expect(start).toMatch(/const closeDueLeagueWeeks = \(\) => \{\s*try \{[\s\S]*?closeDueWeeks\(new Date\(\)\)[\s\S]*?\} catch \(err\) \{/);
+    expect(source).toContain("app.use('/api', createLeaguesRouter({ learningDeps }));");
+  });
+});

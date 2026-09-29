@@ -409,12 +409,15 @@ export function createAssessmentRouter({
         awardedXp: solved.awarded,
         unitCompleted: false,
         perfectBonusXp: 0,
+        // A test-out's XP counts for the weekly league like a solve's (first-ever only).
+        leagueXp: lib.solveLeagueXp({ firstEver: solved.firstEver, verified: Boolean(verdict.verified), awardedXp: solved.awarded }, rules.league),
         day: today,
         at
       });
       const habitsResult = habits.recordSolveHabits({ user: req.user, progress: solved.next, today, dayRow, now });
       const stored = habitsResult.next;
       store.setProgress(req.user.id, stored);
+      if (habitsResult.today.leagueXp > 0) learningDeps.leagues?.noteLeagueXp(req.user, today, now);
       saveLog(req.user, replaceRecord(log, moved));
       clearDraftForSolve(req.user.id, challenge.id);
       onProgress(req.user, stored);

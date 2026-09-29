@@ -17,6 +17,7 @@ import { AdminSettingsSecurity } from './pages/AdminSettingsSecurity';
 import { AdminRules } from './pages/AdminRules';
 import { AdminFeedback } from './pages/AdminFeedback';
 import { AdminTeaching } from './pages/AdminTeaching';
+import { AdminLeagues } from './pages/AdminLeagues';
 
 /**
  * The /admin route tree. Mounted by the app at `/admin/*`, so every path
@@ -44,6 +45,8 @@ export const AdminApp: React.FC = () => (
         <Route path="feedback" element={<AdminFeedback />} />
         {/* Learn-mode teaching cards: the built-in ones and the admin's own. */}
         <Route path="teaching" element={<AdminTeaching />} />
+        {/* The weekly league: standings, close and reset, exclusions, tiers, past weeks. */}
+        <Route path="leagues" element={<AdminLeagues />} />
         <Route path="excel" element={<AdminExcelSettings />} />
         <Route path="audit-log" element={<AdminAuditLog />} />
         <Route path="settings/security" element={<AdminSettingsSecurity />} />

@@ -621,6 +621,8 @@ export interface AdminDayRecord {
   reviews: number;
   /** Practice-session XP paid that day (already inside `xp`). */
   reviewXp: number;
+  /** The part of the day's XP and goal bonus that counts for the weekly league (Phase 6). */
+  leagueXp: number;
   firstAt: string | null;
   lastAt: string | null;
   source: 'live' | 'backfill' | 'merge';
@@ -656,6 +658,111 @@ export interface UserLearning {
   }[];
   /** The first-run setup and test-outs (Phase 5; absent from an older server). */
   setup?: UserSetup;
+  /** The weekly league (Phase 6; absent from an older server, null before boot). */
+  league?: UserLeagueSummary | null;
+}
+
+/** One learner's league: their tier record and their place in the week their today is in. */
+export interface UserLeagueSummary {
+  enabled: boolean;
+  tiersEnabled: boolean;
+  tierId: string | null;
+  tierName: string | null;
+  week: { id: string; startDay: string; endDay: string; xp: number; rank: number | null; excluded: boolean };
+}
+
+/* ------------------------------------------------------------ weekly league */
+
+/** GET /admin/leagues/weeks. */
+export interface AdminLeagueWeeks {
+  settings: {
+    enabled: boolean;
+    weekStartsOn: number;
+    finalizeDelayHours: number;
+    boardSize: number;
+    tiersEnabled: boolean;
+    tiers: { id: string; name: string }[];
+  };
+  /** The week the default zone's today is in; `stored` false until someone earns league XP in it. */
+  current: { id: string; startDay: string; endDay: string; stored: boolean; status: 'open' | 'closed' };
+  /** Newest first. */
+  weeks: AdminLeagueWeekRow[];
+}
+
+export interface AdminLeagueWeekRow {
+  id: string;
+  startDay: string;
+  endDay: string;
+  status: 'open' | 'closed';
+  tiersEnabled: boolean;
+  participants: number;
+  totalXp: number;
+  /** An open week: when it closes by itself. */
+  finalizeAt: string | null;
+  closedAt: string | null;
+  /** 'auto' (the timer) or the admin's id. */
+  closedBy: string | null;
+}
+
+/** One learner on a week's board. `rank` is null for anyone not counted (no XP this week, or excluded). */
+export interface AdminLeagueLine {
+  userId: string;
+  username: string;
+  /** The league XP of their days in the week. */
+  rawXp: number;
+  /** Set by Reset week XP: what they had then. */
+  baseline: number;
+  /** rawXp - baseline, never below 0. */
+  xp: number;
+  rank: number | null;
+  excluded: { by: string | null; at: string | null; reason: string } | null;
+  joinedAt: string | null;
+  groupId: string | null;
+  tierId: string | null;
+  tierName: string | null;
+  /** Tiers on: in line to move up or down at close. */
+  zone: 'up' | 'down' | null;
+  /** The zone their days are counted in. */
+  timeZone: string | null;
+  /** Their tier record (where they play from the next week). */
+  memberTierId: string | null;
+}
+
+export interface AdminLeagueResult {
+  userId: string | null;
+  username: string | null;
+  xp: number;
+  rank: number;
+  groupId: string | null;
+  tierId: string | null;
+  tierName: string | null;
+  outcome: 'promoted' | 'demoted' | 'stayed' | 'single';
+  toTierId: string | null;
+  toTierName: string | null;
+}
+
+/** GET /admin/leagues/weeks/:id. */
+export interface AdminLeagueWeek {
+  week: {
+    id: string;
+    startDay: string;
+    endDay: string;
+    weekStartsOn: number | null;
+    status: 'open' | 'closed';
+    createdAt: string | null;
+    closedAt: string | null;
+    closedBy: string | null;
+    resets: { at: string; by: string }[];
+    rules: { tiersEnabled: boolean; groupSize?: number; promoteCount?: number; demoteCount?: number; minXpToPromote?: number; tiers: { id: string; name: string }[] };
+  };
+  finalizeAt: string;
+  final: boolean;
+  participants: number;
+  rows: AdminLeagueLine[];
+  groups: { id: string; tierId: string | null; tierName: string | null; members: number }[];
+  results: AdminLeagueResult[];
+  /** Reset week XP: how many learners it zeroed. */
+  affected?: number;
 }
 
 /** One learner's first-run setup, stages tested out of and newest assessments (the Users drawer). */
@@ -927,6 +1034,36 @@ export const adminApi = {
    */
   async clearAssessmentCooldown(id: string, stageId?: string): Promise<UserLearning> {
     return request(`/admin/users/${encodeURIComponent(id)}/assessments/clear-cooldown`, { method: 'POST', body: stageId ? { stageId } : {} });
+  },
+
+  /* ---------------------------------------------------------- weekly league */
+
+  async leagueWeeks(limit = 12): Promise<AdminLeagueWeeks> {
+    return request(`/admin/leagues/weeks?limit=${limit}`);
+  },
+
+  async leagueWeek(id: string): Promise<AdminLeagueWeek> {
+    return request(`/admin/leagues/weeks/${encodeURIComponent(id)}`);
+  },
+
+  /** Close now: results written (and tiers moved). `confirm` must be the week id. Audited. */
+  async closeLeagueWeek(id: string, confirm: string): Promise<AdminLeagueWeek> {
+    return request(`/admin/leagues/weeks/${encodeURIComponent(id)}/close`, { method: 'POST', body: { confirm } });
+  },
+
+  /** Zero the board: each learner's XP so far becomes their baseline. `confirm` must be the week id. Audited. */
+  async resetLeagueWeek(id: string, confirm: string): Promise<AdminLeagueWeek> {
+    return request(`/admin/leagues/weeks/${encodeURIComponent(id)}/reset`, { method: 'POST', body: { confirm } });
+  },
+
+  /** Take a learner off a week's board (or put them back). Audited. */
+  async excludeFromLeague(id: string, userId: string, excluded: boolean, reason = ''): Promise<AdminLeagueWeek> {
+    return request(`/admin/leagues/weeks/${encodeURIComponent(id)}/exclude`, { method: 'POST', body: { userId, excluded, reason } });
+  },
+
+  /** Move a learner to a tier from the next week (tiers on only). Audited. */
+  async setLeagueTier(userId: string, tierId: string): Promise<{ member: { userId: string; tierId: string; since: string | null }; before: string | null }> {
+    return request(`/admin/leagues/members/${encodeURIComponent(userId)}`, { method: 'PATCH', body: { tierId } });
   },
 
   /** The first-run setup and placement across every account (guests are not counted). */

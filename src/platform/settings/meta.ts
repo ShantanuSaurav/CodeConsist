@@ -186,6 +186,14 @@ export const SECTION_META: SectionMeta[] = [
     phase: 'P5'
   },
   {
+    id: 'league',
+    title: 'Weekly league',
+    description:
+      "A weekly race for XP next to the all-time board. Each learner's week runs on their own calendar; results are final a few hours after the last time zone finishes the week. A lesson's XP counts only the first time the account solves it; the switches below say which other XP counts. Tier changes apply from the next week.",
+    audience: 'public',
+    phase: 'P6'
+  },
+  {
     id: 'copy',
     title: 'Site copy',
     description:
@@ -847,7 +855,10 @@ export const REMINDER_SAMPLE: Record<string, string | number> = {
   remaining: 3,
   deadline: 'Thursday',
   name: 'Asha',
-  bestStreak: 21
+  bestStreak: 21,
+  rank: 4,
+  xp: 340,
+  tier: 'Silver'
 };
 
 /** The tokens a welcome-back tier may use. */
@@ -903,6 +914,110 @@ const REMINDERS_META: Record<string, SettingMeta> = {
       { key: 'title', label: 'Title', kind: 'string', minLength: 1, maxLength: REMINDER_TITLE_MAX, tokens: WELCOME_BACK_TOKENS },
       { key: 'body', label: 'Text', kind: 'string', minLength: 1, maxLength: REMINDER_BODY_MAX, tokens: WELCOME_BACK_TOKENS }
     ]
+  },
+  'reminders.leagueResult.enabled': {
+    label: "Last week's league result",
+    help: "A banner with the learner's place in last week's league, once the week has closed.",
+    kind: 'bool'
+  },
+  'reminders.leagueResult.single': reminderCopy('League result', 'When tiers are off.', REMINDER_BODY_MAX, ['rank', 'xp']),
+  'reminders.leagueResult.promoted': reminderCopy('League result: moved up', 'Tiers on: the learner moved up a tier.', REMINDER_BODY_MAX, ['rank', 'xp', 'tier']),
+  'reminders.leagueResult.demoted': reminderCopy('League result: moved down', 'Tiers on: the learner moved down a tier.', REMINDER_BODY_MAX, ['rank', 'xp', 'tier']),
+  'reminders.leagueResult.stayed': reminderCopy('League result: same tier', 'Tiers on: the learner stayed in their tier.', REMINDER_BODY_MAX, ['rank', 'xp', 'tier'])
+};
+
+/* ------------------------------------------------------------ weekly league */
+
+/** The largest tier group an admin can set. */
+export const LEAGUE_GROUP_MAX = 100;
+
+const LEAGUE_META: Record<string, SettingMeta> = {
+  'league.enabled': {
+    label: 'Weekly league',
+    help: 'Off hides the weekly board. League XP is still recorded on each day, so switching it back on mid-week loses nothing.',
+    kind: 'bool'
+  },
+  'league.weekStartsOn': {
+    label: 'Week starts on',
+    help: '1 = Monday (weeks run Monday to Sunday), 0 = Sunday. A change makes one shorter week so that weeks never overlap.',
+    kind: 'int',
+    min: 0,
+    max: 1
+  },
+  'league.finalizeDelayHours': {
+    label: 'Results final after',
+    help: 'A week closes this long after UTC midnight at its end. 12 covers every time zone (the last one finishes its Sunday 12 hours after UTC).',
+    kind: 'int',
+    min: 0,
+    max: 48,
+    unit: 'hours'
+  },
+  'league.boardSize': {
+    label: 'Rows shown',
+    help: 'Rows on the weekly board and the all-time board. A learner below them still sees their own place.',
+    kind: 'int',
+    min: 10,
+    max: 200
+  },
+  'league.countMergedXp': {
+    label: 'Count merged XP',
+    help: 'XP brought in when a guest signs in (or an offline device syncs) counts for the week. Off by default: the server did not check those answers as they happened.',
+    kind: 'bool'
+  },
+  'league.countUnverifiedSolves': {
+    label: 'Count unchecked solves',
+    help: 'XP from a solve the server could not run itself (for example Python on a server without Python) counts for the week.',
+    kind: 'bool'
+  },
+  'league.countReviewXp': {
+    label: 'Count Practice XP',
+    help: 'XP from Practice sessions (under their daily cap) counts for the week.',
+    kind: 'bool'
+  },
+  'league.tiers.enabled': {
+    label: 'Tiers',
+    help: 'Groups of learners in tiers (Bronze, Silver, ...) that move up and down each week. Leave off until about 60 learners play each week. Takes effect from the next week.',
+    kind: 'bool'
+  },
+  'league.tiers.list': {
+    label: 'Tiers, lowest first',
+    help: 'Id: lower-case letters, digits and dashes (stored on learners - renaming one puts its learners in the lowest tier). Name: at most 20 characters.',
+    kind: 'rows',
+    minItems: 2,
+    maxItems: 10,
+    rowMeta: [
+      { key: 'id', label: 'Id', kind: 'string', minLength: 1, maxLength: 32 },
+      { key: 'name', label: 'Name', kind: 'string', minLength: 1, maxLength: 20 }
+    ]
+  },
+  'league.tiers.groupSize': {
+    label: 'Group size',
+    help: 'Learners per group. A new group opens when the newest one in a tier is full.',
+    kind: 'int',
+    min: 5,
+    max: LEAGUE_GROUP_MAX
+  },
+  'league.tiers.promoteCount': {
+    label: 'Move up',
+    help: 'The top this many of a group move up a tier. Up and down together must be less than the group size.',
+    kind: 'int',
+    min: 0,
+    max: LEAGUE_GROUP_MAX
+  },
+  'league.tiers.demoteCount': {
+    label: 'Move down',
+    help: 'The bottom this many of a group move down a tier - only in a group larger than up and down together.',
+    kind: 'int',
+    min: 0,
+    max: LEAGUE_GROUP_MAX
+  },
+  'league.tiers.minXpToPromote': {
+    label: 'XP needed to move up',
+    help: 'A learner in the top places moves up only with at least this much XP that week.',
+    kind: 'int',
+    min: 0,
+    max: 10_000,
+    unit: 'XP'
   }
 };
 
@@ -1518,6 +1633,9 @@ export const SETTING_META: Record<string, SettingMeta> = {
   ...PLACEMENT_META,
   ...TEST_OUT_META,
 
+  /* ----------------------------------------------------- weekly league */
+  ...LEAGUE_META,
+
   /* -------------------------------------------------------------- copy */
   ...COPY_META,
 
@@ -1565,6 +1683,14 @@ export const SETTING_META: Record<string, SettingMeta> = {
     kind: 'int',
     min: 1,
     max: 100
+  },
+  'retention.leagueWeeksKept': {
+    label: 'League weeks kept',
+    help: 'Closed weekly leagues (their results and standings) kept for the history. Older ones are deleted when a week closes.',
+    kind: 'int',
+    min: 4,
+    max: 104,
+    unit: 'weeks'
   },
 
   /* ------------------------------------------------------------ access */

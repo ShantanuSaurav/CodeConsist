@@ -620,6 +620,12 @@ export interface DayRecord {
   reviews: number;
   /** Practice-session XP paid that day (already inside `xp`); `review.xp.dailyCap` bounds it. */
   reviewXp: number;
+  /**
+   * The part of the day's XP (and goal bonus) that counts for the weekly
+   * league: first-ever, server-priced XP only - never XP earned again after a
+   * progress reset, and merged XP only when the admin allows it.
+   */
+  leagueXp: number;
   firstAt: string | null;
   lastAt: string | null;
   /** How the row came to exist: a live event, the one-time backfill, or a guest merge. */
@@ -968,6 +974,66 @@ export interface LeaderboardEntry {
   level: number;
   streak: number;
   solved: number;
+  /** This row is the signed-in learner's own (Phase 6). */
+  isYou?: boolean;
+}
+
+/** The signed-in learner's place on the all-time board, worked out before it is cut to `league.boardSize`. */
+export interface LeaderboardMe extends LeaderboardEntry {
+  /** 1-based position on the whole board. */
+  rank: number;
+}
+
+/** `GET /api/leaderboard`. `me` is null for a guest (and absent from an older server). */
+export interface LeaderboardResponse {
+  leaderboard: LeaderboardEntry[];
+  me?: LeaderboardMe | null;
+}
+
+/* ==========================================================================
+   Weekly league (src/platform/league, server/leagues.js)
+   ========================================================================== */
+
+/** What a closed week did to a learner: `single` when tiers are off. */
+export type LeagueOutcome = 'promoted' | 'demoted' | 'stayed' | 'single';
+
+/** One row of the weekly board. Ranks are competition style (1, 2, 2, 4). */
+export interface LeagueRow {
+  rank: number;
+  username: string;
+  xp: number;
+  streak: number;
+  isYou: boolean;
+  /** With tiers on: inside the promotion or demotion zone of the learner's group. */
+  zone: 'up' | 'down' | null;
+}
+
+/** `GET /api/leagues/current`. */
+export interface LeagueView {
+  enabled: boolean;
+  /** The week the viewer's today is in; null while the league is off. */
+  week: {
+    id: string;
+    startDay: string;
+    endDay: string;
+    status: 'open' | 'closed';
+    /** Until the end of `endDay` in the viewer's own zone. */
+    endsInMs: number;
+    /** Until the results are final (UTC midnight after `endDay`, plus `league.finalizeDelayHours`). */
+    finalizesInMs: number;
+  } | null;
+  tiersEnabled: boolean;
+  /** The viewer's tier (tiers on and a group this week), else null. */
+  tier: { id: string; name: string; index: number; count: number } | null;
+  /** How many rows move up and down in the viewer's group (tiers on), else null. */
+  zones: { promote: number; demote: number } | null;
+  rows: LeagueRow[];
+  /** The viewer's own place, even outside `rows`; null for a guest or a learner with no XP this week. */
+  me: { rank: number; xp: number; zone: 'up' | 'down' | null; inRows: boolean } | null;
+  /** Learners with XP this week (in the viewer's group when tiers are on). */
+  participants: number;
+  /** The viewer's result in the last closed week, or null. */
+  lastResult: { weekId: string; rank: number; xp: number; outcome: LeagueOutcome; tierName: string | null } | null;
 }
 
 declare global {
