@@ -4,8 +4,13 @@
  * Three real engines, and no pretending:
  *   javascript  -> the local API's Node sandbox, or a Web Worker if it is down
  *   python      -> CPython compiled to WebAssembly (Pyodide), in the browser
+ *   java, c, cpp -> the compilers installed on the API server's own machine
+ *                  (server/runner/native-runner.js), reached from Vercel
+ *                  through the tunnel in vercel.json
  *   everything  -> Judge0, proxied through the local API server, but only
  *                  when an endpoint is actually configured there
+ *   html        -> the Playground renders HTML/CSS/JS itself in a sandboxed
+ *                  iframe (WebPreview); lessons use runHtmlInBrowser below
  *
  * The previous version faked C and Java by regex-scraping printf/System.out and
  * reporting "compiled successfully". That taught people the wrong thing, so any
@@ -27,11 +32,14 @@ import { displayValue, matchesExpected } from '../grading-engine/grading';
 
 let remoteCompilerConfigured = false;
 let remoteCompilerLanguages: SupportedLanguage[] = [];
+/** Compilers installed on the API server's own machine, e.g. { c: 'gcc 6.3.0' }. The server tries these before Judge0. */
+let localToolchains: Partial<Record<SupportedLanguage, string>> = {};
 
 /** Called once the app knows the server's answer (from /api/health). */
-function setRemoteCompilerStatus(configured: boolean, languages: string[] = []): void {
+function setRemoteCompilerStatus(configured: boolean, languages: string[] = [], local: Record<string, string> = {}): void {
   remoteCompilerConfigured = configured;
   remoteCompilerLanguages = languages as SupportedLanguage[];
+  localToolchains = local;
 }
 
 const LANGUAGE_IDS: Partial<Record<SupportedLanguage, number>> = {
@@ -428,6 +436,8 @@ export interface ExecuteOptions {
   entryFunction?: string;
   testCases?: TestCase[];
   onProgress?: (message: string) => void;
+  /** Standard input for compiled programs (Java, C, C++). */
+  stdin?: string;
   /** Skip the API round-trip (used by the offline path and by tests). */
   preferLocal?: boolean;
 }
@@ -441,8 +451,9 @@ export const compilerService = {
     if (language === 'python') return `CPython ${PYODIDE_VERSION} (WebAssembly)`;
     if (language === 'html') return 'Browser DOM sandbox';
     if (!LANGUAGE_IDS[language]) return 'no runtime configured';
+    if (localToolchains[language]) return `${localToolchains[language]} (server)`;
     if (remoteCompilerConfigured && remoteCompilerLanguages.includes(language)) return 'Judge0 remote compiler';
-    return 'requires Judge0 configuration';
+    return 'no compiler on the server';
   },
 
   /** Languages that always work, with nothing to configure. */
@@ -459,9 +470,9 @@ export const compilerService = {
     return Boolean(LANGUAGE_IDS[language]);
   },
 
-  /** True once /api/health has told us the server has Judge0 wired up for this language. */
+  /** True once /api/health has told us the server can compile this language (locally or via Judge0). */
   remoteCompilerReady(language: SupportedLanguage): boolean {
-    return remoteCompilerConfigured && remoteCompilerLanguages.includes(language);
+    return Boolean(localToolchains[language]) || (remoteCompilerConfigured && remoteCompilerLanguages.includes(language));
   },
 
   async executeCode(
@@ -469,7 +480,7 @@ export const compilerService = {
     language: SupportedLanguage = 'javascript',
     options: ExecuteOptions = {}
   ): Promise<ExecutionResult> {
-    const { entryFunction, testCases = [], onProgress, preferLocal = false } = options;
+    const { entryFunction, testCases = [], onProgress, stdin, preferLocal = false } = options;
 
     if (!code.trim()) {
       return { status: 'error', stderr: 'There is no code to run yet.', engine: 'none', testResults: [] };
@@ -508,7 +519,7 @@ export const compilerService = {
     // server fails the SAME honest way whether the request came from the
     // Playground or a lesson - one message to maintain.
     try {
-      return await api.execute({ language, code, entryFunction, testCases });
+      return await api.execute({ language, code, entryFunction, testCases, stdin });
     } catch (e: any) {
       return {
         status: 'error',

@@ -83,8 +83,9 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    // A 501 from /api/execute carries a usable result body, not a failure.
-    if (response.status === 501 && payload) return payload as T;
+    // /api/execute answers "cannot run this" (501), "sign in first" (401) and
+    // "slow down" (429) with a usable result body, not a failure.
+    if (payload && typeof payload.status === 'string' && Array.isArray(payload.testResults)) return payload as T;
     throw new ApiError(payload?.error || `Request failed (${response.status})`, response.status);
   }
   return payload as T;
@@ -144,6 +145,8 @@ export interface HealthResponse {
   users: number;
   /** Never carries credentials - just whether the server has a remote compiler wired up, and for which languages. */
   judge0?: { configured: boolean; languages: string[] };
+  /** Compilers installed on the server's own machine: languages, display labels, and whether guests may use them. */
+  local?: { languages: string[]; toolchains: Record<string, string>; guests: boolean };
 }
 
 /* ----------------------------------------------------------------- billing */
@@ -450,7 +453,10 @@ export const api = {
     code: string;
     entryFunction?: string;
     testCases?: TestCase[];
+    /** Standard input for compiled programs. */
+    stdin?: string;
   }): Promise<ExecutionResult> {
-    return request('/execute', { method: 'POST', auth: false, body: payload, timeoutMs: 30000 });
+    // Signed in, so the server can allow compiled languages and rate-limit per learner.
+    return request('/execute', { method: 'POST', body: payload, timeoutMs: 45000 });
   }
 };

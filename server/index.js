@@ -39,6 +39,13 @@ import { createBillingRouter, createWebhookRouter } from './billing-routes.js';
 import { createOAuthProviders, PROVIDER_IDS } from './oauth.js';
 import { createOAuthRouter } from './oauth-routes.js';
 import { clearDraftForSolve, createDraftsRouter } from './drafts-routes.js';
+import {
+  LOCAL_COMPILERS_GUESTS,
+  canRunLocally,
+  localLanguages,
+  localToolchainLabels,
+  runNative
+} from './runner/native-runner.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
@@ -263,7 +270,10 @@ app.get('/api/health', (_req, res) => {
     // Never the credentials themselves - just whether Judge0 is wired up, and
     // which languages that unlocks, so the client can label the Playground
     // honestly without ever seeing the key.
-    judge0: { configured: JUDGE0_CONFIGURED, languages: Object.keys(JUDGE0_LANGUAGE_IDS) }
+    judge0: { configured: JUDGE0_CONFIGURED, languages: Object.keys(JUDGE0_LANGUAGE_IDS) },
+    // Compilers installed on the machine running this server (see
+    // server/runner/native-runner.js). Labels only, never paths.
+    local: { languages: localLanguages(), toolchains: localToolchainLabels(), guests: LOCAL_COMPILERS_GUESTS }
   });
 });
 
@@ -944,6 +954,26 @@ async function runSolutionAgainstTests(challenge, code) {
 
 const EXECUTION_TIMEOUT_MS = 8000;
 
+/**
+ * Per-learner budget for compiled runs: each one starts real processes on this
+ * machine. Returns the seconds to wait when over budget, otherwise 0.
+ */
+const NATIVE_RUNS_PER_MINUTE = 20;
+const nativeRuns = new Map();
+
+function nativeRateLimit(key) {
+  const now = Date.now();
+  const recent = (nativeRuns.get(key) ?? []).filter((t) => now - t < 60_000);
+  if (recent.length >= NATIVE_RUNS_PER_MINUTE) {
+    nativeRuns.set(key, recent);
+    return Math.ceil((60_000 - (now - recent[0])) / 1000);
+  }
+  recent.push(now);
+  nativeRuns.set(key, recent);
+  if (nativeRuns.size > 5000) nativeRuns.clear();
+  return 0;
+}
+
 function runJsInChild(payload) {
   return new Promise((resolve) => {
     const child = spawn(
@@ -1085,6 +1115,29 @@ app.post(
     }
 
     if (language !== 'javascript' && language !== 'typescript') {
+      // Compilers on this machine first; Judge0 is the fallback, and the
+      // whole path once LOCAL_COMPILERS=off (see server/runner/native-runner.js).
+      if (canRunLocally(language)) {
+        if (!req.user && !LOCAL_COMPILERS_GUESTS) {
+          return res.status(401).json({
+            status: 'error',
+            engine: 'none',
+            stderr: `Sign in to run ${language}. Compiled languages run on a real machine, so they are limited to signed-in learners.`,
+            testResults: []
+          });
+        }
+        const limited = nativeRateLimit(req.user?.id ?? req.ip);
+        if (limited) {
+          return res.status(429).json({
+            status: 'error',
+            engine: 'none',
+            stderr: `You are running code faster than the compiler allows. Try again in ${limited}s.`,
+            testResults: []
+          });
+        }
+        const stdin = typeof req.body?.stdin === 'string' ? req.body.stdin : '';
+        return res.json(await runNative({ language, code, stdin }));
+      }
       if (!JUDGE0_LANGUAGE_IDS[language]) {
         return res.status(501).json({
           status: 'error',
@@ -1101,9 +1154,9 @@ app.post(
           status: 'error',
           engine: 'none',
           stderr:
-            `Running ${language} needs a Judge0 endpoint. JavaScript and Python already work with no ` +
-            'setup. To enable Java, C, C++ or Go, set JUDGE0_API_URL and JUDGE0_API_KEY in a .env file ' +
-            'at the project root (see .env.example) and restart the API server.',
+            `No ${language} compiler was found on the server machine. Install one (gcc/g++ for C and C++, ` +
+            'a JDK for Java) and restart the API server, or set JUDGE0_API_URL and JUDGE0_API_KEY in .env ' +
+            'to use a hosted Judge0 (see .env.example).',
           testResults: []
         });
       }

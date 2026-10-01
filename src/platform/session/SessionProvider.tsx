@@ -101,8 +101,12 @@ export interface SessionContextType {
   stats: UserStats;
   user: UserProfile | null;
   serverStatus: ServerStatus;
-  /** Server-verified: is a remote compiler (Judge0) configured for languages beyond JavaScript/Python? Never the credentials. */
-  judge0Configured: boolean;
+  /**
+   * Server-verified: compiled languages (Java, C, C++, ...) the API server can
+   * run right now, with compilers installed on its machine or a Judge0
+   * endpoint. Empty while the server is offline. Never the credentials.
+   */
+  compiledLanguages: SupportedLanguage[];
 
   /* actions */
   completeChallenge: (challenge: Challenge, options?: SolveOptions) => Promise<number>;
@@ -113,7 +117,7 @@ export interface SessionContextType {
     language?: SupportedLanguage,
     entryFunction?: string,
     testCases?: TestCase[],
-    options?: Pick<ExecuteOptions, 'onProgress'>
+    options?: Pick<ExecuteOptions, 'onProgress' | 'stdin'>
   ) => Promise<ExecutionResult>;
 
   /* saved coding sessions - see "drafts" below. Nobody has to start a
@@ -301,7 +305,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
   );
   const [stats, setStats] = useState<UserStats>(() => hydrateStats(readJson(STORAGE_KEYS.stats, null)));
   const [serverStatus, setServerStatus] = useState<ServerStatus>('checking');
-  const [judge0Configured, setJudge0Configured] = useState(false);
+  const [compiledLanguages, setCompiledLanguages] = useState<SupportedLanguage[]>([]);
   const [oauthProviders, setOauthProviders] = useState<OAuthProviders | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
 
@@ -808,8 +812,11 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         // The non-secret half of the Judge0 story: whether the server can
         // run compiled languages at all, so the UI can say so up front.
         const configured = Boolean(health?.judge0?.configured);
-        setJudge0Configured(configured);
-        compilerService.setRemoteCompilerStatus(configured, health?.judge0?.languages ?? []);
+        const judge0Languages = configured ? (health?.judge0?.languages ?? []) : [];
+        const localToolchains = health?.local?.toolchains ?? {};
+        const compiled = [...new Set([...(health?.local?.languages ?? []), ...judge0Languages])] as SupportedLanguage[];
+        setCompiledLanguages((prev) => (prev.join() === compiled.join() ? prev : compiled));
+        compilerService.setRemoteCompilerStatus(configured, judge0Languages, localToolchains);
         const recovered = !wasOnline;
         wasOnline = true;
         setServerStatus('online');
@@ -833,6 +840,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         if (wasOnline) eventBus.emit('server:status', { online: false });
         wasOnline = false;
         setServerStatus('offline');
+        setCompiledLanguages([]);
       }
     };
 
@@ -1020,12 +1028,13 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       language: SupportedLanguage = 'javascript',
       entryFunction?: string,
       testCases: TestCase[] = [],
-      options: Pick<ExecuteOptions, 'onProgress'> = {}
+      options: Pick<ExecuteOptions, 'onProgress' | 'stdin'> = {}
     ) =>
       compilerService.executeCode(code, language, {
         entryFunction,
         testCases,
         onProgress: options.onProgress,
+        stdin: options.stdin,
         preferLocal: serverStatus !== 'online'
       }),
     [serverStatus]
@@ -1249,7 +1258,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       stats,
       user,
       serverStatus,
-      judge0Configured,
+      compiledLanguages,
       completeChallenge,
       markConceptSeen,
       executeCode,
@@ -1287,7 +1296,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       stats,
       user,
       serverStatus,
-      judge0Configured,
+      compiledLanguages,
       completeChallenge,
       markConceptSeen,
       executeCode,
