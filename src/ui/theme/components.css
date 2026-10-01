@@ -13,6 +13,29 @@
   --control-h: 34px;
   --control-h-sm: 28px;
   --control-h-lg: 40px;
+  /* Colour and focus-ring changes, shared by every interactive surface. */
+  --t-colors: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  --t-focus: outline-color var(--dur-fast) var(--ease-out), outline-width var(--dur-fast) var(--ease-out);
+}
+
+/* Focus rings grow in rather than snapping on. The resting outline is zero
+   wide (so forced-colours mode does not draw it), and focus-visible widens it. */
+.btn,
+.nav-item,
+.segmented-option,
+.mode-switch-option,
+.card-interactive {
+  outline: 0 solid transparent;
+  outline-offset: 2px;
+}
+.btn:focus-visible,
+.nav-item:focus-visible,
+.segmented-option:focus-visible,
+.mode-switch-option:focus-visible,
+.card-interactive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ------------------------------------------------------------------ buttons */
@@ -33,17 +56,21 @@
   border: 1px solid transparent;
   cursor: pointer;
   user-select: none;
-  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  transition: var(--t-colors), var(--t-focus), transform var(--dur-instant) var(--ease-out);
 }
 .btn svg { flex: none; }
+/* Press: a hair smaller, instantly - the click registers before the result does. */
+.btn:active:not(:disabled) { transform: scale(0.98); }
 .btn:disabled,
 .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
 
+/* Primary: a lit top edge and a contact shadow, so it reads as the one raised control. */
 .btn-solid,
 .btn-primary {
   background: var(--accent);
   color: var(--accent-fg);
   border-color: var(--accent);
+  box-shadow: var(--btn-highlight), var(--shadow-xs);
 }
 .btn-solid:hover:not(:disabled),
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
@@ -53,6 +80,7 @@
   background: var(--surface);
   color: var(--text);
   border-color: var(--border);
+  box-shadow: var(--shadow-xs);
 }
 .btn-line:hover:not(:disabled),
 .btn-secondary:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border-strong); }
@@ -93,7 +121,7 @@
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-color: var(--border-strong);
-  transition: color var(--fast) var(--ease);
+  transition: color var(--dur-fast) var(--ease-out);
 }
 .link-btn:hover:not(:disabled) { color: var(--text); }
 .link-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -119,7 +147,7 @@ textarea {
   border-radius: var(--radius-sm);
   padding: 0 var(--space-3);
   min-height: var(--control-h);
-  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  transition: var(--t-colors);
 }
 textarea { padding: var(--space-2) var(--space-3); line-height: 1.5; min-height: auto; }
 
@@ -145,7 +173,7 @@ input:focus,
 textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  box-shadow: var(--focus-ring);
 }
 
 /* A field the form has flagged - the message sits under it. */
@@ -190,8 +218,9 @@ textarea::placeholder { color: var(--text-muted); }
   border: none;
   padding: 0;
   cursor: pointer;
-  transition: background var(--fast) var(--ease);
+  transition: background-color var(--dur-fast) var(--ease-out), var(--t-focus);
 }
+.switch:hover:not(:disabled):not([aria-checked="true"]) { background: color-mix(in srgb, var(--border-strong), var(--text) 12%); }
 .switch::after {
   content: '';
   position: absolute;
@@ -201,8 +230,9 @@ textarea::placeholder { color: var(--text-muted); }
   height: 16px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: transform var(--fast) var(--ease);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 1px rgba(0, 0, 0, 0.08);
+  /* The thumb moves between two resting states, so it eases both ways. */
+  transition: transform var(--dur-base) var(--ease-in-out);
 }
 .switch[aria-checked="true"] { background: var(--accent); }
 .switch[aria-checked="true"]::after { transform: translateX(14px); }
@@ -210,7 +240,10 @@ textarea::placeholder { color: var(--text-muted); }
 
 /* ---------------------------------------------------------------- segmented */
 
-.segmented {
+.segmented,
+.mode-switch {
+  position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--border);
@@ -220,7 +253,8 @@ textarea::placeholder { color: var(--text-muted); }
   gap: 2px;
 }
 .segmented button,
-.segmented-option {
+.segmented-option,
+.mode-switch-option {
   display: inline-flex;
   align-items: center;
   gap: 0.35em;
@@ -235,49 +269,44 @@ textarea::placeholder { color: var(--text-muted); }
   border-radius: var(--radius-xs);
   cursor: pointer;
   white-space: nowrap;
-  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  transition: var(--t-colors), var(--t-focus);
 }
 .segmented button:hover,
-.segmented-option:hover { color: var(--text); }
+.segmented-option:hover,
+.mode-switch-option:hover { color: var(--text); }
 .segmented button.is-active,
 .segmented-option.is-active,
 .segmented-option[aria-pressed="true"],
-.segmented-option[aria-checked="true"] {
-  background: var(--surface);
+.segmented-option[aria-checked="true"],
+.mode-switch-option.is-active {
+  background: var(--control-raised);
   color: var(--text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--surface-highlight), var(--shadow-xs);
 }
 .segmented-sm button,
-.segmented-sm .segmented-option { height: 22px; padding: 0 var(--space-2); font-size: var(--text-xs); }
-
-/* Learning-mode switch is the same control with a fixed name in the codebase. */
-.mode-switch {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 2px;
-  background: var(--surface-2);
-  gap: 2px;
-}
-.mode-switch-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35em;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-family: var(--font-sans);
-  font-weight: 500;
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
-}
-.mode-switch-md .mode-switch-option { height: 26px; padding: 0 var(--space-3); font-size: var(--text-sm); }
+.segmented-sm .segmented-option,
 .mode-switch-sm .mode-switch-option { height: 22px; padding: 0 var(--space-2); font-size: var(--text-xs); }
-.mode-switch-option:hover { color: var(--text); }
-.mode-switch-option.is-active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+
+/* The sliding thumb (useSlidingIndicator). Once it has measured the active
+   option the control gets [data-indicator]; the option's own background
+   steps aside and the thumb glides between positions instead. Without JS,
+   or where markup has no thumb, the per-option background above is used. */
+.segmented-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  z-index: -1;
+  border-radius: var(--radius-xs);
+  background: var(--control-raised);
+  box-shadow: var(--surface-highlight), var(--shadow-xs);
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+  transition: transform var(--dur-base) var(--ease-in-out), opacity var(--dur-fast) var(--ease-out);
+}
+[data-indicator] > .segmented-option.is-active,
+[data-indicator] > .mode-switch-option.is-active { background: transparent; box-shadow: none; }
 
 /* ------------------------------------------------------------------- badges */
 
@@ -327,6 +356,26 @@ textarea::placeholder { color: var(--text-muted); }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--surface-highlight);
+}
+
+/* A card that is itself the link or button. It lifts one pixel toward the
+   pointer and settles back on press; a static panel never moves. Hover lift
+   only where there is a real hover, so touch screens do not stick lifted. */
+.card-interactive {
+  cursor: pointer;
+  transition: var(--t-colors), var(--t-focus), transform var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .card-interactive:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--surface-highlight), var(--shadow-sm);
+    transform: translateY(-1px);
+  }
+}
+.card-interactive:active {
+  transform: translateY(0) scale(0.99);
+  transition-duration: var(--dur-instant);
 }
 .panel-head {
   display: flex;
@@ -356,7 +405,7 @@ textarea::placeholder { color: var(--text-muted); }
   font-size: var(--text-lg);
   font-weight: 600;
   color: var(--text);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-snug);
 }
 .section-desc { font-size: var(--text-base); color: var(--text-secondary); margin-top: var(--space-1); }
 
@@ -364,7 +413,7 @@ textarea::placeholder { color: var(--text-muted); }
 
 .stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stat-label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--font-mono); }
-.stat-value { font-size: var(--text-xl); font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; line-height: 1.2; }
+.stat-value { font-size: var(--text-xl); font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-snug); line-height: 1.2; }
 .stat-hint { font-size: var(--text-xs); color: var(--text-muted); }
 
 /* ----------------------------------------------------------------- progress */
@@ -383,7 +432,7 @@ textarea::placeholder { color: var(--text-muted); }
   height: 100%;
   border-radius: inherit;
   background: var(--accent);
-  transition: width var(--med) var(--ease);
+  transition: width var(--dur-slower) var(--ease-out);
 }
 .progress-fill.is-success { background: var(--success); }
 .progress-fill.is-info { background: var(--info); }
@@ -482,7 +531,7 @@ textarea::placeholder { color: var(--text-muted); }
   color: var(--code-text);
   overflow: hidden;
   flex: none;
-  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .code-editor.is-focused { border-color: var(--code-focus); }
 
@@ -518,7 +567,7 @@ textarea::placeholder { color: var(--text-muted); }
   border-right: 1px solid var(--code-border);
   background: var(--code-bg-raised);
 }
-.code-line-number { display: block; transition: color var(--fast) var(--ease); }
+.code-line-number { display: block; transition: color var(--dur-fast) var(--ease-out); }
 .code-line-number.is-active-line { color: var(--code-text); }
 
 .code-editor-stage {
@@ -693,11 +742,20 @@ kbd {
   font-size: var(--text-sm);
   color: var(--text);
   box-shadow: var(--shadow-menu);
-  animation: toastIn var(--med) var(--ease);
 }
-@keyframes toastIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+/* Rises in; on dismiss (data-state="closed", set by ToastProvider) it
+   slides off to the side, faster than it came. */
+.toast:not([data-state="closed"]) {
+  --enter-y: var(--shift-md);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-base) var(--ease-out) backwards;
+}
+.toast[data-state="closed"] {
+  --exit-x: var(--shift-lg);
+  --exit-y: 0px;
+  --exit-scale: 1;
+  animation: cc-exit var(--dur-fast) var(--ease-in) forwards;
+  pointer-events: none;
 }
 .toast-success { border-left-color: var(--success); }
 .toast-error   { border-left-color: var(--error); }
@@ -710,6 +768,7 @@ kbd {
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
 }
 .toast button:hover { color: var(--text); }
 
@@ -740,18 +799,35 @@ kbd {
 
 /* ---------------------------------------------------------------- skeletons */
 
+/* A flat block with a soft sheen passing over it. The sheen is a
+   transformed pseudo-element, so the loop never repaints the page. It
+   crosses each bone in one loop, so wide bones sweep faster than narrow
+   ones; the sheen is kept faint enough that this reads as calm. */
 .skeleton-bone {
+  position: relative;
   display: block;
+  overflow: hidden;
   border-radius: var(--radius-xs);
-  background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%);
-  background-size: 200% 100%;
-  animation: skeletonPulse 1.4s ease-in-out infinite;
+  background: var(--surface-2);
 }
-@keyframes skeletonPulse {
-  from { background-position: 100% 0; }
-  to   { background-position: -100% 0; }
+.skeleton-bone::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--skeleton-sheen), transparent);
+  animation: cc-shimmer var(--dur-shimmer) var(--ease-in-out) infinite;
 }
-.skeleton-page { padding: var(--space-8) var(--space-6); max-width: 72rem; margin: 0 auto; }
+@keyframes cc-shimmer {
+  to { transform: translateX(100%); }
+}
+/* Held back a beat: a chunk that lands within --delay-skeleton never flashes a skeleton. */
+.skeleton-page {
+  padding: var(--space-8) var(--space-6);
+  max-width: 72rem;
+  margin: 0 auto;
+  animation: cc-fade var(--dur-base) var(--ease-out) var(--delay-skeleton) backwards;
+}
 .skeleton-head { display: grid; gap: var(--space-3); margin-bottom: var(--space-8); }
 .skeleton-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--space-4); }
 .skeleton-card {
@@ -822,7 +898,7 @@ kbd {
   border-radius: 50%;
   border: 1.5px solid var(--accent);
   opacity: 0;
-  animation: splashRing 2.2s var(--ease) infinite;
+  animation: splashRing 2.2s var(--ease-out) infinite;
 }
 @keyframes splashRing {
   0%   { opacity: 0;   transform: scale(0.7); }
@@ -848,7 +924,7 @@ kbd {
   height: 100%;
   border-radius: inherit;
   background: var(--accent);
-  animation: splashSweep 1.3s var(--ease) infinite;
+  animation: splashSweep 1.3s var(--ease-out) infinite;
 }
 @keyframes splashSweep {
   from { transform: translateX(-100%); }
@@ -860,7 +936,7 @@ kbd {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted);
-  animation: splashStatus 320ms var(--ease) both;
+  animation: splashStatus var(--dur-slow) var(--ease-out) both;
 }
 @keyframes splashStatus {
   from { opacity: 0; transform: translateY(4px); }
@@ -891,13 +967,47 @@ kbd {
   font-size: var(--text-base);
   font-weight: 500;
   color: var(--text-secondary);
-  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+  position: relative;
+  transition: var(--t-colors), var(--t-focus);
 }
-.nav-item svg { flex: none; color: var(--text-muted); transition: color var(--fast) var(--ease); }
+.nav-item svg { flex: none; color: var(--text-muted); transition: color var(--dur-fast) var(--ease-out); }
 .nav-item:hover { background: var(--surface-2); color: var(--text); }
 .nav-item:hover svg { color: var(--text-secondary); }
+.nav-item:active { background: var(--surface-3); }
 .nav-item.is-active { background: var(--surface-3); color: var(--text); }
 .nav-item.is-active svg { color: var(--accent); }
+
+/* The active marker: a 2px accent bar on the item's inner edge. One shared
+   bar (.nav-indicator, placed by useSlidingIndicator) glides between items;
+   until it has measured - or if it cannot - each active item draws its own,
+   easing in. */
+.nav-item.is-active::before,
+.nav-indicator::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+.nav-item.is-active::before { animation: cc-indicator-in var(--dur-base) var(--ease-out) backwards; }
+[data-indicator] .nav-item.is-active::before { content: none; }
+@keyframes cc-indicator-in {
+  from { opacity: 0; transform: scaleY(0.5); }
+}
+.nav-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2px;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+  transition: transform var(--dur-base) var(--ease-in-out), opacity var(--dur-fast) var(--ease-out);
+}
 .nav-group-label {
   padding: 0 var(--space-3);
   margin: var(--space-5) 0 var(--space-2);
@@ -957,17 +1067,18 @@ kbd {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease);
+  transition: var(--t-colors);
 }
 .type-pill:hover { border-color: var(--border-strong); color: var(--text); }
-.type-pill:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.type-pill:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
 .type-pill.is-active,
 .type-pill[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 /* A kind with no questions yet still shows, so the gap is visible. */
 .type-pill.is-empty:not([aria-pressed="true"]) { opacity: 0.55; }
 .type-pill-count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; opacity: 0.8; }
 
-/* The admin question wizard: the type picker and its repeatable rows. */
+/* The admin question wizard: the type picker and its repeatable rows.
+   A kind card behaves like .card-interactive; accent is kept for focus. */
 .kind-card {
   text-align: left;
   padding: var(--space-4);
@@ -975,10 +1086,20 @@ kbd {
   border-radius: var(--radius-lg);
   background: var(--surface);
   cursor: pointer;
-  transition: border-color var(--fast) var(--ease), transform var(--med) var(--ease), box-shadow var(--med) var(--ease);
+  transition: var(--t-colors), transform var(--dur-base) var(--ease-out);
 }
-.kind-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 12px 30px -20px rgba(15, 23, 42, 0.35); }
-.kind-card:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+@media (hover: hover) {
+  .kind-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--surface-highlight), var(--shadow-sm);
+    transform: translateY(-1px);
+  }
+}
+.kind-card:active {
+  transform: translateY(0) scale(0.99);
+  transition-duration: var(--dur-instant);
+}
+.kind-card:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
 .kind-icon {
   display: inline-flex;
   align-items: center;
@@ -1086,4 +1207,151 @@ kbd {
   border-radius: var(--radius-md);
   background: var(--surface);
   padding: var(--space-6);
+}
+
+/* ==========================================================================
+   Motion system. The contract is docs/design/MOTION.md; durations and curves
+   are the tokens in tokens.css.
+
+   Two keyframes do almost everything. They read their distances from custom
+   properties the calling class sets, so every class below sets all of its
+   own (they inherit, and a parent's value must never leak into a child).
+   Entrances use `backwards` fill - once finished they leave no transform
+   behind, so nothing is stuck mid-state and fixed children stay fixed.
+   Exits use `forwards` and are unmounted by usePresence when they end.
+   ========================================================================== */
+
+@keyframes cc-enter {
+  from { opacity: 0; transform: translate3d(0, var(--enter-y, 0px), 0) scale(var(--enter-scale, 1)); }
+}
+@keyframes cc-exit {
+  to { opacity: 0; transform: translate3d(var(--exit-x, 0px), var(--exit-y, 0px), 0) scale(var(--exit-scale, 1)); }
+}
+@keyframes cc-fade {
+  from { opacity: 0; }
+}
+@keyframes cc-fade-out {
+  to { opacity: 0; }
+}
+
+/* ------------------------------------------------------- one-shot entrances */
+
+.page-enter,
+.anim-fade-up {
+  --enter-y: var(--shift-md);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-slow) var(--ease-out) backwards;
+}
+.anim-scale-in {
+  --enter-y: 0px;
+  --enter-scale: 0.98;
+  animation: cc-enter var(--dur-base) var(--ease-out) backwards;
+}
+.anim-fade,
+.content-fade-in { animation: cc-fade var(--dur-base) var(--ease-out) backwards; }
+
+/* Lists: direct children of .stagger (or any .stagger-item with --i set by
+   staggerStyle(i)) enter 40ms apart. Capped at six items - the sixth item
+   onwards shares the last delay (200ms), so a long list never trickles. */
+.stagger > *,
+.stagger-item {
+  --enter-y: var(--shift-sm);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-base) var(--ease-out) backwards;
+}
+.stagger > :nth-child(2) { animation-delay: var(--stagger); }
+.stagger > :nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+.stagger > :nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+.stagger > :nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+.stagger > :nth-child(n + 6) { animation-delay: calc(var(--stagger) * 5); }
+.stagger-item { animation-delay: calc(var(--i, 0) * var(--stagger)); }
+
+/* Scroll reveal (useReveal). Visible by default; the hook only hides an
+   element it has confirmed is below the fold and is watching. */
+.reveal {
+  transition: opacity var(--dur-slower) var(--ease-out), transform var(--dur-slower) var(--ease-out);
+}
+.reveal[data-reveal="hidden"] {
+  opacity: 0;
+  transform: translate3d(0, var(--shift-lg), 0);
+}
+
+/* --------------------------------------------- presence (enter + exit pairs)
+   Mount with data-state="open" (or no data-state) to play the entrance;
+   switch to "closed" to play the exit, then unmount - usePresence does both. */
+
+/* Menus, popovers, dropdown lists: drop 4px from their trigger. */
+.menu-surface { transform-origin: top center; }
+.menu-surface:not([data-state="closed"]) {
+  --enter-y: calc(var(--shift-sm) * -1);
+  --enter-scale: 0.98;
+  animation: cc-enter var(--dur-base) var(--ease-out) backwards;
+}
+.menu-surface[data-state="closed"] {
+  --exit-x: 0px;
+  --exit-y: calc(var(--shift-sm) * -1);
+  --exit-scale: 0.98;
+  animation: cc-exit var(--dur-fast) var(--ease-in) forwards;
+}
+
+/* Scrims behind dialogs and drawers, and anything that should only fade. */
+.overlay-backdrop { background: var(--overlay); }
+.overlay-backdrop:not([data-state="closed"]),
+.presence-fade:not([data-state="closed"]) { animation: cc-fade var(--dur-base) var(--ease-out) backwards; }
+.overlay-backdrop[data-state="closed"],
+.presence-fade[data-state="closed"] { animation: cc-fade-out var(--dur-base) var(--ease-in) forwards; }
+
+/* Dialogs rise 8px and settle from 98%; they leave faster than they came. */
+.dialog-surface:not([data-state="closed"]) {
+  --enter-y: var(--shift-md);
+  --enter-scale: 0.98;
+  animation: cc-enter var(--dur-slow) var(--ease-out) backwards;
+}
+.dialog-surface[data-state="closed"] {
+  --exit-x: 0px;
+  --exit-y: var(--shift-sm);
+  --exit-scale: 0.98;
+  animation: cc-exit var(--dur-base) var(--ease-in) forwards;
+}
+
+/* Drawers slide in from their edge: left by default, data-side="right" to flip. */
+.drawer-surface { --drawer-from: -100%; }
+.drawer-surface[data-side="right"] { --drawer-from: 100%; }
+.drawer-surface:not([data-state="closed"]) { animation: cc-drawer-in var(--dur-slow) var(--ease-out) backwards; }
+.drawer-surface[data-state="closed"] { animation: cc-drawer-out var(--dur-base) var(--ease-in) forwards; }
+@keyframes cc-drawer-in { from { transform: translate3d(var(--drawer-from), 0, 0); } }
+@keyframes cc-drawer-out { to { transform: translate3d(var(--drawer-from), 0, 0); } }
+/* A control that sits beside a drawer (with .presence-fade) waits for the
+   panel to arrive before fading in, and still leaves with it. */
+.drawer-companion:not([data-state="closed"]) { animation-delay: var(--dur-fast); }
+
+/* Something on its way out cannot be clicked. */
+.menu-surface[data-state="closed"],
+.overlay-backdrop[data-state="closed"],
+.presence-fade[data-state="closed"],
+.dialog-surface[data-state="closed"],
+.drawer-surface[data-state="closed"] { pointer-events: none; }
+
+/* --------------------------------------------------------- theme cross-fade
+   ThemeProvider wraps the switch in document.startViewTransition; the
+   browser's default root cross-fade runs, just on our clock. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-base);
+  animation-timing-function: var(--ease-in-out);
+}
+
+/* ----------------------------------------------------------- reduced motion
+   tokens.css already makes every animation instant. Here the resting
+   transforms of hover and press go too: nothing shifts, only colour changes. */
+@media (prefers-reduced-motion: reduce) {
+  .btn:active:not(:disabled),
+  .card-interactive:hover,
+  .card-interactive:active,
+  .kind-card:hover,
+  .kind-card:active { transform: none; }
+  .reveal[data-reveal="hidden"] { opacity: 1; transform: none; }
+}
+@media print {
+  .reveal[data-reveal="hidden"] { opacity: 1; transform: none; }
 }

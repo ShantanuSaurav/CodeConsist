@@ -31,7 +31,7 @@ export const LanguageTrackPicker: React.FC = () => {
               active ? 'bg-surface' : 'bg-bg hover:bg-surface'
             }`}
           >
-            {active && <span className="absolute inset-x-0 top-0 h-0.5 bg-accent" aria-hidden="true" />}
+            {active && <span className="anim-fade absolute inset-x-0 top-0 h-0.5 bg-accent" aria-hidden="true" />}
             <div className="flex items-baseline justify-between gap-3">
               <span className={`text-sm font-medium ${active ? 'text-fg' : 'text-fg-secondary'}`}>{track.label}</span>
               <span className="font-mono text-[11px] text-fg-muted">

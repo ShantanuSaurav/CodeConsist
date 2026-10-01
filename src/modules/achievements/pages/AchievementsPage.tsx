@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Award, Code2, Flame, Star, Swords } from 'lucide-react';
-import { PageHeader, ProgressBar, SectionHeader, Stat } from '@/ui';
+import { PageHeader, ProgressBar, SectionHeader, Stat, staggerStyle } from '@/ui';
 import { useSession } from '@/platform/session';
 import { levelProgress, xpForLevel } from '@/platform/xp-leveling/leveling';
 import { achievements, rankTitle, relativeDay } from '@/platform/xp-leveling/insights';
@@ -62,7 +62,7 @@ export const AchievementsPage: React.FC = () => {
               Developer level
             </h2>
             <div className="flex items-baseline gap-3">
-              <span className="text-4xl font-semibold font-mono text-fg tabular-nums leading-none">{String(level.level).padStart(2, '0')}</span>
+              <span className="text-4xl font-semibold font-mono text-fg tabular-nums tracking-tight leading-none">{String(level.level).padStart(2, '0')}</span>
               <span className="text-sm text-fg-secondary">{rankTitle(level.level)}</span>
             </div>
             <ProgressBar value={level.percent} className="mt-4" label={`${level.into} of ${level.needed} XP to level ${level.level + 1}`} />
@@ -104,25 +104,34 @@ export const AchievementsPage: React.FC = () => {
         <SectionHeader
           title={<span id="badges-heading">Badges</span>}
           aside={
-            <span className="text-xs text-fg-muted font-mono">
+            <span className="text-xs text-fg-muted font-mono tabular-nums">
               {earned.length} / {badges.length} earned
             </span>
           }
         />
+        {/* The cells (and their grid lines) stay put; only each cell's content
+            rises in, 40ms apart and capped, so the grid never looks misaligned
+            while it enters. Earned badges carry the accent; locked ones keep
+            their shape as a dashed outline, readable rather than dimmed. A
+            badge earned while the page is open changes colour in place. */}
         <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 border-t border-l border-border-subtle">
-          {badges.map((b) => (
-            <li key={b.id} className={`flex items-center gap-3 p-4 border-r border-b border-border-subtle ${b.earnedAt ? '' : 'opacity-60'}`}>
-              <div
-                className={`w-7 h-7 rounded-sm flex items-center justify-center shrink-0 ${
-                  b.earnedAt ? 'bg-accent-soft text-accent' : 'border border-border'
-                }`}
-                aria-hidden="true"
-              >
-                {b.earnedAt ? ICONS[b.kind] : null}
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-fg truncate">{b.title}</div>
-                <div className="text-xs text-fg-muted truncate">{b.earnedAt ? `Earned ${relativeDay(b.earnedAt)}` : b.detail}</div>
+          {badges.map((b, i) => (
+            <li key={b.id} className="border-r border-b border-border-subtle">
+              <div className="stagger-item flex items-center gap-3 p-4" style={staggerStyle(i)}>
+                <div
+                  className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 transition-colors ${
+                    b.earnedAt ? 'bg-accent-soft text-accent' : 'border border-dashed border-border-strong text-fg-disabled'
+                  }`}
+                  aria-hidden="true"
+                >
+                  {ICONS[b.kind]}
+                </div>
+                <div className="min-w-0">
+                  <div className={`text-sm font-medium truncate transition-colors ${b.earnedAt ? 'text-fg' : 'text-fg-secondary'}`}>{b.title}</div>
+                  <div className="text-xs text-fg-muted truncate">
+                    {b.earnedAt ? `Earned ${relativeDay(b.earnedAt)}` : b.detail}
+                  </div>
+                </div>
               </div>
             </li>
           ))}

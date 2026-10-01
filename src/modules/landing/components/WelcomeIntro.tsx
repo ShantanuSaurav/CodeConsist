@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
-import { Button, DEVLINGO_LOGO_LAYERS } from '@/ui';
+import { Button, DEVLINGO_LOGO_LAYERS, MOTION, prefersReducedMotion } from '@/ui';
 import { useTheme } from '@/platform/theme';
 import '../styles/welcome.css';
 
@@ -13,35 +13,80 @@ interface WelcomeIntroProps {
 
 const NAME = 'CodeConsist';
 const TAGLINE = ['Learn.', 'Practice.', 'Build.'];
-/* When the cursor's click lands (welcome.css) and how fast the name types. */
-const TYPE_START_MS = 1450;
-const TYPE_STEP_MS = 55;
-/** How long the intro takes to fade out before the next screen appears. */
-const LEAVE_MS = 320;
+/* The last piece (the actions) starts 13 steps in and takes --dur-slow
+   (welcome.css). After that there is nothing left to skip. */
+const SEQUENCE_MS = MOTION.stagger * 13 + MOTION.slow;
+/** The intro's exit: one step shorter than an entrance, like every exit. */
+const LEAVE_MS = MOTION.base;
 
-const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+/** Nothing is focused yet (or focus fell back to the page). */
+const focusIsFree = () => !document.activeElement || document.activeElement === document.body;
 
 /**
- * The introduction shown once at "/".
+ * The introduction shown once per visit at "/".
  *
- * The mark is assembled from its layers in sequence: the base draws outward
- * from the spine, the pages open, code symbols land like keystrokes, and the
- * cursor slides in to click. That click types the wordmark letter-by-letter
- * behind a caret, followed by the tagline and actions. Once loaded, the mark
- * beats with an accent glow. Choosing either action fades the intro out.
+ * The mark assembles from its own layers in paint order - base, pages,
+ * code symbols, cursor - each a short fade and a few pixels of travel, then
+ * the name, the tagline and the actions follow. The whole sequence is under
+ * a second and never loops. Any key or click before it finishes completes
+ * it at once, and focus still ends on "Enter" (unless the click chose
+ * another control). Choosing either action fades the intro out.
  */
 export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onEnter, onExplore }) => {
   const { theme, toggleTheme } = useTheme();
   const enterRef = useRef<HTMLButtonElement>(null);
   const [leaving, setLeaving] = useState(false);
+  const [skipped, setSkipped] = useState(false);
   const timer = useRef<number | undefined>(undefined);
+  const unarm = useRef<() => void>(() => {});
 
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const focusEnter = useCallback(() => {
+    if (focusIsFree()) enterRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current);
+      unarm.current();
+    },
+    []
+  );
+
+  // Skippable: the first key or pointer press during the entrance ends it
+  // where it would have finished. Skipping cancels the actions' animation, so
+  // its animationend never comes; focus moves to "Enter" when that key or
+  // button is released instead - not on the press, or the keypress that
+  // follows an Enter keydown would land on the button and activate it. Tab
+  // moves focus itself. Once it has played (or with reduced motion, where it
+  // never plays) there is nothing left to skip.
+  useEffect(() => {
+    if (prefersReducedMotion()) {
+      focusEnter();
+      return;
+    }
+    if (skipped) return;
+    const stop = () => {
+      window.clearTimeout(done);
+      window.removeEventListener('keydown', skip);
+      window.removeEventListener('pointerdown', skip);
+    };
+    const skip = (e: Event) => {
+      setSkipped(true);
+      if (e instanceof KeyboardEvent && e.key === 'Tab') return;
+      const release = e.type === 'keydown' ? 'keyup' : 'pointerup';
+      window.addEventListener(release, focusEnter, { once: true });
+      unarm.current = () => window.removeEventListener(release, focusEnter);
+    };
+    const done = window.setTimeout(stop, SEQUENCE_MS);
+    window.addEventListener('keydown', skip);
+    window.addEventListener('pointerdown', skip);
+    return stop;
+  }, [skipped, focusEnter]);
 
   const leave = useCallback(
     (next: () => void) => {
       if (leaving) return;
-      if (reducedMotion()) {
+      if (prefersReducedMotion()) {
         next();
         return;
       }
@@ -51,17 +96,10 @@ export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onEnter, onExplore }
     [leaving]
   );
 
-  // The wordmark is typed one letter at a time so the caret can sit right
-  // behind the last letter. Reduced motion shows the whole name at once.
-  const [typed, setTyped] = useState(() => (reducedMotion() ? NAME.length : 0));
-  useEffect(() => {
-    if (reducedMotion()) return;
-    const timers = NAME.split('').map((_, i) => window.setTimeout(() => setTyped(i + 1), TYPE_START_MS + i * TYPE_STEP_MS));
-    return () => timers.forEach(clearTimeout);
-  }, []);
+  const className = ['welcome relative', skipped ? 'is-skipped' : '', leaving ? 'is-leaving' : ''].filter(Boolean).join(' ');
 
   return (
-    <main className={`welcome relative ${leaving ? 'is-leaving' : ''}`.trim()} aria-labelledby="welcome-title" aria-busy={leaving}>
+    <main className={className} aria-labelledby="welcome-title" aria-busy={leaving}>
       <div className="welcome-corner">
         <Button variant="ghost" size="sm" icon onClick={toggleTheme} aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
           {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
@@ -69,36 +107,25 @@ export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onEnter, onExplore }
       </div>
 
       <div className="welcome-inner">
-        {/* The official mark, assembled from its own layers and beating after loading */}
-        <div className="welcome-logo-wrap">
-          <span className="welcome-logo-glow" aria-hidden="true" />
-          <div className="welcome-mark" role="img" aria-label="CodeConsist logo">
-            {DEVLINGO_LOGO_LAYERS.map((layer) => (
-              <img
-                key={layer.id}
-                src={layer.src}
-                alt=""
-                aria-hidden="true"
-                width={640}
-                height={512}
-                decoding="async"
-                draggable={false}
-                className={`welcome-layer welcome-layer--${layer.id}`}
-              />
-            ))}
-          </div>
+        {/* The official mark, assembled from its own layers */}
+        <div className="welcome-mark" role="img" aria-label="CodeConsist logo">
+          {DEVLINGO_LOGO_LAYERS.map((layer) => (
+            <img
+              key={layer.id}
+              src={layer.src}
+              alt=""
+              aria-hidden="true"
+              width={640}
+              height={512}
+              decoding="async"
+              draggable={false}
+              className={`welcome-layer welcome-layer--${layer.id}`}
+            />
+          ))}
         </div>
 
-        <h1 id="welcome-title" className="welcome-name" aria-label={NAME}>
-          {/* A hidden copy of the full name reserves its width, so the letters
-              type from the left instead of growing out of the centre. */}
-          <span className="welcome-name-box" aria-hidden="true">
-            <span className="welcome-name-ghost">{NAME}</span>
-            <span className="welcome-name-typed">
-              {NAME.slice(0, typed)}
-              <span className="welcome-caret" />
-            </span>
-          </span>
+        <h1 id="welcome-title" className="welcome-name">
+          {NAME}
         </h1>
 
         <p className="welcome-tagline">
@@ -112,7 +139,7 @@ export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onEnter, onExplore }
         <div
           className="welcome-actions"
           onAnimationEnd={(e) => {
-            if (e.target === e.currentTarget) enterRef.current?.focus({ preventScroll: true });
+            if (e.target === e.currentTarget) focusEnter();
           }}
         >
           <Button ref={enterRef} variant="primary" size="lg" disabled={leaving} onClick={() => leave(onEnter)}>

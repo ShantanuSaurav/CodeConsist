@@ -2,10 +2,21 @@
 /* ==========================================================================
    Beginner "concept teaching" flow shown before a lesson's quick check, and
    the learning-mode chooser. Reads tokens.css so it is the same product as
-   the rest of the modal.
+   the rest of the modal. Motion follows docs/design/MOTION.md: each phase
+   slides 8px in from the direction of travel, reveals settle 4px into place,
+   and the step tracker changes colour rather than moving.
    ========================================================================== */
 
 .concept-teaching { display: flex; flex-direction: column; gap: var(--space-5); }
+
+/* One keyed wrapper per phase (ConceptTeaching). It keeps the same rhythm
+   as its parent, and every phase after the first slides in from the right -
+   forward is the only way through the walk-through. */
+.concept-phase { display: flex; flex-direction: column; gap: var(--space-5); }
+.concept-phase.is-entering { animation: lesson-step-in var(--dur-base) var(--ease-out) backwards; }
+@keyframes lesson-step-in {
+  from { opacity: 0; transform: translate3d(var(--shift-md), 0, 0); }
+}
 
 /* ------------------------------------------------------------- step tracker */
 
@@ -33,14 +44,25 @@
   color: var(--text-muted);
   background: var(--surface);
   flex: none;
+  font-variant-numeric: tabular-nums;
+  transition: var(--t-colors);
 }
-.lesson-step-label { font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; }
-.lesson-step-connector { width: 16px; height: 1px; background: var(--border); margin: 0 var(--space-1); }
+.lesson-step-label { font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; transition: color var(--dur-fast) var(--ease-out); }
+.lesson-step-connector {
+  width: 16px;
+  height: 1px;
+  background: var(--border);
+  margin: 0 var(--space-1);
+  transition: background-color var(--dur-base) var(--ease-out);
+}
 .lesson-step-active .lesson-step-dot { border-color: var(--accent); color: var(--accent); }
 .lesson-step-active .lesson-step-label { color: var(--text); font-weight: 500; }
 .lesson-step-done .lesson-step-dot { border-color: var(--success); background: var(--success); color: #fff; }
 .dark .lesson-step-done .lesson-step-dot { color: #06140a; }
+.lesson-step-done .lesson-step-dot svg { animation: cc-fade var(--dur-base) var(--ease-out) backwards; }
 .lesson-step-done .lesson-step-label { color: var(--text-secondary); }
+/* The path already walked is drawn in the success colour. */
+.lesson-step-done .lesson-step-connector { background: color-mix(in srgb, var(--success) 55%, var(--border)); }
 
 /* ---------------------------------------------------------------- lesson intro */
 
@@ -53,7 +75,7 @@
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.lesson-intro-title { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; margin: 0; color: var(--text); }
+.lesson-intro-title { font-size: var(--text-lg); font-weight: 600; letter-spacing: var(--tracking-snug); margin: 0; color: var(--text); }
 .lesson-intro-summary { margin: 0; color: var(--text-secondary); font-size: var(--text-base); }
 
 /* ----------------------------------------------------------- explanation text */
@@ -70,6 +92,10 @@
   padding: var(--space-3) var(--space-4);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   max-width: 66ch;
+  /* Opened by the button above it: settles down 4px into place. */
+  --enter-y: calc(var(--shift-sm) * -1);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-base) var(--ease-out) backwards;
 }
 
 /* --------------------------------------------------------------- code example */
@@ -117,6 +143,7 @@
   color: var(--code-text);
   max-height: 10rem;
   overflow: auto;
+  animation: cc-fade var(--dur-base) var(--ease-out) backwards;
 }
 .try-it-output.is-error { color: #FCA5A5; }
 
@@ -137,6 +164,9 @@
   border-left: 2px solid var(--success);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   padding: var(--space-2) var(--space-3);
+  --enter-y: var(--shift-sm);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-base) var(--ease-out) backwards;
 }
 .lesson-complete-banner svg { color: var(--success); flex: none; }
 .lesson-complete-banner strong { color: var(--text); font-weight: 500; }
@@ -157,7 +187,7 @@
 
 .mode-chooser { display: flex; flex-direction: column; gap: var(--space-6); padding: var(--space-2) 0; max-width: 44rem; margin: 0 auto; width: 100%; }
 .mode-chooser-head { display: flex; flex-direction: column; gap: var(--space-1); }
-.mode-chooser-title { font-size: var(--text-xl); font-weight: 600; letter-spacing: -0.01em; margin: 0; color: var(--text); }
+.mode-chooser-title { font-size: var(--text-xl); font-weight: 600; letter-spacing: var(--tracking-tight); margin: 0; color: var(--text); }
 .mode-chooser-summary { margin: 0; color: var(--text-secondary); font-size: var(--text-base); }
 .mode-chooser-options { display: grid; gap: var(--space-3); }
 @media (min-width: 640px) { .mode-chooser-options { grid-template-columns: 1fr 1fr; } }
@@ -175,11 +205,25 @@
   color: var(--text);
   cursor: pointer;
   font-family: inherit;
-  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease);
+  outline: 0 solid transparent;
+  outline-offset: 2px;
+  transition: var(--t-colors), var(--t-focus), transform var(--dur-base) var(--ease-out);
 }
-.mode-option:hover { border-color: var(--border-strong); background: var(--surface-2); }
-.mode-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.mode-option.is-recommended { border-color: var(--accent); }
+/* The whole card is the button, so it behaves like .card-interactive: lifts
+   1px with a soft shadow on a real hover, settles on press. Kept local so the
+   recommended card keeps its accent edge while hovered. */
+@media (hover: hover) {
+  .mode-option:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+    box-shadow: var(--surface-highlight), var(--shadow-sm);
+    transform: translateY(-1px);
+  }
+}
+.mode-option:active { transform: translateY(0) scale(0.99); transition-duration: var(--dur-instant); }
+.mode-option:focus-visible { outline: 2px solid var(--accent); }
+.mode-option.is-recommended,
+.mode-option.is-recommended:hover { border-color: var(--accent); }
 .mode-option-icon {
   flex: none;
   width: 28px;
@@ -191,7 +235,9 @@
   color: var(--text-secondary);
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
+  transition: var(--t-colors);
 }
+.mode-option:hover .mode-option-icon { color: var(--text); border-color: var(--border); }
 .mode-option-body { display: flex; flex-direction: column; gap: var(--space-1); flex: 1; min-width: 0; }
 .mode-option-title { font-weight: 600; font-size: var(--text-base); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .mode-option-tag {
@@ -209,11 +255,18 @@
 }
 .mode-option-flow { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
 .mode-option-blurb { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
-.mode-option-arrow { flex: none; color: var(--text-muted); margin-top: 6px; }
+.mode-option-arrow { flex: none; color: var(--text-muted); margin-top: 6px; transition: color var(--dur-fast) var(--ease-out); }
 .mode-option:hover .mode-option-arrow { color: var(--text); }
 
 /* Header row of the practice modal gains the switch next to the meta pills. */
 .modal-meta .mode-switch { margin-left: auto; }
 .concept-review-btn { align-self: flex-start; }
+
+/* Reduced motion: phases swap in place and the chooser cards only recolour. */
+@media (prefers-reduced-motion: reduce) {
+  .concept-phase.is-entering { animation: none; }
+  .mode-option:hover,
+  .mode-option:active { transform: none; }
+}
 
 }

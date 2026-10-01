@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { oauthStartUrl } from '@/platform/api-client/api';
 import { useFocusTrap } from '@/ui/hooks/useFocusTrap';
+import { MOTION, usePresence } from '@/ui';
 import { Button } from '@/ui/primitives/Button';
 import { DevlingoLogo } from '@/ui/primitives/DevlingoLogo';
 
@@ -63,6 +64,10 @@ const GitHubMark: React.FC = () => (
  *
  * The provider buttons appear only when the server says it has credentials
  * for them. With none configured this modal is exactly what it always was.
+ *
+ * Motion is the shared dialog pattern: the scrim fades, the card rises 8px
+ * from 98% and leaves faster than it came (data-state, usePresence). Focus
+ * trap and Escape follow `isOpen`, so they let go the moment it closes.
  */
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const { loginWithEmail, signupWithEmail, continueAsGuest, serverStatus, user, oauthProviders } = useSession();
@@ -74,6 +79,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [loading, setLoading] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
+  const presence = usePresence(isOpen, MOTION.base);
 
   useFocusTrap(dialogRef, isOpen, () =>
     firstFieldRef.current && !firstFieldRef.current.disabled ? firstFieldRef.current : dialogRef.current
@@ -98,7 +104,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!presence.mounted) return null;
 
   const offline = serverStatus === 'offline';
   const isGuest = !user || user.provider === 'guest';
@@ -126,23 +132,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  // `.modal-overlay` only lays the card out now; the scrim is its own layer
+  // so it can fade on its own clock while the card rises. On its way out the
+  // layer is inert (no Tab stops, out of the accessibility tree) and stops
+  // claiming to be modal, so the page behind is live again at once.
+  const closing = presence.state === 'closed';
   return (
-    <div className="modal-overlay !z-[600]" onMouseDown={onClose}>
+    <div
+      className={`modal-overlay !z-[600] !bg-transparent !animate-none ${closing ? 'pointer-events-none' : ''}`.trim()}
+      onMouseDown={onClose}
+      {...(closing ? { inert: '' } : {})}
+    >
+      <div className="overlay-backdrop absolute inset-0" data-state={presence.state} aria-hidden="true" />
       <div
         onMouseDown={(e) => e.stopPropagation()}
         ref={dialogRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal={closing ? undefined : 'true'}
         aria-label={isSignUp ? 'Create an account' : 'Sign in'}
         tabIndex={-1}
-        className="modal-card !w-[min(26rem,100%)] !h-auto !max-h-[92vh] overflow-y-auto"
+        data-state={presence.state}
+        className="modal-card dialog-surface relative !w-[min(26rem,100%)] !h-auto !max-h-[92vh] overflow-y-auto"
       >
         <div className="modal-header items-center">
           <div className="modal-header-main flex items-center gap-3">
             <DevlingoLogo size="md" decorative />
             <div>
               <div className="modal-stage-badge">CodeConsist account</div>
-              <h3 className="modal-title">{isSignUp ? 'Create an account' : 'Sign in'}</h3>
+              {/* Keyed so switching sign in / sign up fades the new title in rather than swapping it. */}
+              <h3 className="modal-title">
+                <span key={isSignUp ? 'up' : 'in'} className="anim-fade">
+                  {isSignUp ? 'Create an account' : 'Sign in'}
+                </span>
+              </h3>
             </div>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close">
@@ -158,8 +180,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </div>
           )}
 
+          {/* Cleared on every submit, so a repeated failure fades in again - proof the attempt was made. */}
           {errorMsg && (
-            <div className="notice notice-error" role="alert">
+            <div className="notice notice-error anim-fade" role="alert">
               {errorMsg}
             </div>
           )}
@@ -210,7 +233,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </div>
 
             {isSignUp && (
-              <div>
+              <div className="anim-fade">
                 <label className="field-label" htmlFor="auth-username">
                   Username
                 </label>
@@ -284,7 +307,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 setIsSignUp(!isSignUp);
                 setErrorMsg('');
               }}
-              className="text-fg font-medium hover:underline underline-offset-2"
+              className="rounded-xs text-fg font-medium underline decoration-border-strong underline-offset-4 transition-colors hover:decoration-current"
             >
               {isSignUp ? 'Sign in' : 'Sign up'}
             </button>

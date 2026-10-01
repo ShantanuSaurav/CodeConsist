@@ -77,13 +77,14 @@ export const OAuthCallbackPage: React.FC = () => {
   }, [adoptToken, navigate]);
 
   return (
-    <div className="auth-callback-page">
+    <div className="auth-callback-page page-enter">
       <Link to={ROUTES.landing} className="inline-flex">
         <CodeConsistLogo size="sm" wordmark />
       </Link>
 
+      {/* The failure replaces the waiting card in place, so it fades rather than snapping. */}
       {error ? (
-        <div className="auth-callback-card">
+        <div className="auth-callback-card anim-fade">
           <h1 className="section-title">Could not sign you in</h1>
           <div className="notice notice-error" role="alert">
             {error}

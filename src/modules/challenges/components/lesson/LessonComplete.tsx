@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 
 interface LessonCompleteProps {
   conceptTitle: string;
@@ -12,7 +12,7 @@ interface LessonCompleteProps {
  */
 export const LessonComplete: React.FC<LessonCompleteProps> = ({ conceptTitle }) => (
   <div className="lesson-complete-banner" role="status">
-    <Sparkles size={16} aria-hidden="true" />
+    <CheckCircle2 size={16} aria-hidden="true" />
     <span>
       <strong>{conceptTitle}</strong> learned. The next lessons are practice - the same idea, applied a bit
       differently each time.

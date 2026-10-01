@@ -5,13 +5,30 @@ import { Challenge, ExecutionResult } from '@/types';
 import { Answer, optionOrder } from '@/platform/grading-engine/answers';
 import { stageStatus } from '@/platform/progress';
 import { PASS_SCORE, isPassingSolve, rawScore } from '@/platform/xp-leveling/leveling';
-import { CodeBlock, LearningModeSwitch, useBodyScrollLock, useFocusTrap } from '@/ui';
+import {
+  CodeBlock,
+  LearningModeSwitch,
+  MOTION,
+  prefersReducedMotion,
+  useBodyScrollLock,
+  useFocusTrap,
+  usePresence,
+  type PresenceState
+} from '@/ui';
 import { checkAnswer, definitionFor, emptyAnswer, isAnswerComplete, isCodeChallenge, typeLabel } from '../challenge-types';
 import { usePracticeSession } from '../session/PracticeSessionProvider';
 import { ConceptTeaching, LessonComplete, PracticeExercise } from './lesson';
 import { LearningModeChooser } from './LearningModeChooser';
+import { useStepTransition } from './useStepTransition';
 
 const isCodeType = (c: Challenge) => isCodeChallenge(c);
+
+/** Everything the dialog drew last, so it can keep drawing it while it animates out. */
+interface DialogFrame {
+  className: string;
+  label: string;
+  content: React.ReactNode;
+}
 
 export interface PracticeModalProps {
   /**
@@ -48,11 +65,20 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     openStageTest,
     openPractice
   } = usePracticeSession();
-  useBodyScrollLock(Boolean(activeStage));
 
   const isTestMode = activeMode === 'test';
   const challenges = activeChallenges;
   const challenge: Challenge | undefined = challenges[activeChallengeIndex];
+
+  // Closing keeps the dialog mounted for its exit (scrim fades, panel drops
+  // 4px). There is no stage to draw from by then, so the last frame is kept
+  // and replayed with data-state="closed" until usePresence unmounts it.
+  const open = Boolean(activeStage && challenge);
+  const presence = usePresence(open, MOTION.base);
+  const lastFrame = useRef<DialogFrame | null>(null);
+  // The lock outlives the stage until the exit ends: releasing it mid-fade
+  // brings the page scrollbar back and shifts the page under the scrim.
+  useBodyScrollLock(Boolean(activeStage) || presence.mounted);
 
   /* ------------------------------------------------------------ learning mode */
   // The stage test is the same in both modes. Lessons ask for a mode once
@@ -116,6 +142,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const feedbackRef = useRef<HTMLDivElement>(null);
 
   /**
    * Which challenge the in-flight code run belongs to, or null when there is
@@ -229,6 +256,31 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     setSessionXp(0);
     setSessionSolved([]);
   }, [stageId]);
+
+  /* -------------------------------------------------------------- step motion */
+  // Each step of the loop - mode chooser, concept walk-through, question,
+  // summary - enters from the direction of travel: Next slides in from the
+  // right, Back and "Review the concept" from the left. Ordered by stage,
+  // then lessons before the test, then position, then step within a lesson.
+  // The summary only fades; its own contents rise in (.stagger).
+  const step = finished ? 3 : choosingMode ? 0 : teaching ? 1 : 2;
+  const stepOrder =
+    ((parseInt(activeStage?.index ?? '', 10) || 0) * 2 + (isTestMode ? 1 : 0)) * 4096 + activeChallengeIndex * 4 + step;
+  useStepTransition(
+    bodyRef,
+    open ? `${activeStage?.id}|${activeMode}|${challengeId}|${step}` : null,
+    stepOrder,
+    finished ? 'fade' : 'slide'
+  );
+
+  // A verdict that lands below the fold is brought into view - only as far as
+  // needed, and only for answer-type questions (a code run's verdict sits in
+  // the test panel, which must not be scrolled away from).
+  const answerKind = challenge ? definitionFor(challenge).kind === 'answer' : false;
+  useEffect(() => {
+    if (!checked || !answerKind) return;
+    feedbackRef.current?.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  }, [checked, answerKind]);
 
   /* ------------------------------------------------------------------ actions */
 
@@ -464,7 +516,40 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
     [challenges, stats.completedChallenges]
   );
 
-  if (!activeStage || !challenge) return null;
+  // `.modal-overlay` only lays the card out; the scrim is its own layer so it
+  // fades on its own clock while the card (.dialog-surface) rises 8px. Closing,
+  // the layer is also inert: the focus trap has already let go, so without it
+  // a Tab could land on a button that is fading out.
+  const renderDialog = (frame: DialogFrame, state: PresenceState) => (
+    <div
+      className="modal-overlay"
+      data-state={state}
+      aria-hidden={state === 'closed' || undefined}
+      {...(state === 'closed' ? { inert: '' } : {})}
+      onMouseDown={closePractice}
+    >
+      <div className="overlay-backdrop absolute inset-0" data-state={state} aria-hidden="true" />
+      <div
+        className={frame.className}
+        data-state={state}
+        onMouseDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={frame.label}
+        ref={dialogRef}
+        tabIndex={-1}
+      >
+        {frame.content}
+      </div>
+    </div>
+  );
+
+  if (!activeStage || !challenge) {
+    // On its way out: replay the last frame (inert - closed layers take no
+    // pointer events, and the keyboard handler above has already detached).
+    if (!presence.mounted) lastFrame.current = null;
+    return presence.mounted && lastFrame.current ? renderDialog(lastFrame.current, 'closed') : null;
+  }
 
   // This challenge counts as "practice" when an earlier challenge in this
   // same list taught a concept the learner has now seen, and this one shares
@@ -508,17 +593,13 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
   })();
   const percent = Math.round(((activeChallengeIndex + (checked && isCorrect ? 1 : 0)) / challenges.length) * 100);
 
-  return (
-    <div className="modal-overlay" onMouseDown={closePractice}>
-      <div
-        className={`modal-card practice-card ${definitionFor(challenge).wide ? 'is-wide' : ''} ${challenge.uiPreview || challenge.language === 'html' ? 'is-ui' : ''}`.trim()}
-        onMouseDown={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${activeStage.name}: ${challenge.title}`}
-        ref={dialogRef}
-        tabIndex={-1}
-      >
+  const frame: DialogFrame = {
+    className: `modal-card practice-card dialog-surface ${definitionFor(challenge).wide ? 'is-wide' : ''} ${challenge.uiPreview || challenge.language === 'html' ? 'is-ui' : ''}`
+      .replace(/\s+/g, ' ')
+      .trim(),
+    label: `${activeStage.name}: ${challenge.title}`,
+    content: (
+      <>
         {/* ------------------------------------------------------------ head */}
         <div className="modal-header">
           <div className="modal-header-main">
@@ -549,8 +630,16 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         </div>
 
         {/* -------------------------------------------------------- progress */}
-        <div className="modal-progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
-          <div className="modal-progress-bar" style={{ width: `${percent}%` }} />
+        <div
+          className="modal-progress"
+          role="progressbar"
+          aria-label="Stage progress"
+          aria-valuenow={percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          {/* Filled with a transform, so the fill glides without re-laying out. */}
+          <div className="modal-progress-bar" style={{ transform: `scaleX(${percent / 100})` }} />
         </div>
 
         {!finished && !isTestMode && !questionHidden && (
@@ -578,7 +667,9 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
         {/* ------------------------------------------------------------ body */}
         <div className="modal-body" ref={bodyRef}>
           {finished ? (
-            <div className="celebration-view">
+            // Finishing is the one moment worth marking, and it is marked
+            // calmly: a success mark and the numbers rise in one after another.
+            <div className="celebration-view stagger">
               <div className="celebration-icon" aria-hidden="true">
                 {isTestMode || testPassed ? <Trophy size={20} /> : <ClipboardList size={20} />}
               </div>
@@ -677,6 +768,7 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
             <ConceptTeaching
               key={`${challenge.id}:${reviewingConcept ? 'review' : 'first'}`}
               concept={challenge.concept}
+              onStep={() => bodyRef.current?.scrollTo({ top: 0 })}
               onDone={() => {
                 markConceptSeen(challenge.concept!.id);
                 setReviewingConcept(false);
@@ -820,9 +912,9 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
               )}
 
               {checked && (
-                <div className={`feedback-banner ${isCorrect ? 'correct' : 'incorrect'}`} role="status">
+                <div className={`feedback-banner ${isCorrect ? 'correct' : 'incorrect'}`} role="status" ref={feedbackRef}>
                   <span className="feedback-icon" aria-hidden="true">
-                    {isCorrect ? <Check size={12} strokeWidth={3} /> : <X size={12} strokeWidth={3} />}
+                    {isCorrect ? <Check size={12} strokeWidth={3} className="check-draw" /> : <X size={12} strokeWidth={3} />}
                   </span>
                   <div className="feedback-content">
                     <div className="feedback-heading-row">
@@ -954,7 +1046,12 @@ export const PracticeModal: React.FC<PracticeModalProps> = ({ readingSlot }) => 
             </div>
           </div>
         )}
-      </div>
-    </div>
-  );
+      </>
+    )
+  };
+  // Written during render on purpose: the exit render above has no stage to
+  // rebuild this from, so it needs exactly what was last on screen.
+  lastFrame.current = frame;
+
+  return renderDialog(frame, presence.state);
 };

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/platform/session';
-import { Badge, Button, Dropdown, LearningModeSwitch, PageHeader, Switch } from '@/ui';
+import { Badge, Bone, Button, Dropdown, LearningModeSwitch, PageHeader, Switch } from '@/ui';
 import type { BadgeTone } from '@/ui';
 import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
@@ -11,13 +11,32 @@ import { ROUTES } from '@/config/routes';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
 
 /** One settings row: label + description on the left, the control on the right. */
-const Row: React.FC<{ title: React.ReactNode; description?: React.ReactNode; children: React.ReactNode }> = ({ title, description, children }) => (
-  <div className="row items-start sm:items-center flex-col sm:flex-row gap-2 sm:gap-6">
+const Row: React.FC<{ title: React.ReactNode; description?: React.ReactNode; className?: string; children: React.ReactNode }> = ({
+  title,
+  description,
+  className = '',
+  children
+}) => (
+  <div className={`row items-start sm:items-center flex-col sm:flex-row gap-2 sm:gap-6 ${className}`.trim()}>
     <div className="min-w-0">
       <div className="row-title">{title}</div>
       {description && <div className="row-desc max-w-md">{description}</div>}
     </div>
     <div className="shrink-0 flex items-center gap-3">{children}</div>
+  </div>
+);
+
+/**
+ * A row's shape while its data is on the way. Held back a beat like every
+ * skeleton, so a quick answer never flashes it; the real rows fade in over it.
+ */
+const RowSkeleton: React.FC<{ label: string }> = ({ label }) => (
+  <div className="row anim-fade" style={{ animationDelay: 'var(--delay-skeleton)' }} role="status" aria-label={label}>
+    <div className="flex-1 grid gap-2">
+      <Bone w="min(12rem, 50%)" h="0.875rem" />
+      <Bone w="min(18rem, 75%)" h="0.75rem" />
+    </div>
+    <Bone w="4rem" h="1.25rem" />
   </div>
 );
 
@@ -232,7 +251,7 @@ export const SettingsPage: React.FC = () => {
         </Row>
         <Row title="API server">
           <span
-            className={`inline-flex items-center gap-1.5 font-mono text-sm ${
+            className={`inline-flex items-center gap-1.5 font-mono text-sm transition-colors ${
               serverStatus === 'online' ? 'text-success' : serverStatus === 'checking' ? 'text-fg-muted' : 'text-error'
             }`}
           >
@@ -250,12 +269,12 @@ export const SettingsPage: React.FC = () => {
           </p>
 
           {signInError && (
-            <div className="notice notice-error" role="alert">
+            <div className="notice notice-error anim-fade" role="alert">
               {signInError}
             </div>
           )}
           {signInNotice && (
-            <div className="notice notice-success" role="status">
+            <div className="notice notice-success anim-fade" role="status">
               {signInNotice}
             </div>
           )}
@@ -316,10 +335,11 @@ export const SettingsPage: React.FC = () => {
             </Button>
           </Row>
 
+          {/* Opens out of the row above it: a short fade and rise, no height animation. */}
           {passwordOpen && (
-            <form onSubmit={savePassword} className="flex flex-col gap-3 pt-1 max-w-sm">
+            <form onSubmit={savePassword} className="anim-fade-up flex flex-col gap-3 pt-1 max-w-sm">
               {passwordError && (
-                <div className="notice notice-error" role="alert">
+                <div className="notice notice-error anim-fade" role="alert">
                   {passwordError}
                 </div>
               )}
@@ -368,19 +388,20 @@ export const SettingsPage: React.FC = () => {
       {signedIn && (
         <Section id="settings-purchases" title="Purchases">
           {billingError && (
-            <div className="notice notice-warn" role="alert">
+            <div className="notice notice-warn anim-fade" role="alert">
               {billingError}{' '}
               <button type="button" className="underline underline-offset-2" onClick={loadBilling}>
                 Try again
               </button>
             </div>
           )}
-          {!orders && !billingError && <p className="text-sm text-fg-muted py-3">Loading…</p>}
-          {orders && orders.length === 0 && <p className="text-sm text-fg-muted py-3">No purchases yet.</p>}
+          {!orders && !billingError && <RowSkeleton label="Loading purchases" />}
+          {orders && orders.length === 0 && <p className="text-sm text-fg-muted py-3 anim-fade">No purchases yet.</p>}
           {orders &&
             orders.map((order) => (
               <Row
                 key={order.id}
+                className="anim-fade"
                 title={describeOrder(order, labels)}
                 description={
                   <span className="font-mono text-xs">
@@ -398,9 +419,9 @@ export const SettingsPage: React.FC = () => {
 
       {signedIn && (
         <Section id="settings-certificates" title="Certificates">
-          {!certificates && !billingError && <p className="text-sm text-fg-muted py-3">Loading…</p>}
+          {!certificates && !billingError && <RowSkeleton label="Loading certificates" />}
           {certificates && certificates.length === 0 && (
-            <Row title="No certificates yet" description="Clear every stage in a track, then get its verified certificate.">
+            <Row className="anim-fade" title="No certificates yet" description="Clear every stage in a track, then get its verified certificate.">
               <Button onClick={() => intents.openPro({ tab: 'certificates' })}>See what is left</Button>
             </Row>
           )}
@@ -408,6 +429,7 @@ export const SettingsPage: React.FC = () => {
             certificates.map((cert) => (
               <Row
                 key={cert.id}
+                className="anim-fade"
                 title={cert.trackLabel}
                 description={
                   <span className="font-mono text-xs">
@@ -462,10 +484,14 @@ export const SettingsPage: React.FC = () => {
           title="Reset progress"
           description={`Erases XP, streaks and every solve${signedIn ? ' - on this device and on your account' : ' in this browser'}. Purchases are kept.`}
         >
+          {/* The confirm step fades in where the button was, so the change of question is seen, not just swapped. */}
           {confirmingReset ? (
             <>
-              <Button onClick={() => setConfirmingReset(false)}>Cancel</Button>
+              <Button className="anim-fade" onClick={() => setConfirmingReset(false)}>
+                Cancel
+              </Button>
               <Button
+                className="anim-fade"
                 variant="danger"
                 onClick={() => {
                   setConfirmingReset(false);

@@ -1,0 +1,46 @@
+/* ==========================================================================
+   Dashboard home. A thin layer over the shared components: one raised
+   surface for the next step, a bar that fills once, a hover anchor for the
+   activity grid. Every duration and curve is a token (docs/design/MOTION.md).
+   ========================================================================== */
+
+/* Continue learning: the one raised surface on the page. It holds the
+   primary action, so it earns a card and a contact shadow - and nothing
+   that moves on its own. The whole card is not a target, so it never lifts. */
+.dash-continue {
+  padding: var(--space-5);
+}
+.dash-continue.panel { box-shadow: var(--surface-highlight), var(--shadow-xs); }
+@media (min-width: 640px) {
+  .dash-continue { padding: var(--space-6); }
+}
+
+/* The bar fills from empty once, just after the page lands; later changes
+   use the shared width transition. The fill slides in from behind the
+   track's clipped left edge rather than scaling, so it stays off layout and
+   its rounded leading end keeps its shape the whole way. */
+.dash-continue .progress-fill {
+  animation: dash-fill var(--dur-slower) var(--ease-out) var(--dur-fast) backwards;
+}
+@keyframes dash-fill {
+  from { transform: translateX(-100%); }
+}
+
+/* The arrow on a forward action leans a couple of pixels into the hover:
+   direction, not decoration. Real pointers only. */
+.dash-arrow { transition: transform var(--dur-fast) var(--ease-out); }
+@media (hover: hover) {
+  .btn:hover .dash-arrow { transform: translateX(calc(var(--shift-sm) / 2)); }
+}
+
+/* Activity cells: the hovered day gets a hairline ring, so its tooltip has
+   an anchor. Drawn inside the cell - the grid's scroller clips anything
+   outside it on the top row and first column. Colour only; cells never move. */
+.dash-heat-cell { transition: box-shadow var(--dur-fast) var(--ease-out); }
+.dash-heat-cell:hover { box-shadow: inset 0 0 0 1px var(--border-strong); }
+
+/* Reduced motion: tokens.css already makes the fill instant; the hover
+   nudge goes too. */
+@media (prefers-reduced-motion: reduce) {
+  .btn:hover .dash-arrow { transform: none; }
+}

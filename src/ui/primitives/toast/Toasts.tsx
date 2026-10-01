@@ -9,7 +9,7 @@ export const Toasts: React.FC = () => {
   return (
     <div className="toast-stack" role="status" aria-live="polite">
       {toasts.map((toast) => (
-        <div key={toast.id} className={`toast toast-${toast.tone}`}>
+        <div key={toast.id} className={`toast toast-${toast.tone}`} data-state={toast.leaving ? 'closed' : 'open'}>
           <span>{toast.message}</span>
           <button type="button" onClick={() => dismiss(toast.id)} aria-label="Dismiss">
             ×

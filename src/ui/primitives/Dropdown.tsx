@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
+import { usePresence } from '../hooks/usePresence';
+import { MOTION } from '../motion';
 
 export interface DropdownOption {
   value: string;
@@ -26,6 +28,7 @@ export interface DropdownProps {
 /**
  * A select with a proper menu. Same height and radius as every other
  * control; the menu is the one place a shadow is allowed, because it floats.
+ * It drops in from the trigger and lifts away on close (.menu-surface).
  */
 export const Dropdown: React.FC<DropdownProps> = ({
   id,
@@ -42,6 +45,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menu = usePresence(isOpen, MOTION.fast);
 
   const selectedOption = options.find((opt) => opt.value === value);
 
@@ -95,11 +99,13 @@ export const Dropdown: React.FC<DropdownProps> = ({
         <ChevronDown size={size === 'sm' ? 13 : 15} className="shrink-0 text-fg-muted" />
       </button>
 
-      {isOpen && (
+      {menu.mounted && (
         <div
           role="listbox"
           aria-label={ariaLabel}
-          className={`absolute left-0 top-[calc(100%+4px)] z-[100] min-w-[200px] w-full max-h-64 overflow-y-auto scroll-thin rounded-md border border-border bg-surface p-1 shadow-menu ${menuClassName}`.trim()}
+          aria-hidden={menu.state === 'closed' || undefined}
+          data-state={menu.state}
+          className={`menu-surface absolute left-0 top-[calc(100%+4px)] z-[100] min-w-[200px] w-full max-h-64 overflow-y-auto scroll-thin rounded-md border border-border bg-surface p-1 shadow-menu ${menuClassName}`.trim()}
         >
           {options.map((opt) => {
             const isSelected = opt.value === value;
@@ -109,7 +115,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
                 role="option"
                 aria-selected={isSelected}
                 onClick={() => handleSelect(opt.value, opt.disabled)}
-                className={`flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-xs text-sm select-none ${
+                className={`flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-xs text-sm select-none transition-colors ${
                   opt.disabled
                     ? 'opacity-40 cursor-not-allowed text-fg-muted'
                     : isSelected

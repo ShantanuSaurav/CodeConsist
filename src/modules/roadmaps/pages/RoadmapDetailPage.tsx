@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -19,7 +20,8 @@ import {
 import '../styles/roadmap.css';
 import { ROADMAP_BY_SLUG, roadmapNodeIds } from '../content';
 import { useRoadmapProgress, summarise } from '../services/progress';
-import { Badge, Button, ButtonLink, ProgressBar, useFocusTrap } from '@/ui';
+import { Badge, Button, ButtonLink, MOTION, ProgressBar, Segmented, useFocusTrap, usePresence } from '@/ui';
+import type { PresenceState, SegmentedOption } from '@/ui';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
@@ -58,6 +60,11 @@ const STATUS_LABEL: Record<RoadmapNodeStatus, string> = {
 };
 
 type StatusFilter = RoadmapNodeStatus | 'all';
+
+/** A percent as the --fill (0-1) roadmap.css scales a rail or bar by. */
+function fillStyle(percent: number): React.CSSProperties {
+  return { '--fill': Math.max(0, Math.min(100, percent)) / 100 } as React.CSSProperties;
+}
 
 /* ------------------------------------------------------------------ topic */
 
@@ -128,7 +135,7 @@ const SectionBlock: React.FC<{
           </div>
           {section.description && <p className="rm-section-desc">{section.description}</p>}
           <span className="rm-section-progress">
-            <span className="rm-section-progress-fill" style={{ width: `${section.nodes.length ? Math.round((done / section.nodes.length) * 100) : 0}%` }} />
+            <span className="rm-section-progress-fill" style={fillStyle(section.nodes.length ? (done / section.nodes.length) * 100 : 0)} />
           </span>
         </div>
       </div>
@@ -143,29 +150,39 @@ const SectionBlock: React.FC<{
 
 /* ---------------------------------------------------------------- drawer */
 
-const STATUS_OPTIONS: { value: RoadmapNodeStatus; label: string; icon: React.ReactNode }[] = [
-  { value: 'pending', label: 'Pending', icon: <CircleDashed size={14} /> },
-  { value: 'learning', label: 'Learning', icon: <BookOpen size={14} /> },
-  { value: 'done', label: 'Done', icon: <Check size={14} /> },
-  { value: 'skipped', label: 'Skip', icon: <SkipForward size={14} /> }
+const STATUS_OPTIONS: SegmentedOption<RoadmapNodeStatus>[] = [
+  { value: 'pending', label: <><CircleDashed size={14} />Pending</> },
+  { value: 'learning', label: <><BookOpen size={14} />Learning</> },
+  { value: 'done', label: <><Check size={14} />Done</> },
+  { value: 'skipped', label: <><SkipForward size={14} />Skip</> }
 ];
 
+/**
+ * The topic drawer slides in from the right over a fading scrim and leaves
+ * the same way, faster. It is portalled to <body> so it stays pinned to the
+ * viewport even while the page stage runs its entrance transform. Focus and
+ * Escape follow `open`, so both let go the moment a close starts, not when
+ * the exit finishes.
+ */
 const NodeDrawer: React.FC<{
   node: RoadmapNode;
   status: RoadmapNodeStatus;
+  open: boolean;
+  state: PresenceState;
   onStatus: (s: RoadmapNodeStatus) => void;
   onClose: () => void;
   readingFor?: ReadingResolver;
-}> = ({ node, status, onStatus, onClose, readingFor }) => {
+}> = ({ node, status, open, state, onStatus, onClose, readingFor }) => {
   const { stages } = useSession();
   const ref = useRef<HTMLDivElement>(null);
-  useFocusTrap(ref, true);
+  useFocusTrap(ref, open);
 
   useEffect(() => {
+    if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [open, onClose]);
 
   const stage = node.stageId ? stages.find((s) => s.id === node.stageId) : undefined;
   const reading = useMemo(
@@ -175,16 +192,18 @@ const NodeDrawer: React.FC<{
 
   const stageLocked = stage ? stage.state === 'Locked' : false;
 
-  return (
-    <div className="fixed inset-0 z-[450]" role="presentation">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+  return createPortal(
+    <div className={`fixed inset-0 z-[450] ${state === 'closed' ? 'pointer-events-none' : ''}`.trim()} role="presentation">
+      <div className="overlay-backdrop absolute inset-0" data-state={state} onClick={onClose} />
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-label={node.title}
         tabIndex={-1}
-        className="absolute right-0 top-0 h-full w-full sm:w-[28rem] bg-surface border-l border-border shadow-dialog overflow-y-auto outline-none"
+        data-side="right"
+        data-state={state}
+        className="drawer-surface absolute right-0 top-0 h-full w-full sm:w-[28rem] bg-surface border-l border-border shadow-dialog overflow-y-auto outline-none"
       >
         <div className="sticky top-0 z-10 bg-surface px-6 py-4 border-b border-border flex items-start justify-between gap-3">
           <div>
@@ -197,20 +216,7 @@ const NodeDrawer: React.FC<{
         </div>
 
         <div className="px-6 py-5 space-y-6">
-          <div className="segmented" role="group" aria-label="Status">
-            {STATUS_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => onStatus(opt.value)}
-                aria-pressed={status === opt.value}
-                className={`segmented-option ${status === opt.value ? 'is-active' : ''}`.trim()}
-              >
-                {opt.icon}
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          <Segmented value={status} options={STATUS_OPTIONS} onChange={onStatus} ariaLabel="Status" />
 
           <p className="text-[0.9375rem] leading-relaxed text-fg-secondary">{node.description}</p>
 
@@ -275,7 +281,8 @@ const NodeDrawer: React.FC<{
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
@@ -285,11 +292,30 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
   const { slug = '' } = useParams();
   const roadmap = ROADMAP_BY_SLUG.get(slug);
   const { statuses, set } = useRoadmapProgress(slug);
-  const [active, setActive] = useState<RoadmapNode | null>(null);
+  // The drawer's topic outlives `drawerOpen` so it can still be shown while
+  // the drawer slides out; usePresence unmounts it once the exit has played.
+  const [drawerNode, setDrawerNode] = useState<RoadmapNode | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawer = usePresence(drawerOpen, MOTION.base);
   const [filter, setFilter] = useState<StatusFilter>('all');
+  // The sections settle in once, on arrival. The first filter change retires
+  // the stagger (per roadmap, so it is back in the same render a new slug
+  // mounts), and sections a filter brings back simply appear.
+  const [filteredSlug, setFilteredSlug] = useState<string | null>(null);
+  const settled = filteredSlug === slug;
+  const applyFilter = (value: StatusFilter) => {
+    setFilteredSlug(slug);
+    setFilter(value);
+  };
+
+  const openTopic = useCallback((node: RoadmapNode) => {
+    setDrawerNode(node);
+    setDrawerOpen(true);
+  }, []);
+  const closeTopic = useCallback(() => setDrawerOpen(false), []);
 
   useEffect(() => {
-    setActive(null);
+    setDrawerOpen(false);
     setFilter('all');
   }, [slug]);
 
@@ -300,8 +326,8 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
 
   return (
     <div className="page max-w-4xl">
-      <Link to={ROUTES.roadmaps} className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg mb-6">
-        <ArrowLeft size={14} /> All roadmaps
+      <Link to={ROUTES.roadmaps} className="rm-back mb-6">
+        <ArrowLeft size={14} aria-hidden="true" /> All roadmaps
       </Link>
 
       <header className="flex flex-wrap items-end justify-between gap-6 pb-6 mb-6 border-b border-border-subtle">
@@ -340,7 +366,7 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
           <button
             key={value}
             type="button"
-            onClick={() => setFilter(value)}
+            onClick={() => applyFilter(value)}
             aria-pressed={filter === value}
             className={`rm-filter-btn is-${value} ${filter === value ? 'is-active' : ''}`.trim()}
           >
@@ -356,9 +382,9 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
 
       <div className="rm-wrap">
         <div className="rm-rail" aria-hidden="true">
-          <span className="rm-rail-fill" style={{ height: `${summary.percent}%` }} />
+          <span className="rm-rail-fill" style={fillStyle(summary.percent)} />
         </div>
-        <ol className="rm-sections">
+        <ol className={`rm-sections ${settled ? '' : 'stagger'}`.trim()}>
           {roadmap.sections.map((section, i) => (
             <SectionBlock
               key={section.id}
@@ -366,22 +392,24 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
               index={i}
               statuses={statuses}
               filter={filter}
-              activeId={active?.id ?? null}
-              onSelect={setActive}
+              activeId={drawerOpen ? drawerNode?.id ?? null : null}
+              onSelect={openTopic}
             />
           ))}
         </ol>
         {filter !== 'all' && roadmap.sections.every((sec) => sec.nodes.every((n) => (statuses[n.id] ?? 'pending') !== filter)) && (
-          <p className="rm-empty">No {STATUS_LABEL[filter].toLowerCase()} topics yet.</p>
+          <p className="rm-empty anim-fade">No {STATUS_LABEL[filter].toLowerCase()} topics yet.</p>
         )}
       </div>
 
-      {active && (
+      {drawer.mounted && drawerNode && (
         <NodeDrawer
-          node={active}
-          status={statuses[active.id] ?? 'pending'}
-          onStatus={(s) => set(active.id, s)}
-          onClose={() => setActive(null)}
+          node={drawerNode}
+          status={statuses[drawerNode.id] ?? 'pending'}
+          open={drawerOpen}
+          state={drawer.state}
+          onStatus={(s) => set(drawerNode.id, s)}
+          onClose={closeTopic}
           readingFor={readingFor}
         />
       )}

@@ -10,8 +10,10 @@
    - Surfaces and borders do the structural work. Accent is for the primary
      action, progress, the active nav item and success. Not for decoration.
    - Text has three levels: text, text-secondary, text-muted. Nothing else.
-   - Radii are small. Shadows are rare and only on floating layers
-     (menus, dialogs, drawers).
+   - Radii are small. Elevation is layered and quiet: xs for controls, sm
+     for a hovered card, md and up only for things that float.
+   - Motion explains a change; it never decorates. Every duration and curve
+     comes from the motion block below (docs/design/MOTION.md).
    ========================================================================== */
 :root {
   /* --------------------------------------------------------------- colour */
@@ -26,7 +28,7 @@
 
   --text: #0F172A;
   --text-secondary: #4B5563;
-  --text-muted: #6B7280;
+  --text-muted: #636B78;   /* 4.5:1+ on every light surface */
   --text-disabled: #9CA3AF;
 
   --accent: #15803D;
@@ -68,6 +70,9 @@
   --text-2xl: 1.5rem;     /* 24 */
   --text-3xl: 1.75rem;    /* 28 */
 
+  --tracking-tight: -0.02em;  /* headings (also Tailwind's tracking-tight) */
+  --tracking-snug: -0.01em;   /* titles, figures */
+
   /* -------------------------------------------------------------- spacing */
   --space-1: 4px;
   --space-2: 8px;
@@ -82,19 +87,52 @@
 
   /* ---------------------------------------------------------------- shape */
   --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
+  --radius-sm: 6px;   /* controls */
+  --radius-md: 8px;   /* menus, notices, code */
+  --radius-lg: 12px;  /* panels, cards */
+  --radius-xl: 16px;  /* dialogs, hero surfaces */
   --radius-full: 999px;
 
-  /* ------------------------------------------------------------- elevation */
-  --shadow-menu: 0 8px 24px -8px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.06);
-  --shadow-dialog: 0 24px 64px -16px rgba(15, 23, 42, 0.35);
+  /* ------------------------------------------------------------- elevation
+     Two or three stacked shadows each: a tight contact shadow for the edge
+     and a soft ambient one for the lift. */
+  --shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 2px 8px -2px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 2px 4px -1px rgba(15, 23, 42, 0.05), 0 10px 24px -6px rgba(15, 23, 42, 0.12);
+  --shadow-menu: 0 0 0 1px rgba(15, 23, 42, 0.04), 0 4px 8px -2px rgba(15, 23, 42, 0.06), 0 14px 32px -8px rgba(15, 23, 42, 0.16);
+  --shadow-dialog: 0 0 0 1px rgba(15, 23, 42, 0.05), 0 8px 16px -4px rgba(15, 23, 42, 0.08), 0 28px 64px -16px rgba(15, 23, 42, 0.30);
+  /* The lit top edge of a raised surface. Nothing in light; a hairline in dark. */
+  --surface-highlight: 0 0 0 0 transparent;
+  --btn-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
+  /* The selected segment of a segmented control sits above its track. */
+  --control-raised: var(--surface);
+  --overlay: rgba(15, 23, 42, 0.36);
+  --skeleton-sheen: rgba(255, 255, 255, 0.5);
+  --focus-ring: 0 0 0 3px var(--accent-ring);
 
-  /* --------------------------------------------------------------- motion */
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --fast: 120ms;
-  --med: 220ms;
+  /* --------------------------------------------------------------- motion
+     Entrances decelerate, exits accelerate and run one step shorter, moves
+     between two resting states ease both ways. */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);    /* entrances */
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);     /* exits */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* moves, state changes */
+
+  --dur-instant: 80ms;  /* press feedback */
+  --dur-fast: 140ms;    /* hover, colour, small exits */
+  --dur-base: 220ms;    /* menus, toasts, small enters, dialog exits */
+  --dur-slow: 320ms;    /* page enter, dialogs, drawers */
+  --dur-slower: 480ms;  /* landing scroll reveals, progress fills */
+  --dur-shimmer: 1.6s;  /* one skeleton sheen loop */
+  --delay-skeleton: 120ms; /* skeletons wait this long, so fast loads never flash one */
+
+  --shift-sm: 4px;
+  --shift-md: 8px;
+  --shift-lg: 12px;
+  --stagger: 40ms;
+
+  --ease: var(--ease-out);
+  --fast: var(--dur-fast);
+  --med: var(--dur-base);
 
   /* -------------------------------------------------------- legacy aliases
      Older component CSS still speaks the previous vocabulary. These map it
@@ -134,7 +172,7 @@
 
   --text: #F3F4F6;
   --text-secondary: #A1A1AA;
-  --text-muted: #71717A;
+  --text-muted: #85858E;   /* 4.5:1+ on every dark surface */
   --text-disabled: #52525B;
 
   --accent: #7BE06E;
@@ -152,15 +190,39 @@
   --info: #60A5FA;
   --info-soft: rgba(96, 165, 250, 0.12);
 
-  --shadow-menu: 0 8px 24px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-dialog: 0 24px 64px -16px rgba(0, 0, 0, 0.7);
+  /* Depth in the dark comes from lighter raised surfaces and a lit top edge;
+     the shadows only have to separate, so they run deeper and blacker. */
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4), 0 4px 12px -2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 2px 4px -1px rgba(0, 0, 0, 0.45), 0 12px 28px -6px rgba(0, 0, 0, 0.6);
+  --shadow-menu: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 4px 8px -2px rgba(0, 0, 0, 0.45), 0 16px 36px -8px rgba(0, 0, 0, 0.7);
+  --shadow-dialog: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 8px 16px -4px rgba(0, 0, 0, 0.45), 0 28px 72px -16px rgba(0, 0, 0, 0.8);
+  --surface-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+  --btn-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.28);
+  --control-raised: var(--surface-3);
+  --overlay: rgba(0, 0, 0, 0.6);
+  --skeleton-sheen: rgba(255, 255, 255, 0.045);
 }
 
+/* Reduced motion: nothing moves. Every animation and transition resolves
+   at once (delays too, so a staggered item never waits invisible), and the
+   component CSS drops hover/press transforms on top of this. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* A theme switch repaints every surface at once; per-element colour
+   transitions would make it ripple. ThemeProvider sets this for one frame
+   (or for the length of the view-transition cross-fade). */
+:root[data-theme-switching] *,
+:root[data-theme-switching] *::before,
+:root[data-theme-switching] *::after {
+  transition: none !important;
 }

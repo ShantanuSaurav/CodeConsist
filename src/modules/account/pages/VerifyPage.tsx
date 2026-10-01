@@ -4,7 +4,7 @@ import { BadgeCheck, CircleSlash, SearchX } from 'lucide-react';
 import { api, OfflineError } from '@/platform/api-client/api';
 import type { VerifyCertificateResponse } from '@/platform/api-client/api';
 import { ROUTES } from '@/config/routes';
-import { CodeConsistLogo } from '@/ui';
+import { Bone, CodeConsistLogo } from '@/ui';
 import '../styles/certificate.css';
 
 type State = { kind: 'loading' } | { kind: 'done'; result: VerifyCertificateResponse } | { kind: 'error'; message: string };
@@ -18,6 +18,8 @@ function longDate(iso: string): string {
  * /verify/:code - public. An employer pastes the code from a certificate and
  * sees whether CodeConsist issued it, to whom, and for which track. The
  * server never returns the owner's account details here.
+ *
+ * Motion: the page enters once; the verdict fades in over its skeleton.
  */
 export const VerifyPage: React.FC = () => {
   const { code = '' } = useParams<{ code: string }>();
@@ -49,7 +51,7 @@ export const VerifyPage: React.FC = () => {
   const verdict: 'valid' | 'revoked' | 'missing' | null = state.kind !== 'done' ? null : !cert ? 'missing' : cert.revoked ? 'revoked' : 'valid';
 
   return (
-    <div className="certificate-page">
+    <div className="certificate-page page-enter">
       <div className="certificate-chrome">
         <Link to={ROUTES.landing} className="inline-flex">
           <CodeConsistLogo size="sm" wordmark />
@@ -61,16 +63,24 @@ export const VerifyPage: React.FC = () => {
         <div className="certificate-kicker">Certificate</div>
         <div className="font-mono text-sm text-fg mt-1 break-all">{code}</div>
 
-        {state.kind === 'loading' && <p className="text-sm text-fg-muted mt-6">Checking…</p>}
+        {/* The verdict's outline while the server answers; the verdict fades in over it. */}
+        {state.kind === 'loading' && (
+          <div className="grid gap-4 mt-8 anim-fade" style={{ animationDelay: 'var(--delay-skeleton)' }}>
+            <span className="sr-only">Checking…</span>
+            <Bone w="min(18rem, 70%)" h="2rem" />
+            <Bone w="10rem" h="0.875rem" />
+            <Bone w="min(20rem, 75%)" h="2.5rem" />
+          </div>
+        )}
 
         {state.kind === 'error' && (
-          <div className="notice notice-error mt-6" role="alert">
+          <div className="notice notice-error mt-6 anim-fade" role="alert">
             {state.message}
           </div>
         )}
 
         {verdict === 'valid' && cert && (
-          <>
+          <div className="anim-fade">
             <h1 className="certificate-title flex items-center gap-2 !mb-4">
               <BadgeCheck size={28} className="text-success shrink-0" />
               Valid certificate
@@ -89,11 +99,11 @@ export const VerifyPage: React.FC = () => {
                 <dd className="is-mono">{cert.id}</dd>
               </div>
             </dl>
-          </>
+          </div>
         )}
 
         {verdict === 'revoked' && cert && (
-          <>
+          <div className="anim-fade">
             <h1 className="certificate-title flex items-center gap-2 !mb-4">
               <CircleSlash size={28} className="text-error shrink-0" />
               Revoked
@@ -102,11 +112,11 @@ export const VerifyPage: React.FC = () => {
               This certificate was issued to <strong className="text-fg">{cert.learnerName}</strong> for the {cert.trackLabel} track on {longDate(cert.issuedAt)},
               but it has since been revoked and is no longer valid.
             </p>
-          </>
+          </div>
         )}
 
         {verdict === 'missing' && (
-          <>
+          <div className="anim-fade">
             <h1 className="certificate-title flex items-center gap-2 !mb-4">
               <SearchX size={28} className="text-fg-muted shrink-0" />
               Not found
@@ -114,7 +124,7 @@ export const VerifyPage: React.FC = () => {
             <p className="certificate-body">
               CodeConsist has no certificate with this code. Check it was copied in full - codes look like <span className="font-mono">CC-2026-XXXXXXXX</span>.
             </p>
-          </>
+          </div>
         )}
       </section>
 

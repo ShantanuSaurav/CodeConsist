@@ -19,7 +19,7 @@ export const FinalCTA: React.FC = () => (
           </div>
           <div className="flex flex-col sm:flex-row gap-3 shrink-0">
             <ButtonLink to="/dashboard/learn" variant="primary" size="lg" className="cta-arrow">
-              Start Stage 01 <ArrowRight size={15} />
+              Start Stage 01 <ArrowRight size={15} aria-hidden="true" />
             </ButtonLink>
             <ButtonLink to="/dashboard/practice" variant="secondary" size="lg">
               Open the playground

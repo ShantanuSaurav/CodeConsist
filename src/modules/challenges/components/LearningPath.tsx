@@ -77,10 +77,11 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                 </div>
                 <h3 className={`mt-0.5 text-[1.0625rem] font-semibold tracking-tight ${locked ? 'text-fg-muted' : 'text-fg'}`}>
                   {stage.name}
+                  {/* A two-way state flip: same timing as the reading-panel chevron. */}
                   {!locked && (
                     <ChevronDown
                       size={14}
-                      className={`inline-block ml-1.5 -mt-0.5 text-fg-muted transition-transform ${expanded ? 'rotate-180' : ''}`}
+                      className={`inline-block ml-1.5 -mt-0.5 text-fg-muted transition-transform duration-[var(--dur-base)] ease-[var(--ease-in-out)] ${expanded ? 'rotate-180' : ''}`}
                       aria-hidden="true"
                     />
                   )}
@@ -141,7 +142,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
 
             {/* Lessons */}
             {expanded && (
-              <ol id={`stage-${stage.id}-lessons`} className="mt-4 border-t border-border-subtle">
+              <ol id={`stage-${stage.id}-lessons`} className="anim-fade mt-4 border-t border-border-subtle">
                 {stage.challenges.map((c, i) => {
                   const isDone = solved.has(c.id);
                   const isNext = !isDone && stage.challenges.slice(0, i).every((p) => solved.has(p.id));

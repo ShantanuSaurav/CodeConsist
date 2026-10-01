@@ -7,7 +7,7 @@ import { api, ApiError, OfflineError, rupees } from '@/platform/api-client/api';
 import type { BillingCatalogResponse, BillingOrder, BillingProduct, CreateOrderResponse, OrderPaidResponse } from '@/platform/api-client/api';
 import { ROUTES } from '@/config/routes';
 import { useFocusTrap } from '@/ui/hooks/useFocusTrap';
-import { Button, Segmented, useToast } from '@/ui';
+import { Bone, Button, MOTION, Segmented, usePresence, useToast } from '@/ui';
 
 /**
  * The unlock modal (still exported as `SubscriptionModal` so AccountModals
@@ -17,6 +17,10 @@ import { Button, Segmented, useToast } from '@/ui';
  * Nothing here decides what the learner owns. The server prices every
  * product, creates every order, verifies every Razorpay signature and only
  * then marks the order paid; this modal asks, waits, and re-reads the account.
+ *
+ * Motion: the shared dialog enter/exit (usePresence + data-state). Switching
+ * tabs fades the new panel in under the sliding thumb; prices load behind a
+ * skeleton shaped like the cards they become, so nothing jumps when they land.
  */
 
 export type UnlockTab = 'unlock' | 'certificates';
@@ -130,6 +134,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
   const { notify } = useToast();
   const dialogRef = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
+  const presence = usePresence(isOpen, MOTION.base);
 
   const [tab, setTab] = useState<UnlockTab>(initialTab);
   const [data, setData] = useState<BillingCatalogResponse | null>(null);
@@ -355,18 +360,28 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
     }
   }, []);
 
-  if (!isOpen) return null;
+  if (!presence.mounted) return null;
 
   const certNameProblem = certificateNameProblem(certName);
   const certNameError = certNameTouched ? certNameProblem : null;
 
+  // `.modal-overlay` only lays the card out; the scrim is its own fading layer.
+  // Closing, the layer goes inert and drops aria-modal, so nothing in the
+  // fading card is reachable and the page behind is live again at once.
+  const closing = presence.state === 'closed';
   return (
-    <div className="modal-overlay" onMouseDown={requestClose}>
+    <div
+      className={`modal-overlay !bg-transparent !animate-none ${closing ? 'pointer-events-none' : ''}`.trim()}
+      onMouseDown={requestClose}
+      {...(closing ? { inert: '' } : {})}
+    >
+      <div className="overlay-backdrop absolute inset-0" data-state={presence.state} aria-hidden="true" />
       <div
-        className="modal-card !w-[min(38rem,100%)] !h-auto !max-h-[92vh]"
+        className="modal-card dialog-surface relative !w-[min(38rem,100%)] !h-auto !max-h-[92vh]"
+        data-state={presence.state}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
-        aria-modal="true"
+        aria-modal={closing ? undefined : 'true'}
         aria-label="Unlock CodeConsist"
         ref={dialogRef}
         tabIndex={-1}
@@ -398,7 +413,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
           )}
 
           {loadError && (
-            <div className="notice notice-warn" role="alert">
+            <div className="notice notice-warn anim-fade" role="alert">
               {loadError}{' '}
               <button type="button" className="underline underline-offset-2" onClick={load}>
                 Try again
@@ -406,22 +421,38 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
             </div>
           )}
 
-          {!data && !loadError && <p className="text-sm text-fg-muted">Loading prices…</p>}
+          {/* Held back a beat like every skeleton, so a fast answer never flashes it. */}
+          {!data && !loadError && (
+            <div className="flex flex-col gap-3 anim-fade" style={{ animationDelay: 'var(--delay-skeleton)' }} role="status" aria-label="Loading prices">
+              {[0, 1].map((i) => (
+                <div key={i} className="rounded-md border border-border-subtle p-4 flex items-start justify-between gap-3">
+                  <div className="flex-1 grid gap-2">
+                    <Bone w="45%" h="0.875rem" />
+                    <Bone w="85%" h="0.75rem" />
+                  </div>
+                  <div className="grid gap-2 justify-items-end">
+                    <Bone w="4rem" h="1.125rem" />
+                    <Bone w="3rem" h="1.75rem" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {data?.mode === 'test' && (
-            <div className="notice notice-warn">
+            <div className="notice notice-warn anim-fade">
               Test mode - no money moves. This server has no Razorpay keys, so the payment is simulated.
             </div>
           )}
 
           {error && (
-            <div className="notice notice-error" role="alert">
+            <div className="notice notice-error anim-fade" role="alert">
               {error}
             </div>
           )}
 
           {pendingTest && (
-            <div className="notice notice-warn flex flex-wrap items-center justify-between gap-3">
+            <div className="notice notice-warn anim-fade flex flex-wrap items-center justify-between gap-3">
               <span>
                 Test order created for <strong>{pendingTest.what}</strong> ({rupees(pendingTest.order.amount)}). Nothing is charged.
               </span>
@@ -438,7 +469,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
           )}
 
           {!signedIn && catalog && (
-            <>
+            <div className="flex flex-col gap-4 anim-fade">
               <p className="text-sm text-fg-secondary">
                 Unlocks and certificates belong to an account, so they follow you between devices. Sign in (or create a free account) to buy.
               </p>
@@ -452,11 +483,12 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
               >
                 Sign in to buy
               </Button>
-            </>
+            </div>
           )}
 
+          {/* One panel per tab; each fades in as it mounts, so a switch reads as a cross-fade. */}
           {signedIn && catalog && tab === 'unlock' && (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 anim-fade">
               {featuredStage && (
                 <p className="text-sm text-fg-secondary">
                   <strong className="text-fg">{stageName.get(featuredStage.stageId)}</strong> is a premium stage. Unlock just that stage, its whole
@@ -524,7 +556,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
           )}
 
           {signedIn && catalog && tab === 'certificates' && (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 anim-fade">
               <p className="text-sm text-fg-secondary">
                 Learning is free. A verified certificate is issued once every stage in a track - lessons and stage tests - is cleared. Anyone can check
                 it at its verification link.
@@ -547,7 +579,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                   aria-invalid={certNameError ? true : undefined}
                   disabled={busy}
                 />
-                <span className={`field-hint ${certNameError ? 'text-error' : ''}`.trim()}>
+                <span className={`field-hint transition-colors ${certNameError ? 'text-error' : ''}`.trim()}>
                   {certNameError ??
                     (certNameProblem ? 'Type the name to print on the certificate.' : 'Printed exactly as typed. It cannot be changed once issued.')}
                 </span>
@@ -624,7 +656,10 @@ const ProductCard: React.FC<{
   onBuy: () => void;
   disabled: boolean;
 }> = ({ title, detail, amount, state, ownedLabel, onBuy, disabled }) => (
-  <div className={`rounded-md border p-4 flex flex-wrap items-start justify-between gap-3 ${state === 'owned' || state === 'included' ? 'border-success/40 bg-success-soft/40' : 'border-border'}`}>
+  // Colour carries the change to owned (it cross-fades in place); nothing moves.
+  <div
+    className={`rounded-md border p-4 flex flex-wrap items-start justify-between gap-3 transition-colors ${state === 'owned' || state === 'included' ? 'border-success/40 bg-success-soft/40' : 'border-border'}`}
+  >
     <div className="min-w-0 flex-1">
       <div className="font-medium text-fg">{title}</div>
       <div className="text-sm text-fg-secondary mt-0.5">{detail}</div>

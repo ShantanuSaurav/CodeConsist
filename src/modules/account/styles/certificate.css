@@ -4,7 +4,8 @@
 
    Reads the theme tokens like everything else, so it matches the app on
    screen; the print rules below drop the chrome and force a light sheet so
-   a dark-mode learner still gets a printable certificate.
+   a dark-mode learner still gets a printable certificate. The sheet is a
+   raised surface, not a floating one: lit top edge plus --shadow-md.
    ========================================================================== */
 
 .certificate-page {
@@ -35,7 +36,7 @@
   border-radius: var(--radius-lg);
   padding: clamp(var(--space-6), 6vw, var(--space-16));
   position: relative;
-  box-shadow: var(--shadow-menu);
+  box-shadow: var(--surface-highlight), var(--shadow-md);
 }
 /* A second, inset rule gives the sheet its "certificate" frame without images. */
 .certificate-sheet::before {
@@ -64,7 +65,7 @@
 .certificate-title {
   font-size: clamp(1.5rem, 4vw, 2.25rem);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-tight);
   line-height: 1.15;
   margin: var(--space-2) 0 var(--space-8);
 }
@@ -75,7 +76,7 @@
 .certificate-name {
   font-size: clamp(1.75rem, 5vw, 2.75rem);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-tight);
   line-height: 1.1;
   margin: var(--space-3) 0;
   padding-bottom: var(--space-3);
@@ -113,6 +114,7 @@
   margin: var(--space-1) 0 0;
   font-size: var(--text-sm);
   color: var(--text);
+  font-variant-numeric: tabular-nums;
   word-break: break-all;
 }
 .certificate-meta dd.is-mono { font-family: var(--font-mono); }
@@ -129,7 +131,7 @@
   border: 1px solid var(--error);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-xs);
-  transform: rotate(-6deg);
+  background: var(--error-soft);
 }
 
 /* ------------------------------------------------------------------- print */
@@ -138,6 +140,9 @@
   /* The certificate is the only thing on the sheet. */
   .certificate-chrome,
   .certificate-page .no-print { display: none !important; }
+  /* Entrances are for the screen; a sheet printed mid-fade would come out pale. */
+  .certificate-page,
+  .certificate-page * { animation: none !important; }
   .certificate-page {
     min-height: 0;
     padding: 0;
@@ -154,6 +159,7 @@
     page-break-inside: avoid;
   }
   .certificate-sheet::before { border-color: #94a3b8; }
+  .certificate-revoked { background: none; }
   .certificate-lead, .certificate-body { color: #334155; }
   .certificate-kicker, .certificate-meta dt { color: #64748b; }
   .certificate-meta dd { color: #0f172a; }

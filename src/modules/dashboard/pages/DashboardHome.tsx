@@ -8,6 +8,8 @@ import { isPremiumLocked, stageStatus } from '@/platform/progress';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
 import { achievements, activityGrid, greeting, rankTitle, relativeDay, solvedOn, xpEarnedOn } from '@/platform/xp-leveling/insights';
 import { Button, ButtonLink, ProgressBar, Stat } from '@/ui';
+import { CountUp } from '../components/CountUp';
+import '../styles/dashboard.css';
 
 /* Heat levels: from the page surface up to the accent, no glow. */
 const HEAT = ['bg-surface-3', 'bg-accent/30', 'bg-accent/55', 'bg-accent/80', 'bg-accent'];
@@ -62,8 +64,9 @@ export const DashboardHome: React.FC = () => {
         </p>
       </header>
 
-      {/* ------------------------------------------------- continue learning */}
-      <section aria-labelledby="continue-heading" className="pb-8 mb-8 border-b border-border-subtle">
+      {/* ------------------------------------------------- continue learning
+          The one raised surface on the page: the next step, calmly first. */}
+      <section aria-labelledby="continue-heading" className="dash-continue panel mb-8">
         <h2 id="continue-heading" className="eyebrow">
           {current?.state === 'Test pending' ? 'Stage test waiting' : 'Continue learning'}
         </h2>
@@ -71,7 +74,7 @@ export const DashboardHome: React.FC = () => {
         {current && currentStatus ? (
           <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
             <div className="min-w-0">
-              <div className="font-mono text-xs text-fg-muted mb-1">
+              <div className="font-mono text-xs text-fg-secondary mb-1">
                 {activeTrack.track.label} · Stage {stageNo}
               </div>
               <h3 className="text-xl font-semibold text-fg tracking-tight">{current.name}</h3>
@@ -83,7 +86,7 @@ export const DashboardHome: React.FC = () => {
 
               <div className="mt-5 max-w-xl">
                 <ProgressBar value={currentStatus.percent} label={`${currentStatus.done} of ${currentStatus.total} lessons`} />
-                <div className="mt-2 flex items-center justify-between text-xs font-mono text-fg-muted">
+                <div className="mt-2 flex items-center justify-between text-xs font-mono text-fg-secondary">
                   <span>
                     {currentStatus.done} / {currentStatus.total} lessons completed
                   </span>
@@ -98,7 +101,7 @@ export const DashboardHome: React.FC = () => {
                 onClick={() => (current.state === 'Test pending' ? intents.openStageTest(current.id) : intents.openPractice(current.id))}
               >
                 {current.state === 'Test pending' ? 'Take the stage test' : currentStatus.done > 0 ? 'Continue lesson' : 'Start stage'}
-                <ArrowRight size={15} />
+                <ArrowRight size={15} className="dash-arrow" aria-hidden />
               </Button>
               <ButtonLink to={ROUTES.learn} variant="secondary">
                 All stages
@@ -116,23 +119,35 @@ export const DashboardHome: React.FC = () => {
               </p>
             </div>
             <ButtonLink to={ROUTES.learn} variant="primary">
-              Open the path <ArrowRight size={15} />
+              Open the path <ArrowRight size={15} className="dash-arrow" aria-hidden />
             </ButtonLink>
           </div>
         )}
       </section>
 
-      {/* -------------------------------------------------------------- stats */}
+      {/* -------------------------------------------------------------- stats
+          The page's one staggered group; figures count up once per session.
+          The streak stays still - the header already states it. */}
       <section aria-label="Your numbers" className="pb-8 mb-8 border-b border-border-subtle">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-6 sm:divide-x sm:divide-border-subtle">
+        <div className="stagger grid grid-cols-2 sm:grid-cols-4 gap-y-6 sm:divide-x sm:divide-border-subtle">
           <Stat
             label="Streak"
             value={`${stats.streak} ${stats.streak === 1 ? 'day' : 'days'}`}
             hint={stats.bestStreak > stats.streak ? `Best ${stats.bestStreak}` : undefined}
           />
-          <Stat label="XP" value={stats.xp.toLocaleString()} hint={`${level.into} / ${level.needed} to next level`} className="sm:pl-6" />
-          <Stat label="Level" value={String(level.level).padStart(2, '0')} hint={rankTitle(level.level)} className="sm:pl-6" />
-          <Stat label="Solved" value={stats.completedChallenges.length} hint="challenges" className="sm:pl-6" />
+          <Stat
+            label="XP"
+            value={<CountUp to={stats.xp} format={(n) => n.toLocaleString()} />}
+            hint={`${level.into} / ${level.needed} to next level`}
+            className="sm:pl-6"
+          />
+          <Stat
+            label="Level"
+            value={<CountUp to={level.level} format={(n) => String(n).padStart(2, '0')} />}
+            hint={rankTitle(level.level)}
+            className="sm:pl-6"
+          />
+          <Stat label="Solved" value={<CountUp to={stats.completedChallenges.length} />} hint="challenges" className="sm:pl-6" />
         </div>
       </section>
 
@@ -152,7 +167,7 @@ export const DashboardHome: React.FC = () => {
                   {column.map((cell) => (
                     <div
                       key={cell.day}
-                      className={`w-3 h-3 rounded-[2px] ${HEAT[cell.level]}`}
+                      className={`dash-heat-cell w-3 h-3 rounded-[2px] ${HEAT[cell.level]}`}
                       title={`${cell.day}: ${cell.count} solved`}
                     />
                   ))}
@@ -174,7 +189,7 @@ export const DashboardHome: React.FC = () => {
           <div className="mt-8">
             <div className="flex items-baseline justify-between mb-2">
               <h3 className="text-sm font-medium text-fg">Recent achievements</h3>
-              <Link to={ROUTES.achievements} className="text-xs text-fg-muted hover:text-fg">
+              <Link to={ROUTES.achievements} className="text-xs text-fg-muted rounded-xs transition-colors hover:text-fg">
                 View all
               </Link>
             </div>
@@ -226,7 +241,7 @@ export const DashboardHome: React.FC = () => {
                       <Circle size={12} />
                     </span>
                   )}
-                  <span className={`text-sm ${g.done ? 'text-fg-secondary line-through' : 'text-fg'}`}>{g.label}</span>
+                  <span className={`text-sm transition-colors ${g.done ? 'text-fg-secondary line-through' : 'text-fg'}`}>{g.label}</span>
                 </div>
                 <span className="text-xs font-mono text-fg-muted shrink-0">{g.detail}</span>
               </li>

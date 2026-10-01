@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { useSlidingIndicator } from '../hooks/useSlidingIndicator';
 
 export interface SegmentedOption<T extends string> {
   value: T;
@@ -15,10 +16,23 @@ interface SegmentedProps<T extends string> {
   className?: string;
 }
 
-/** A small set of mutually exclusive choices - filters, view modes. */
+/**
+ * A small set of mutually exclusive choices - filters, view modes. The
+ * raised thumb slides to the chosen option rather than jumping.
+ */
 export function Segmented<T extends string>({ value, options, onChange, size = 'md', ariaLabel, className = '' }: SegmentedProps<T>) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLSpanElement>(null);
+  useSlidingIndicator(rootRef, thumbRef, '.segmented-option.is-active', 'x', value);
+
   return (
-    <div className={`segmented ${size === 'sm' ? 'segmented-sm' : ''} ${className}`.replace(/\s+/g, ' ').trim()} role="group" aria-label={ariaLabel}>
+    <div
+      ref={rootRef}
+      className={`segmented ${size === 'sm' ? 'segmented-sm' : ''} ${className}`.replace(/\s+/g, ' ').trim()}
+      role="group"
+      aria-label={ariaLabel}
+    >
+      <span ref={thumbRef} className="segmented-thumb" aria-hidden="true" />
       {options.map((o) => (
         <button
           key={o.value}

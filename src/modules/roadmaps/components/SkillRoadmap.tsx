@@ -30,14 +30,22 @@ function totalXp(stage: Stage): number {
   return stage.challenges.reduce((sum, c) => sum + c.xpReward, 0) + (stage.test?.xpReward ?? 0);
 }
 
+/** A percent as the --fill (0-1) roadmap.css scales a rail or bar by. */
+function fillStyle(percent: number): React.CSSProperties {
+  return { '--fill': Math.max(0, Math.min(100, percent)) / 100 } as React.CSSProperties;
+}
+
 /**
  * The learner's track as one connected vertical path - one node per stage,
  * grouped under the headings the path has always had, states and the fill of
  * the rail driven entirely by REAL progress (never invented). Progression is
  * strictly linear within a track, so at most one stage is ever actionable:
- * that one is "current" (pulse + a call to action), everything before it is
- * "completed", everything after is "locked". Clicking an open node jumps
- * into its lessons or its pending test.
+ * that one is "current" (a tinted marker + a call to action), everything
+ * before it is "completed", everything after is "locked". Clicking an open
+ * node jumps into its lessons or its pending test.
+ *
+ * The rail and the bars fill with transform, so progress eases in without
+ * animating a size.
  */
 export const SkillRoadmap: React.FC = () => {
   const { learnerStages: stages, activeTrack, stats } = useSession();
@@ -70,7 +78,7 @@ export const SkillRoadmap: React.FC = () => {
   return (
     <div className="roadmap-wrap">
       <div className="roadmap-rail" aria-hidden="true">
-        <div className="roadmap-rail-fill" style={{ height: `${railFillPercent}%` }} />
+        <div className="roadmap-rail-fill" style={fillStyle(railFillPercent)} />
       </div>
 
       {groups.map((group) => (
@@ -149,7 +157,7 @@ export const SkillRoadmap: React.FC = () => {
 
                       {!locked && (
                         <span className="roadmap-node-progress">
-                          <span className="roadmap-node-progress-fill" style={{ width: `${overall}%` }} />
+                          <span className="roadmap-node-progress-fill" style={fillStyle(overall)} />
                         </span>
                       )}
 

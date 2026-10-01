@@ -1,7 +1,7 @@
 import React from 'react';
 import { Play } from 'lucide-react';
 import { intents } from '@/platform/events';
-import { Button, CodeBlock } from '@/ui';
+import { Button, CodeBlock, staggerStyle } from '@/ui';
 import type { Challenge } from '@/types';
 import { Reveal } from './Reveal';
 import { useNextChallenge } from './useNextChallenge';
@@ -34,21 +34,22 @@ export const LearningExperience: React.FC = () => {
             </p>
           </Reveal>
 
-          <ol className="mt-8 border-t border-border-subtle">
+          {/* The list arrives as one; its rows follow it 40ms apart. */}
+          <Reveal as="ol" step={1} className="mt-8 border-t border-border-subtle">
             {FORMATS.map(([title, desc], i) => (
-              <Reveal as="li" key={title} delay={120 + i * 90} className="flex items-start gap-4 py-3.5 border-b border-border-subtle">
-                <span className="font-mono text-xs text-fg-muted pt-0.5 w-5 shrink-0">{String(i + 1).padStart(2, '0')}</span>
+              <li key={title} className="reveal-item flex items-start gap-4 py-3.5 border-b border-border-subtle" style={staggerStyle(i)}>
+                <span className="font-mono text-xs text-fg-muted tabular-nums pt-0.5 w-5 shrink-0">{String(i + 1).padStart(2, '0')}</span>
                 <div>
                   <div className="text-sm font-medium text-fg">{title}</div>
                   <div className="text-sm text-fg-secondary mt-0.5">{desc}</div>
                 </div>
-              </Reveal>
+              </li>
             ))}
-          </ol>
+          </Reveal>
         </div>
 
         {sample && (
-          <Reveal delay={150} className="min-w-0">
+          <Reveal step={2} className="min-w-0">
             <div className="panel practice-panel overflow-hidden">
               <div className="panel-head !py-2.5">
                 <div className="min-w-0">

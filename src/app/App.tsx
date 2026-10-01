@@ -11,7 +11,7 @@
  * modal - the things every visit needs. Each screen is its own chunk, and
  * the challenge bank is another, fetched while the first screen paints.
  */
-import React, { Suspense, useEffect } from 'react';
+import React, { Suspense, useEffect, useLayoutEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppSplash, ErrorBoundary, ToastProvider, Toasts } from '@/ui';
 import { ThemeProvider } from '@/platform/theme';
@@ -60,11 +60,15 @@ const AuthErrorWatcher: React.FC = () => {
   return null;
 };
 
-/** Reset scroll on navigation - the landing page is long. Hash links keep their target. */
+/**
+ * Reset scroll on navigation - the landing page is long. Hash links keep their
+ * target. Before paint and instant (not the page's smooth scrolling), so the
+ * new page's entrance starts at the top instead of under a scroll animation.
+ */
 const ScrollToTop: React.FC = () => {
   const { pathname, hash } = useLocation();
-  useEffect(() => {
-    if (!hash) window.scrollTo({ top: 0 });
+  useLayoutEffect(() => {
+    if (!hash) window.scrollTo({ top: 0, behavior: 'instant' });
   }, [pathname, hash]);
   return null;
 };

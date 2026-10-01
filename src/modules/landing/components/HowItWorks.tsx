@@ -46,7 +46,7 @@ export const HowItWorks: React.FC = () => (
         {STEPS.map((s, i) => {
           const Icon = s.icon;
           return (
-            <Reveal as="li" key={s.step} delay={i * 110}>
+            <Reveal as="li" key={s.step} step={i}>
               <div className="step-card">
                 <div className="flex items-start justify-between">
                   <span className="step-num">{s.step}</span>

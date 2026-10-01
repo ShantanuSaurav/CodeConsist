@@ -5,8 +5,9 @@ import { DevlingoLogo } from './DevlingoLogo';
  * Loading placeholders for the two moments the app has nothing to show yet:
  * a route chunk still downloading, or the content bank not yet arrived.
  * Neutral blocks in the page's own rhythm, so the layout does not jump when
- * the real thing lands. Motion is a soft pulse that reduced-motion turns off
- * (tokens.css).
+ * the real thing lands. Motion is a soft sheen that reduced-motion turns off
+ * (tokens.css), and the page placeholder waits ~120ms before fading in, so
+ * a fast load never flashes it.
  */
 
 /** One grey block. `w`/`h` are any CSS lengths. */

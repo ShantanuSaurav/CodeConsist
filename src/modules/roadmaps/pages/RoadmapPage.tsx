@@ -8,15 +8,16 @@ import { ROADMAPS, roadmapNodeIds } from '../content';
 import { summarise, useAllRoadmapProgress } from '../services/progress';
 import { useSession } from '@/platform/session';
 import type { Roadmap } from '@/types';
+import '../styles/roadmap.css';
 
-/** One roadmap as a row: title, description, progress, chevron. */
+/** One roadmap as a row: title, description, progress, chevron (which leans forward on hover). */
 const RoadmapRow: React.FC<{ roadmap: Roadmap; statuses: Record<string, any> }> = ({ roadmap, statuses }) => {
   const summary = summarise(roadmap, statuses);
   const total = roadmapNodeIds(roadmap).length;
   const started = summary.done + summary.learning > 0;
   return (
     <li className="border-b border-border-subtle">
-      <Link to={ROUTES.roadmap(roadmap.slug)} className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 py-3 -mx-2 px-2 rounded-xs hover:bg-surface-2 transition-colors">
+      <Link to={ROUTES.roadmap(roadmap.slug)} className="rm-row grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 py-3 -mx-2 px-2 rounded-xs hover:bg-surface-2">
         <span className="min-w-0">
           <span className="flex items-center gap-2">
             <span className="text-sm font-medium text-fg truncate">{roadmap.title}</span>
@@ -30,7 +31,7 @@ const RoadmapRow: React.FC<{ roadmap: Roadmap; statuses: Record<string, any> }> 
           </span>
           {started && <ProgressBar value={summary.percent} size="sm" tone={summary.percent === 100 ? 'success' : 'accent'} className="w-16 mt-1.5" label={`${summary.done} of ${total} topics`} />}
         </span>
-        <ChevronRight size={15} className="text-fg-muted" aria-hidden="true" />
+        <ChevronRight size={15} className="rm-row-chevron" aria-hidden="true" />
       </Link>
     </li>
   );
@@ -54,7 +55,8 @@ export const RoadmapPage: React.FC = () => {
       <div className="grid gap-10 md:grid-cols-2 md:gap-12 pb-10 mb-10 border-b border-border-subtle">
         <section aria-labelledby="roles-heading" className="min-w-0">
           <SectionHeader title={<span id="roles-heading">Role-based</span>} />
-          <ol className="border-t border-border-subtle">
+          {/* The page's first lists: rows settle in 40ms apart, once, on arrival. */}
+          <ol className="stagger border-t border-border-subtle">
             {roles.map((r) => (
               <RoadmapRow key={r.slug} roadmap={r} statuses={store[r.slug] ?? {}} />
             ))}
@@ -63,7 +65,7 @@ export const RoadmapPage: React.FC = () => {
 
         <section aria-labelledby="skills-heading" className="min-w-0">
           <SectionHeader title={<span id="skills-heading">Skill-based</span>} />
-          <ol className="border-t border-border-subtle">
+          <ol className="stagger border-t border-border-subtle">
             {skills.map((r) => (
               <RoadmapRow key={r.slug} roadmap={r} statuses={store[r.slug] ?? {}} />
             ))}

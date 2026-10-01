@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { RotateCw, Globe, Sparkles } from 'lucide-react';
+import { RotateCw, Globe, Eye } from 'lucide-react';
 
 interface UiPreviewProps {
   html: string;
@@ -103,7 +103,7 @@ export const UiPreview: React.FC<UiPreviewProps> = ({
           <Globe size={13} className="ui-preview-url-icon" />
           <span className="ui-preview-url-text">preview.codeconsist.local</span>
           <span className="ui-preview-pill">
-            <Sparkles size={11} />
+            <Eye size={11} aria-hidden="true" />
             <span>{badgeText}</span>
             <span className={`ui-preview-status-tag ${isUpdating ? 'is-updating' : 'is-live'}`}>
               {isUpdating ? '● updating...' : '● live'}

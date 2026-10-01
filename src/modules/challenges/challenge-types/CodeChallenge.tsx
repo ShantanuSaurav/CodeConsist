@@ -1,11 +1,27 @@
-import React, { useState } from 'react';
+import React, { Suspense, useState } from 'react';
 import { Check, Circle, Code2, Columns, LayoutTemplate, X } from 'lucide-react';
 import { Challenge, ExecutionResult } from '@/types';
 import { CodeEditor } from '@/ui/primitives/CodeEditor';
 import { CodeBlock } from '@/ui/primitives/CodeBlock';
+import { Segmented, type SegmentedOption } from '@/ui';
 import { compilerService } from '@/platform/execution/compilerService';
 import { UiPreview } from '../components/UiPreview';
-import { WebIde } from '../components/WebIde';
+
+/*
+ * The multi-file web IDE only serves HTML / CSS challenges, so it downloads
+ * the first time one opens rather than riding in the shell chunk with the
+ * practice modal (ADR 0006). Until it lands, an empty frame of the same size
+ * and colour (.web-ide) holds its place, so nothing shifts when it arrives.
+ */
+const WebIde = React.lazy(() => import('../components/WebIde').then((m) => ({ default: m.WebIde })));
+
+type UiViewMode = 'editor' | 'preview' | 'split';
+
+const UI_VIEW_OPTIONS: SegmentedOption<UiViewMode>[] = [
+  { value: 'split', label: <><Columns size={13} aria-hidden="true" /><span>Split</span></> },
+  { value: 'editor', label: <><Code2 size={13} aria-hidden="true" /><span>Code</span></> },
+  { value: 'preview', label: <><LayoutTemplate size={13} aria-hidden="true" /><span>Preview</span></> }
+];
 
 interface Props {
   challenge: Challenge;
@@ -44,7 +60,7 @@ export const CodeChallenge: React.FC<Props> = ({
   onReset
 }) => {
   const isUi = Boolean(challenge.uiPreview || challenge.language === 'html');
-  const [uiViewMode, setUiViewMode] = useState<'editor' | 'preview' | 'split'>('split');
+  const [uiViewMode, setUiViewMode] = useState<UiViewMode>('split');
 
   const visibleCases = (challenge.testCases ?? []).map((tc, i) => ({
     ...tc,
@@ -53,14 +69,16 @@ export const CodeChallenge: React.FC<Props> = ({
   }));
 
   const editorNode = isUi ? (
-    <WebIde
-      code={code}
-      onChange={onCodeChange}
-      onSubmit={onRun}
-      readOnly={locked}
-      starterCode={challenge.starterCode}
-      onReset={onReset}
-    />
+    <Suspense fallback={<div className="web-ide" aria-busy="true" />}>
+      <WebIde
+        code={code}
+        onChange={onCodeChange}
+        onSubmit={onRun}
+        readOnly={locked}
+        starterCode={challenge.starterCode}
+        onReset={onReset}
+      />
+    </Suspense>
   ) : (
     <CodeEditor
       value={code}
@@ -122,32 +140,9 @@ function getTestCaseTitle(
     <div className="code-challenge">
       <div className="code-challenge-toolbar">
         {isUi ? (
-          <div className="ui-mode-tabs" role="tablist" aria-label="View mode">
-            <button
-              type="button"
-              className={`ui-mode-tab ${uiViewMode === 'split' ? 'is-active' : ''}`}
-              onClick={() => setUiViewMode('split')}
-            >
-              <Columns size={13} />
-              <span>Split</span>
-            </button>
-            <button
-              type="button"
-              className={`ui-mode-tab ${uiViewMode === 'editor' ? 'is-active' : ''}`}
-              onClick={() => setUiViewMode('editor')}
-            >
-              <Code2 size={13} />
-              <span>Code</span>
-            </button>
-            <button
-              type="button"
-              className={`ui-mode-tab ${uiViewMode === 'preview' ? 'is-active' : ''}`}
-              onClick={() => setUiViewMode('preview')}
-            >
-              <LayoutTemplate size={13} />
-              <span>Preview</span>
-            </button>
-          </div>
+          // The shared segmented control: its raised thumb glides between
+          // Split / Code / Preview rather than jumping.
+          <Segmented value={uiViewMode} options={UI_VIEW_OPTIONS} onChange={setUiViewMode} ariaLabel="View mode" />
         ) : (
           <span className="code-engine">
             {challenge.language} · {compilerService.engineFor(challenge.language)}

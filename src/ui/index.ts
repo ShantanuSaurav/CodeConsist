@@ -11,6 +11,12 @@ export { ToastProvider, Toasts, useToast } from './primitives/toast';
 export type { Toast, ToastTone } from './primitives/toast';
 export { useFocusTrap } from './hooks/useFocusTrap';
 export { useBodyScrollLock } from './hooks/useBodyScrollLock';
+/* Motion - see docs/design/MOTION.md. */
+export { MOTION, prefersReducedMotion, staggerStyle } from './motion';
+export { usePresence } from './hooks/usePresence';
+export type { PresenceState } from './hooks/usePresence';
+export { useSlidingIndicator } from './hooks/useSlidingIndicator';
+export { useReveal } from './hooks/useReveal';
 export { tokenize, tokenizeLine } from './code/highlight';
 export { PageSkeleton, AppSplash, Bone } from './primitives/Skeleton';
 export { Dropdown } from './primitives/Dropdown';

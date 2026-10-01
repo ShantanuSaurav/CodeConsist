@@ -1,20 +1,24 @@
 @layer components {
 /* ==========================================================================
-   Welcome intro - the first thing a new visitor sees at "/".
+   Welcome intro - the first thing a visitor sees at "/".
 
-   The mark assembles itself from its own layers in sequence:
-     0.00  base bands draw outward from the spine
-     0.30  the two pages open from the spine
-     0.80  "<" then ">" land - keystrokes
-     1.00  cursor slides in from the corner, clicks at ~1.40
-     1.45  "CodeConsist" types out behind a caret (11 × 55 ms, WelcomeIntro.tsx)
-     2.10  mark begins beating with an ambient accent glow
-     2.10  tagline, one word at a time
-     2.40  actions
+   Calm and short. The mark assembles from its own layers in paint order,
+   one --stagger (40ms) apart, each a --dur-slow fade with a few pixels of
+   travel at most; then the name, tagline and actions follow:
+     step 0      base frame settles from 98%
+     steps 1-2   the two bands rise 4px
+     step 3      both pages ease out from the spine, 4px
+     steps 5-6   "<" then ">" settle in place
+     step 7      the cursor arrives from its corner, 4px
+     step 8      "CodeConsist" rises 8px
+     steps 10-12 the tagline, a word at a time
+     step 13     the actions (focus moves to "Enter" as they land)
+   Everything has landed by ~0.85s; nothing loops. A key or click before
+   then skips to the end (.is-skipped). Choosing an action fades the intro
+   out, one step faster than it came in.
 
-   Choosing an action fades the whole thing out before the next screen
-   appears. With reduced motion the intro is simply visible and leaves at
-   once.
+   Every entrance uses backwards fill: the resting style is the final
+   state, so a skipped or disabled animation leaves the intro complete.
    ========================================================================== */
 
 .welcome {
@@ -28,7 +32,7 @@
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
-  transition: opacity 320ms var(--ease);
+  transition: opacity var(--dur-base) var(--ease-in);
 }
 .welcome.is-leaving {
   opacity: 0;
@@ -52,146 +56,56 @@
 
 /* ------------------------------------------------------------------ mark */
 
-.welcome-logo-wrap {
-  position: relative;
-  display: grid;
-  place-items: center;
-}
-.welcome-logo-glow {
-  position: absolute;
-  width: 140%;
-  height: 140%;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, var(--accent-ring), transparent 70%);
-  filter: blur(14px);
-  opacity: 0;
-  animation: logoGlow 2.4s ease-in-out 2100ms infinite;
-  pointer-events: none;
-}
 .welcome-mark {
   position: relative;
   width: clamp(10rem, 28vw, 13.5rem);
   aspect-ratio: 640 / 512;
   user-select: none;
-  animation: logoBreathe 2.4s ease-in-out 2100ms infinite;
 }
 
-@keyframes logoGlow {
-  0%, 100% { opacity: 0;   transform: scale(0.85); }
-  50%      { opacity: 1;   transform: scale(1.05); }
+/* One keyframe for every layer; each layer says where it comes from. */
+@keyframes welcome-layer-in {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--from-x), var(--from-y), 0) scale(var(--from-scale));
+  }
 }
-@keyframes logoBreathe {
-  0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 0 transparent); }
-  50%      { transform: scale(1.04); filter: drop-shadow(0 0 22px var(--accent-ring)); }
-}
-
 .welcome-layer {
+  --step: 0;
+  --from-x: 0px;
+  --from-y: var(--shift-sm);
+  --from-scale: 1;
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   display: block;
-  opacity: 0;
-  animation-fill-mode: forwards;
-  animation-timing-function: var(--ease);
-  will-change: transform, opacity;
+  animation: welcome-layer-in var(--dur-slow) var(--ease-out) backwards;
+  animation-delay: calc(var(--step) * var(--stagger));
 }
-
-/* The base: drawn outward from the spine, like a line being laid down. */
-.welcome-layer--frame,
-.welcome-layer--band-yellow,
-.welcome-layer--band-orange {
-  clip-path: inset(0 50% 0 50%);
-  animation-name: welcomeDraw;
-  animation-duration: 520ms;
-}
-.welcome-layer--frame       { animation-delay: 0ms; }
-.welcome-layer--band-yellow { animation-delay: 60ms; }
-.welcome-layer--band-orange { animation-delay: 140ms; }
-@keyframes welcomeDraw {
-  from { opacity: 1; clip-path: inset(0 50% 0 50%); }
-  to   { opacity: 1; clip-path: inset(0 0 0 0); }
-}
-
-/* The pages open from the spine, which sits at the horizontal centre of the asset. */
-.welcome-layer--page-left,
-.welcome-layer--page-right {
-  transform-origin: 50% 50%;
-  transform: scaleX(0.04);
-  animation-name: welcomeOpen;
-  animation-duration: 560ms;
-  animation-delay: 300ms;
-}
-@keyframes welcomeOpen {
-  from { opacity: 0.6; transform: scaleX(0.04); }
-  40%  { opacity: 1; }
-  to   { opacity: 1; transform: scaleX(1); }
-}
-
-/* The code symbols land like keystrokes: a small, quick settle - no bounce. */
-.welcome-layer--symbol-left,
-.welcome-layer--symbol-right {
-  transform-origin: 50% 50%;
-  animation-name: welcomeKey;
-  animation-duration: 240ms;
-}
-.welcome-layer--symbol-left  { animation-delay: 800ms; }
-.welcome-layer--symbol-right { animation-delay: 920ms; }
-@keyframes welcomeKey {
-  from { opacity: 0; transform: scale(1.06); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-/* The cursor comes in from its corner, pauses, and clicks. */
-.welcome-layer--cursor {
-  transform-origin: 78% 78%;
-  animation-name: welcomeCursor;
-  animation-duration: 640ms;
-  animation-delay: 1000ms;
-}
-@keyframes welcomeCursor {
-  0%   { opacity: 0; transform: translate(9%, 9%); }
-  55%  { opacity: 1; transform: translate(0, 0) scale(1); }
-  74%  { transform: translate(0, 0) scale(1); }
-  84%  { transform: translate(0, 0) scale(0.93); }
-  100% { opacity: 1; transform: translate(0, 0) scale(1); }
-}
+.welcome-layer--frame        { --step: 0; --from-y: 0px; --from-scale: 0.98; }
+.welcome-layer--band-yellow  { --step: 1; }
+.welcome-layer--band-orange  { --step: 2; }
+/* The spine is the horizontal centre of the asset: each page starts a hair toward it. */
+.welcome-layer--page-left    { --step: 3; --from-y: 0px; --from-x: var(--shift-sm); }
+.welcome-layer--page-right   { --step: 3; --from-y: 0px; --from-x: calc(var(--shift-sm) * -1); }
+.welcome-layer--symbol-left  { --step: 5; --from-y: 0px; --from-scale: 0.98; }
+.welcome-layer--symbol-right { --step: 6; --from-y: 0px; --from-scale: 0.98; }
+.welcome-layer--cursor       { --step: 7; --from-x: var(--shift-sm); --from-y: var(--shift-sm); }
 
 /* ------------------------------------------------------------ wordmark */
 
 .welcome-name {
+  --enter-y: var(--shift-md);
+  --enter-scale: 1;
   margin-top: var(--space-6);
   font-size: clamp(1.75rem, 4vw, 2.25rem);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--tracking-tight);
   line-height: 1.1;
   color: var(--text);
   white-space: nowrap;
-}
-.welcome-name-box { display: inline-grid; }
-.welcome-name-box > * { grid-area: 1 / 1; }
-.welcome-name-ghost { visibility: hidden; }
-.welcome-name-typed { justify-self: start; white-space: nowrap; }
-.welcome-caret {
-  display: inline-block;
-  width: 0.5em;
-  height: 0.9em;
-  margin-left: 0.06em;
-  transform: translateY(0.08em);
-  background: var(--accent);
-  opacity: 0;
-  animation: welcomeCaret 2100ms steps(1, end) 1400ms forwards;
-}
-/* On, blinking while the letters type, three more blinks, then gone. */
-@keyframes welcomeCaret {
-  0%, 21% { opacity: 1; }
-  27%     { opacity: 0; }
-  33%     { opacity: 1; }
-  48%     { opacity: 0; }
-  60%     { opacity: 1; }
-  74%     { opacity: 0; }
-  86%     { opacity: 1; }
-  100%    { opacity: 0; }
+  animation: cc-enter var(--dur-slow) var(--ease-out) calc(var(--stagger) * 8) backwards;
 }
 
 /* ------------------------------------------------------------- tagline */
@@ -205,31 +119,29 @@
   justify-content: center;
 }
 .welcome-word {
-  opacity: 0;
-  transform: translateY(4px);
-  animation: welcomeRise 360ms var(--ease) forwards;
-  animation-delay: calc(2100ms + var(--i) * 140ms);
+  --enter-y: var(--shift-sm);
+  --enter-scale: 1;
+  display: inline-block;
+  animation: cc-enter var(--dur-base) var(--ease-out) backwards;
+  animation-delay: calc((10 + var(--i, 0)) * var(--stagger));
 }
 
 /* ------------------------------------------------------------- actions */
 
 .welcome-actions {
+  --enter-y: var(--shift-md);
+  --enter-scale: 1;
   margin-top: var(--space-8);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  opacity: 0;
-  transform: translateY(6px);
-  animation: welcomeRise 480ms var(--ease) 2400ms forwards;
+  animation: cc-enter var(--dur-slow) var(--ease-out) calc(var(--stagger) * 13) backwards;
 }
 .welcome-actions .btn-primary { min-width: 12rem; }
 @media (max-width: 480px) {
   .welcome-actions .btn-primary { width: 100%; }
-}
-@keyframes welcomeRise {
-  to { opacity: 1; transform: translateY(0); }
 }
 
 .welcome-secondary {
@@ -240,28 +152,25 @@
   color: var(--text-muted);
   cursor: pointer;
   border-radius: var(--radius-xs);
-  transition: color var(--fast) var(--ease);
+  transition: color var(--dur-fast) var(--ease-out);
 }
-.welcome-secondary:hover { color: var(--text); }
+.welcome-secondary:hover:not(:disabled) { color: var(--text); }
 .welcome-secondary:disabled { cursor: default; }
 
-/* ------------------------------------------------------- reduced motion */
+/* ------------------------------------------------- skipped, reduced motion
+   Skipping drops the remaining entrances: every element is already styled
+   as it rests. Reduced motion is instant anyway (tokens.css); the same rule
+   makes sure nothing travels even for a frame. */
+
+.welcome.is-skipped .welcome-layer,
+.welcome.is-skipped .welcome-name,
+.welcome.is-skipped .welcome-word,
+.welcome.is-skipped .welcome-actions { animation: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .welcome { transition: none; }
-  .welcome-mark,
-  .welcome-logo-glow {
-    animation: none;
-  }
-  .welcome-logo-glow { opacity: 0; }
   .welcome-layer,
+  .welcome-name,
   .welcome-word,
-  .welcome-actions {
-    animation: none;
-    opacity: 1;
-    transform: none;
-    clip-path: none;
-  }
-  .welcome-caret { display: none; }
+  .welcome-actions { animation: none; }
 }
 }

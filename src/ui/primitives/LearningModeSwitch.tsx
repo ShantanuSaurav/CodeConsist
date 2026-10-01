@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { BookOpen, Zap } from 'lucide-react';
 import type { LearningMode } from '@/types';
+import { useSlidingIndicator } from '../hooks/useSlidingIndicator';
 
 interface LearningModeSwitchProps {
   value: LearningMode | null;
@@ -14,14 +15,20 @@ interface LearningModeSwitchProps {
  * A two-way segmented control between Learn and Practice. The same control
  * appears in the practice modal header, on the Learn page and in Settings, so
  * the preference is never more than one click away and never locked in.
+ * Shares the segmented control's sliding thumb.
  */
 export const LearningModeSwitch: React.FC<LearningModeSwitchProps> = ({ value, onChange, size = 'md', className = '' }) => {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLSpanElement>(null);
+  useSlidingIndicator(rootRef, thumbRef, '.mode-switch-option.is-active', 'x', value);
+
   const options: Array<{ mode: LearningMode; label: string; icon: React.ReactNode; title: string }> = [
     { mode: 'learn', label: 'Learn', icon: <BookOpen size={size === 'sm' ? 12 : 13} />, title: 'Learn & Understand: theory, examples and a try-it before each new idea' },
     { mode: 'practice', label: 'Practice', icon: <Zap size={size === 'sm' ? 12 : 13} />, title: 'Practice mode: straight into the challenges' }
   ];
   return (
-    <div className={`mode-switch mode-switch-${size} ${className}`.trim()} role="radiogroup" aria-label="Learning mode">
+    <div ref={rootRef} className={`mode-switch mode-switch-${size} ${className}`.trim()} role="radiogroup" aria-label="Learning mode">
+      <span ref={thumbRef} className="segmented-thumb" aria-hidden="true" />
       {options.map((o) => (
         <button
           key={o.mode}

@@ -59,11 +59,21 @@
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
-  --radius-xl: var(--radius-lg);
-  --radius-2xl: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-xl);
 
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
   --shadow-menu: var(--shadow-menu);
   --shadow-dialog: var(--shadow-dialog);
+
+  /* `transition`, `transition-colors`, `duration-*`-less utilities run on
+     the motion tokens, so a stray Tailwind transition still matches the
+     hand-written CSS. `ease-out` / `ease-in` / `ease-in-out` resolve to the
+     token curves too (tokens.css redefines those names). */
+  --default-transition-duration: var(--dur-fast);
+  --default-transition-timing-function: var(--ease-out);
 }
 
 @layer base {
@@ -84,6 +94,9 @@
     text-rendering: optimizeLegibility;
     font-feature-settings: 'cv11', 'ss01';
   }
+  /* Display type sits a little tighter; small headings barely at all. */
+  h1, h2 { letter-spacing: var(--tracking-tight); text-wrap: balance; }
+  h3 { letter-spacing: var(--tracking-snug); }
   ::selection { background: var(--accent-soft); }
   :focus-visible {
     outline: 2px solid var(--accent);

@@ -1,63 +1,138 @@
 @layer components {
 /* ==========================================================================
-   Landing page - motion only, kept quiet.
+   Landing page - calm precision.
 
-   Sections fade up as they scroll in, the hero's pieces arrive in order,
-   numbers count up once, cards lift a little on hover. No decoration
-   beyond the design system's own surfaces and borders. With reduced motion
-   everything is simply visible.
+   The hero arrives in reading order, sections rise 12px once as they scroll
+   in (Reveal.tsx on the shared .reveal contract), numbers count up once, the
+   navbar gains a frosted edge when the page moves under it. Only things that
+   can be clicked respond to hover. Every duration and curve is a token
+   (docs/design/MOTION.md); entrances use backwards fill, so a skipped
+   animation leaves the page exactly as it rests. With reduced motion
+   everything is simply there.
    ========================================================================== */
 
 .landing {
-  animation: landingIn 400ms var(--ease) both;
+  /* One faint grid behind the hero, and the elevation of the two live panels. */
+  --landing-grid: rgba(15, 23, 42, 0.05);
+  --landing-panel-shadow:
+    var(--surface-highlight),
+    0 1px 2px 0 rgba(15, 23, 42, 0.04),
+    0 12px 28px -12px rgba(15, 23, 42, 0.12),
+    0 32px 64px -32px rgba(15, 23, 42, 0.2);
+  /* On-screen-at-mount reveals start once the hero sequence is under way. */
+  --reveal-lead: calc(var(--stagger) * 3);
 }
-@keyframes landingIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+.dark .landing {
+  --landing-grid: rgba(255, 255, 255, 0.04);
+  --landing-panel-shadow:
+    var(--surface-highlight),
+    0 1px 2px 0 rgba(0, 0, 0, 0.5),
+    0 16px 36px -12px rgba(0, 0, 0, 0.6),
+    0 40px 80px -32px rgba(0, 0, 0, 0.75);
 }
 
-/* ----------------------------------------------------------- scroll reveal */
+/* ------------------------------------------------------------------ navbar
+   Transparent over the hero; once the page scrolls under it, a translucent
+   surface, a blur and a hairline. Colour eases, the blur just switches on. */
 
-.reveal {
-  opacity: 0;
-  transform: translateY(16px);
+.landing-nav {
+  border-bottom: 1px solid transparent;
+  background-color: transparent;
   transition:
-    opacity 600ms var(--ease),
-    transform 600ms var(--ease);
+    background-color var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out);
+  animation: cc-fade var(--dur-slow) var(--ease-out) backwards;
 }
-.reveal.is-in {
-  opacity: 1;
-  transform: none;
+.landing-nav[data-scrolled] {
+  background-color: color-mix(in srgb, var(--bg) 94%, transparent);
+  border-bottom-color: var(--border);
 }
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .landing-nav[data-scrolled] {
+    background-color: color-mix(in srgb, var(--bg) 78%, transparent);
+    -webkit-backdrop-filter: saturate(1.8) blur(12px);
+    backdrop-filter: saturate(1.8) blur(12px);
+  }
+}
+.landing-nav-link {
+  border-radius: var(--radius-xs);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+/* The small-screen menu drops from the bar (.menu-surface enter/exit). It
+   spans the viewport, so it only fades and drops - no scale at the edges. */
+.landing-menu {
+  box-shadow: var(--shadow-md);
+}
+.landing-menu.menu-surface:not([data-state="closed"]) { --enter-scale: 1; }
+.landing-menu.menu-surface[data-state="closed"] { --exit-scale: 1; }
 
 /* -------------------------------------------------------------------- hero */
 
+/* A faint grid, strongest behind the headline and gone before the fold. */
+.hero {
+  position: relative;
+  isolation: isolate;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--landing-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--landing-grid) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: center top;
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 20%, transparent 70%);
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 20%, transparent 70%);
+}
+
+/* Reading order - eyebrow, headline, copy, actions, footnote - one
+   --stagger apart; the lesson panel rises beside them a little further and
+   a little slower, so the page settles as one piece within ~0.5s. */
 .hero-in {
-  opacity: 0;
-  transform: translateY(12px);
-  animation: heroIn 600ms var(--ease) forwards;
+  --enter-y: var(--shift-md);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-slow) var(--ease-out) backwards;
+  animation-delay: calc(var(--hero-step, 0) * var(--stagger));
 }
-@keyframes heroIn {
-  to { opacity: 1; transform: none; }
-}
-.hero-in-1 { animation-delay: 60ms; }
-.hero-in-2 { animation-delay: 180ms; }
-.hero-in-3 { animation-delay: 300ms; }
-.hero-in-4 { animation-delay: 420ms; }
+.hero-in-1 { --hero-step: 0; }
+.hero-in-2 { --hero-step: 1; }
+.hero-in-3 { --hero-step: 2; }
+.hero-in-4 { --hero-step: 3; }
+.hero-in-5 { --hero-step: 4; }
 
 .hero-panel-wrap {
-  opacity: 0;
-  transform: translateY(16px);
-  animation: heroIn 700ms var(--ease) 240ms forwards;
-}
-.hero-panel {
-  box-shadow: 0 20px 50px -28px rgba(15, 23, 42, 0.3);
-}
-.dark .hero-panel {
-  box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.7);
+  --enter-y: var(--shift-lg);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-slower) var(--ease-out) calc(var(--stagger) * 2) backwards;
 }
 
-/* ------------------------------------------------------------------- cards */
+.landing .hero-panel,
+.landing .practice-panel {
+  border-radius: var(--radius-xl);
+  box-shadow: var(--landing-panel-shadow);
+}
+/* Skeleton bones sitting on the panel's surface-2 footer need one step more contrast. */
+.hero-panel-foot .skeleton-bone { background: var(--surface-3); }
+
+/* The primary CTAs' arrow leans toward where it goes. */
+.cta-arrow svg { transition: transform var(--dur-base) var(--ease-out); }
+@media (hover: hover) {
+  .cta-arrow:hover svg { transform: translateX(var(--shift-sm)); }
+}
+.cta-arrow:focus-visible svg { transform: translateX(var(--shift-sm)); }
+
+/* ------------------------------------------------------------ number strip */
+
+.stat-strip .stat-value {
+  font-size: var(--text-2xl);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* ------------------------------------------------------------------- cards
+   Information, not controls: they never lift or change on hover. */
 
 .step-card,
 .progress-card {
@@ -65,14 +140,8 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
+  box-shadow: var(--surface-highlight);
   height: 100%;
-}
-.step-card {
-  transition: transform var(--med) var(--ease), border-color var(--med) var(--ease);
-}
-.step-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--border-strong);
 }
 .step-num {
   display: inline-flex;
@@ -81,46 +150,85 @@
   width: 2rem;
   height: 2rem;
   border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
   background: var(--surface-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   margin-bottom: var(--space-4);
 }
 .step-icon { color: var(--text-muted); }
 
-.practice-panel {
-  box-shadow: 0 20px 50px -28px rgba(15, 23, 42, 0.3);
-}
-.dark .practice-panel { box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.7); }
-
 /* ---------------------------------------------------------------- progress */
 
-/* The bars grow into place when the section scrolls in. */
-.landing-progress .progress-fill {
-  transition: width 900ms var(--ease) 100ms;
-}
+/* The bars grow into place once their card has mostly landed. While the card
+   is still hidden they drop to zero at once, so the one fill anyone sees is
+   the grow. */
+.landing-progress .progress-fill { transition-delay: var(--dur-base); }
+.landing .reveal[data-reveal="hidden"] .progress-fill { transition: none; }
 
 /* --------------------------------------------------------------- final cta */
 
 .cta-panel {
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--surface);
+  box-shadow: var(--surface-highlight);
   padding: var(--space-10) var(--space-8);
 }
 @media (min-width: 640px) {
   .cta-panel { padding: var(--space-12); }
 }
-.cta-arrow svg { transition: transform var(--med) var(--ease); }
-.cta-arrow:hover svg { transform: translateX(3px); }
 
-/* ---------------------------------------------------------- reduced motion */
+/* ----------------------------------------------------- reveal (landing extras)
+   The base fade + 12px rise, and the hidden state, come from components.css.
+   Here: the per-group step, the entrance for things already on screen at
+   mount, and rows (.reveal-item + staggerStyle(i)) that follow their
+   container 40ms apart, rising only 4px so the two motions do not add up.
+   A row's slot is its container's step plus its own index, capped at the
+   sixth together (200ms) like every other stagger; the on-mount lead is the
+   section's place after the hero, not part of the list. */
+
+.landing .reveal[data-reveal="shown"] {
+  transition-delay: calc(var(--reveal-step, 0) * var(--stagger));
+}
+.landing .reveal[data-reveal="enter"] {
+  --enter-y: var(--shift-md);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-slow) var(--ease-out) backwards;
+  animation-delay: calc(var(--reveal-lead) + var(--reveal-step, 0) * var(--stagger));
+}
+
+.landing .reveal[data-reveal] .reveal-item {
+  transition:
+    opacity var(--dur-slow) var(--ease-out),
+    transform var(--dur-slow) var(--ease-out);
+}
+.landing .reveal[data-reveal="hidden"] .reveal-item {
+  opacity: 0;
+  transform: translate3d(0, var(--shift-sm), 0);
+}
+.landing .reveal[data-reveal="shown"] .reveal-item {
+  transition-delay: calc(min(var(--reveal-step, 0) + var(--i, 0), 5) * var(--stagger));
+}
+.landing .reveal[data-reveal="enter"] .reveal-item {
+  --enter-y: var(--shift-sm);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-base) var(--ease-out) backwards;
+  animation-delay: calc(var(--reveal-lead) + min(var(--reveal-step, 0) + var(--i, 0), 5) * var(--stagger));
+}
+
+/* ---------------------------------------------------------- reduced motion
+   tokens.css already makes every animation and transition instant; here the
+   resting transforms go too, and nothing hidden can stay hidden. */
 
 @media (prefers-reduced-motion: reduce) {
-  .landing, .hero-in, .hero-panel-wrap { animation: none; opacity: 1; transform: none; }
-  .reveal { opacity: 1; transform: none; transition: none; }
-  .step-card, .cta-arrow svg { transition: none; }
-  .landing-progress .progress-fill { transition: none; }
+  .cta-arrow:hover svg,
+  .cta-arrow:focus-visible svg { transform: none; }
+  .landing .reveal[data-reveal="hidden"] .reveal-item { opacity: 1; transform: none; }
+}
+@media print {
+  .landing .reveal[data-reveal="hidden"] .reveal-item { opacity: 1; transform: none; }
 }
 }

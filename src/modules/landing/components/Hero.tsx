@@ -1,9 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { optionOrder } from '@/platform/grading-engine/answers';
-import { ButtonLink, CodeBlock } from '@/ui';
+import { Bone, ButtonLink, CodeBlock } from '@/ui';
 import type { Challenge, ChallengeType } from '@/types';
 import { useNextChallenge } from './useNextChallenge';
 
@@ -75,6 +75,31 @@ const Preview: React.FC<{ challenge: Challenge }> = ({ challenge: c }) => {
 };
 
 /**
+ * The panel's own shape while the content bank is on its way - head, prompt,
+ * code, footer - so nothing jumps when the lesson lands. A calm sheen, no pulse.
+ */
+const HeroPanelSkeleton: React.FC = () => (
+  <div className="panel hero-panel overflow-hidden flex flex-col min-h-[26rem]" aria-hidden="true">
+    <div className="panel-head !py-2.5">
+      <div className="grid gap-1.5 flex-1 min-w-0">
+        <Bone w="11rem" h="0.625rem" />
+        <Bone w="55%" h="0.875rem" />
+      </div>
+      <Bone w="3.5rem" h="1.25rem" />
+    </div>
+    <div className="flex-1 p-4 sm:p-5 grid content-start gap-3">
+      <Bone w="92%" h="0.8125rem" />
+      <Bone w="68%" h="0.8125rem" />
+      <Bone h="13rem" className="mt-1 !rounded-md" />
+    </div>
+    <div className="hero-panel-foot flex items-center justify-between px-4 sm:px-5 py-3 border-t border-border-subtle bg-surface-2">
+      <Bone w="6.5rem" h="0.75rem" />
+      <Bone w="7rem" h="1.75rem" className="!rounded-sm" />
+    </div>
+  </div>
+);
+
+/**
  * The hero is the product. On the right, the visitor's own next lesson - the
  * first unsolved one in their current stage, in order, whatever its type -
  * rendered with the same pieces the practice modal uses. Opening it lands on
@@ -88,33 +113,42 @@ export const Hero: React.FC = () => {
   const lessons = allChallenges.filter((c) => !c.isStageTest).length;
   const tests = allChallenges.filter((c) => c.isStageTest).length;
 
+  // What was on screen when the hero first painted. Anything that replaces it
+  // later (the real figures, a lesson in place of the skeleton, the next
+  // lesson once this one is solved) fades in where it lands; what was there
+  // from the start only takes part in the hero's own entrance.
+  const firstEyebrow = useRef(contentReady);
+  const firstSampleId = useRef(sample?.id ?? null);
+
   return (
     <section className="hero pt-28 pb-16 sm:pt-36 sm:pb-24">
       <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center">
         <div className="max-w-xl">
           <div className="eyebrow hero-in hero-in-1">
-            {contentReady ? `${lessons} lessons · ${tests} stage tests · real code execution` : 'Developer training environment'}
+            <span key={String(contentReady)} className={contentReady !== firstEyebrow.current ? 'content-fade-in' : undefined}>
+              {contentReady ? `${lessons} lessons · ${tests} stage tests · real code execution` : 'Developer training environment'}
+            </span>
           </div>
-          <h1 className="hero-in hero-in-1 text-[2.5rem] sm:text-[3.25rem] leading-[1.05] font-semibold tracking-tight text-fg">
+          <h1 className="hero-in hero-in-2 text-[2.5rem] sm:text-[3.25rem] leading-[1.05] font-semibold tracking-tight text-fg">
             Learn to code by
             <br />
             actually writing it.
           </h1>
-          <p className="hero-in hero-in-2 mt-6 text-lg text-fg-secondary leading-relaxed">
+          <p className="hero-in hero-in-3 mt-6 text-lg text-fg-secondary leading-relaxed">
             A staged path from programming basics to shipping software. Read the concept, predict the output, fill the blanks,
             then write the function — graded by running your code for real.
           </p>
 
-          <div className="hero-in hero-in-3 mt-8 flex flex-col sm:flex-row gap-3">
+          <div className="hero-in hero-in-4 mt-8 flex flex-col sm:flex-row gap-3">
             <ButtonLink to="/dashboard/learn" variant="primary" size="lg" className="cta-arrow">
-              Start learning <ArrowRight size={15} />
+              Start learning <ArrowRight size={15} aria-hidden="true" />
             </ButtonLink>
             <ButtonLink to="/dashboard/roadmap" variant="secondary" size="lg">
               Explore the roadmaps
             </ButtonLink>
           </div>
 
-          <p className="hero-in hero-in-4 mt-8 text-sm text-fg-muted">
+          <p className="hero-in hero-in-5 mt-8 text-sm text-fg-muted">
             Free, runs on your machine · No videos · Every stage ends in a coding test
           </p>
         </div>
@@ -122,7 +156,10 @@ export const Hero: React.FC = () => {
         {/* Your next lesson */}
         <div className="hero-panel-wrap min-w-0">
           {sample ? (
-            <div className="panel hero-panel overflow-hidden">
+            <div
+              key={sample.id}
+              className={`panel hero-panel overflow-hidden ${sample.id !== firstSampleId.current ? 'content-fade-in' : ''}`.trim()}
+            >
               <div className="panel-head !py-2.5">
                 <div className="min-w-0">
                   <div className="font-mono text-[11px] uppercase tracking-wider text-fg-muted">
@@ -146,7 +183,7 @@ export const Hero: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="panel hero-panel h-[26rem] animate-pulse" aria-hidden="true" />
+            <HeroPanelSkeleton />
           )}
         </div>
       </div>

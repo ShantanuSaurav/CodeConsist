@@ -11,6 +11,8 @@ interface ConceptTeachingProps {
   concept: Concept;
   /** Called once the learner is ready to answer the actual challenge (the quick check). */
   onDone: () => void;
+  /** Called on each step forward, so the host can bring the new step's top into view. */
+  onStep?: () => void;
 }
 
 type Phase = 'concept' | 'why' | 'tryit' | 'bridge';
@@ -27,7 +29,7 @@ type Phase = 'concept' | 'why' | 'tryit' | 'bridge';
  * a beginner sees one idea at a time (progressive disclosure) with a visible
  * sense of where they are (`ProgressSteps`, via LessonIntro).
  */
-export const ConceptTeaching: React.FC<ConceptTeachingProps> = ({ concept, onDone }) => {
+export const ConceptTeaching: React.FC<ConceptTeachingProps> = ({ concept, onDone, onStep }) => {
   const [phase, setPhase] = useState<Phase>('concept');
 
   const steps = useMemo(() => {
@@ -48,52 +50,58 @@ export const ConceptTeaching: React.FC<ConceptTeachingProps> = ({ concept, onDon
     if (phase === 'concept') setPhase('why');
     else if (phase === 'why') setPhase(concept.tryIt ? 'tryit' : 'bridge');
     else if (phase === 'tryit') setPhase('bridge');
+    onStep?.();
   };
 
   return (
     <div className="concept-teaching">
       <LessonIntro title={concept.title} summary={concept.summary} steps={steps} activeIndex={activeIndex} />
 
-      {phase === 'concept' && (
-        <>
-          <ConceptExplanation text={concept.intro} explainDifferently={concept.explainDifferently} />
-          <CodeExample code={concept.example.code} language={concept.example.language} callouts={concept.example.callouts} />
-          <button type="button" className="btn btn-solid" onClick={advance}>
-            <span>Next: why does this work?</span>
-            <ArrowRight size={16} />
-          </button>
-        </>
-      )}
+      {/* One wrapper per phase, keyed, so each new phase slides in from the
+          right (the direction of travel). The first phase arrives with the
+          lesson itself and does not animate twice. */}
+      <div key={phase} className={`concept-phase ${phase !== 'concept' ? 'is-entering' : ''}`.trim()}>
+        {phase === 'concept' && (
+          <>
+            <ConceptExplanation text={concept.intro} explainDifferently={concept.explainDifferently} />
+            <CodeExample code={concept.example.code} language={concept.example.language} callouts={concept.example.callouts} />
+            <button type="button" className="btn btn-solid" onClick={advance}>
+              <span>Next: why does this work?</span>
+              <ArrowRight size={16} />
+            </button>
+          </>
+        )}
 
-      {phase === 'why' && (
-        <>
-          <ConceptExplanation text={concept.why} />
-          {concept.secondExample && (
-            <CodeExample
-              code={concept.secondExample.code}
-              language={concept.secondExample.language}
-              callouts={concept.secondExample.callouts}
-              label="One more example"
-            />
-          )}
-          <button type="button" className="btn btn-solid" onClick={advance}>
-            <span>{concept.tryIt ? 'Next: try it yourself' : 'Continue to the quick check'}</span>
-            <ArrowRight size={16} />
-          </button>
-        </>
-      )}
+        {phase === 'why' && (
+          <>
+            <ConceptExplanation text={concept.why} />
+            {concept.secondExample && (
+              <CodeExample
+                code={concept.secondExample.code}
+                language={concept.secondExample.language}
+                callouts={concept.secondExample.callouts}
+                label="One more example"
+              />
+            )}
+            <button type="button" className="btn btn-solid" onClick={advance}>
+              <span>{concept.tryIt ? 'Next: try it yourself' : 'Continue to the quick check'}</span>
+              <ArrowRight size={16} />
+            </button>
+          </>
+        )}
 
-      {phase === 'tryit' && concept.tryIt && (
-        <>
-          <InteractiveExample tryIt={concept.tryIt} />
-          <button type="button" className="btn btn-solid" onClick={advance}>
-            <span>Continue to the quick check</span>
-            <ArrowRight size={16} />
-          </button>
-        </>
-      )}
+        {phase === 'tryit' && concept.tryIt && (
+          <>
+            <InteractiveExample tryIt={concept.tryIt} />
+            <button type="button" className="btn btn-solid" onClick={advance}>
+              <span>Continue to the quick check</span>
+              <ArrowRight size={16} />
+            </button>
+          </>
+        )}
 
-      {phase === 'bridge' && <QuickCheck onStart={onDone} />}
+        {phase === 'bridge' && <QuickCheck onStart={onDone} />}
+      </div>
     </div>
   );
 };

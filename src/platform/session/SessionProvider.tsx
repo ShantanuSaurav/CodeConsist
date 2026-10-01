@@ -893,14 +893,18 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
   const celebrate = useCallback(() => {
     if (prefersReducedMotion()) return;
-    // Fetched on the first solve, not on page load - nobody celebrates before that.
+    // Fetched on the first milestone, not on page load - nobody celebrates before that.
+    // Kept small and on-brand: a short burst for real milestones, never routine answers.
     import('canvas-confetti').then(({ default: confetti }) =>
       confetti({
-        particleCount: 70,
-        spread: 68,
+        particleCount: 36,
+        spread: 56,
+        startVelocity: 32,
+        ticks: 140,
+        scalar: 0.8,
         origin: { y: 0.65 },
         disableForReducedMotion: true,
-        colors: ['#4839FF', '#FFB020', '#00B873', '#FF5A4E']
+        colors: ['#15803D', '#7BE06E', '#EAB308']
       })
     );
   }, []);
@@ -945,7 +949,9 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
 
       const levelledUp = optimistic.level > stats.level;
       setStats(optimistic);
-      celebrate();
+      // A routine correct answer already gets its calm in-lesson success state;
+      // the burst is saved for a level-up.
+      if (levelledUp) celebrate();
 
       eventBus.emit('challenge:completed', {
         challenge,

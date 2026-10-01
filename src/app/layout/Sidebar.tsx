@@ -1,5 +1,5 @@
-import React from 'react';
-import { NavLink, Link } from 'react-router-dom';
+import React, { useRef } from 'react';
+import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
   Award,
   BookOpen,
@@ -21,7 +21,7 @@ import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
 import { ROUTES } from '@/config/routes';
-import { DevlingoLogo, Dropdown, ProgressBar } from '@/ui';
+import { DevlingoLogo, Dropdown, ProgressBar, useSlidingIndicator } from '@/ui';
 
 const ICON = 16;
 
@@ -53,11 +53,16 @@ interface SidebarProps {
 /**
  * The application's left rail. Grouped navigation, the track switcher, and a
  * compact identity block at the bottom. The active item is marked by a
- * slightly raised surface and an accent icon - nothing louder.
+ * slightly raised surface, an accent icon and a 2px accent bar that glides
+ * from the old item to the new one on navigation - nothing louder.
  */
 export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
   const { user, stats, logout, serverStatus, tracks, selectedTrackId, setSelectedTrack } = useSession();
   const { theme, toggleTheme } = useTheme();
+  const { pathname } = useLocation();
+  const navRef = useRef<HTMLElement>(null);
+  const indicatorRef = useRef<HTMLSpanElement>(null);
+  useSlidingIndicator(navRef, indicatorRef, '.nav-item.is-active', 'y', pathname);
   const openAuthModal = intents.openAuth;
   const level = levelProgress(stats.xp);
   const signedIn = Boolean(user && user.provider !== 'guest');
@@ -87,7 +92,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ onNavigate }) => {
           </div>
         )}
 
-        <nav aria-label="Dashboard">
+        <nav ref={navRef} aria-label="Dashboard" className="relative">
+          <span ref={indicatorRef} className="nav-indicator" aria-hidden="true" />
           {GROUPS.map((group) => (
             <div key={group.label}>
               <div className="nav-group-label">{group.label}</div>

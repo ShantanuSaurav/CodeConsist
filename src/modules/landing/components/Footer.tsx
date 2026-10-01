@@ -47,11 +47,11 @@ export const Footer: React.FC = () => (
             {col.links.map((l) => (
               <li key={l.label}>
                 {l.to ? (
-                  <Link to={l.to} className="hover:text-fg transition-colors">
+                  <Link to={l.to} className="rounded-xs hover:text-fg transition-colors">
                     {l.label}
                   </Link>
                 ) : (
-                  <a href={l.href} target="_blank" rel="noreferrer" className="hover:text-fg transition-colors">
+                  <a href={l.href} target="_blank" rel="noreferrer" className="rounded-xs hover:text-fg transition-colors">
                     {l.label}
                   </a>
                 )}

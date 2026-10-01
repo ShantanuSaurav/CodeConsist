@@ -3,7 +3,7 @@ import { Check, Lock } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { levelProgress } from '@/platform/xp-leveling/leveling';
 import { nextRankLevel, rankTitle, solvedOn } from '@/platform/xp-leveling/insights';
-import { ProgressBar, Stat } from '@/ui';
+import { ProgressBar, Stat, staggerStyle } from '@/ui';
 import { Reveal, useInView } from './Reveal';
 
 const DAILY_GOAL = 3;
@@ -17,7 +17,8 @@ export const Gamification: React.FC = () => {
   const nextRank = nextRankLevel(level.level);
   const shown = stages.slice(0, 5);
 
-  // The bars sit at zero until the card scrolls in, then grow to the real value.
+  // The bars sit at zero until the card scrolls in, then grow to the real
+  // value. A card already on screen just shows its bars filled.
   const [barsRef, barsIn] = useInView<HTMLDivElement>();
 
   return (
@@ -36,7 +37,7 @@ export const Gamification: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-6 lg:gap-8">
           {/* Your numbers */}
-          <Reveal delay={80}>
+          <Reveal>
             <div ref={barsRef} className="progress-card landing-progress h-full">
               <div className="grid grid-cols-3 gap-6 pb-6 mb-6 border-b border-border-subtle">
                 <Stat label="Streak" value={`${stats.streak} ${stats.streak === 1 ? 'day' : 'days'}`} />
@@ -66,8 +67,8 @@ export const Gamification: React.FC = () => {
             </div>
           </Reveal>
 
-          {/* Stage unlocks */}
-          <Reveal delay={160}>
+          {/* Stage unlocks - the card arrives, then its rows 40ms apart */}
+          <Reveal step={1}>
             <div className="progress-card h-full">
               <div className="eyebrow">Stage unlocks</div>
               <ol className="border-t border-border-subtle">
@@ -75,11 +76,10 @@ export const Gamification: React.FC = () => {
                   const done = stage.state === 'Completed';
                   const active = stage.state === 'In progress' || stage.state === 'Test pending';
                   return (
-                    <Reveal
-                      as="li"
+                    <li
                       key={stage.id}
-                      delay={260 + i * 70}
-                      className="flex items-center gap-3 py-3 border-b border-border-subtle"
+                      className="reveal-item flex items-center gap-3 py-3 border-b border-border-subtle"
+                      style={staggerStyle(i)}
                     >
                       {done ? (
                         <span className="w-5 h-5 rounded-xs bg-success-soft text-success flex items-center justify-center shrink-0">
@@ -97,11 +97,13 @@ export const Gamification: React.FC = () => {
                         {stage.name}
                       </span>
                       {active && <span className="ml-auto badge badge-accent">Current</span>}
-                    </Reveal>
+                    </li>
                   );
                 })}
                 {stages.length > shown.length && (
-                  <li className="py-3 text-xs text-fg-muted font-mono">+ {stages.length - shown.length} more stages</li>
+                  <li className="reveal-item py-3 text-xs text-fg-muted font-mono" style={staggerStyle(shown.length)}>
+                    + {stages.length - shown.length} more stages
+                  </li>
                 )}
               </ol>
             </div>

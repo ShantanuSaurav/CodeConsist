@@ -1,0 +1,147 @@
+@layer components {
+/* ==========================================================================
+   Articles: the reading page and the in-lesson reading panel.
+
+   Reading is where the product slows down: a comfortable measure (68ch on
+   the page), generous leading from the Markdown renderer, and a table of
+   contents that follows along quietly - one accent bar glides to the
+   section being read (useSlidingIndicator). Motion follows
+   docs/design/MOTION.md; nothing here loops or decorates.
+   ========================================================================== */
+
+/* ------------------------------------------------------------- back link */
+
+.article-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.article-back svg { transition: transform var(--dur-fast) var(--ease-out); }
+.article-back:hover { color: var(--text); }
+@media (hover: hover) {
+  .article-back:hover svg { transform: translateX(-2px); }
+}
+
+/* ------------------------------------------------------- table of contents */
+
+/* The hairline is the track; the marker is one shared bar that measures the
+   active entry and glides to the next. Until it has measured (or without
+   JS) the active entry draws its own accent edge instead. */
+.toc { position: relative; border-left: 1px solid var(--border); }
+.toc-list { list-style: none; margin: 0; padding: 0; }
+.toc-link {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: -1px;
+  padding: 6px var(--space-2) 6px var(--space-3);
+  border-left: 1px solid transparent;
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-secondary);
+  /* Inset ring: the scrolling aside clips anything drawn outside the link. */
+  outline: 0 solid transparent;
+  outline-offset: -2px;
+  transition: var(--t-colors), var(--t-focus);
+}
+.toc-link:hover { color: var(--text); }
+.toc-link:focus-visible { outline: 2px solid var(--accent); }
+.toc-link.is-active { color: var(--text); border-left-color: var(--accent); }
+.toc[data-indicator] .toc-link.is-active { border-left-color: transparent; }
+.toc-num {
+  flex: none;
+  width: 1.25rem;
+  padding-top: 1px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.toc-link.is-active .toc-num { color: var(--accent); }
+.toc-indicator {
+  position: absolute;
+  top: 0;
+  left: -1px;
+  width: 2px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+  transition: transform var(--dur-base) var(--ease-in-out), opacity var(--dur-fast) var(--ease-out);
+}
+
+.article-related {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.article-related svg { color: var(--text-muted); transition: color var(--dur-fast) var(--ease-out); }
+.article-related:hover { color: var(--text); }
+.article-related:hover svg { color: var(--text-secondary); }
+
+/* ------------------------------------------------------------------- prose
+   Refinements on top of the shared Markdown renderer, limited to what its
+   utilities leave alone: balanced line endings, emphasis that reads as
+   emphasis, quieter list markers, links that ease their underline in. */
+.article-prose p,
+.article-prose li { text-wrap: pretty; }
+.article-prose strong { color: var(--text); }
+.article-prose :is(h3, h4, h5) { letter-spacing: var(--tracking-snug); text-wrap: balance; }
+.article-prose li::marker { color: var(--text-muted); }
+.article-prose a {
+  transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out);
+}
+
+/* ------------------------------------------------------------ reading panel
+   Height is never animated: the body takes its space at once and the text
+   carries the motion, fading in as it settles 4px down from the toggle.
+   Closing fades it back up a step faster; the space closes once it has
+   gone (usePresence). Scoped under .reading-panel so it outranks
+   .presence-fade, which still supplies pointer-events while closed. */
+.reading-panel .reading-body:not([data-state="closed"]) {
+  --enter-y: calc(var(--shift-sm) * -1);
+  --enter-scale: 1;
+  animation: cc-enter var(--dur-base) var(--ease-out) backwards;
+}
+.reading-panel .reading-body[data-state="closed"] {
+  --exit-x: 0px;
+  --exit-y: calc(var(--shift-sm) * -1);
+  --exit-scale: 1;
+  animation: cc-exit var(--dur-fast) var(--ease-in) forwards;
+}
+
+/* The panel's chrome lives with the practice modal (practice.css); these are
+   its motion and focus details, scoped under .reading-panel so they hold
+   whichever stylesheet loads first. The chevron is a state change, so it
+   eases both ways; the ring sits inside the clipped panel. */
+.reading-panel .reading-toggle {
+  outline: 0 solid transparent;
+  outline-offset: -2px;
+  transition: var(--t-colors), var(--t-focus);
+}
+.reading-panel .reading-toggle:focus-visible { outline: 2px solid var(--accent); }
+.reading-panel .reading-chevron { transition: transform var(--dur-base) var(--ease-in-out); }
+.reading-panel .reading-link {
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  transition: text-decoration-color var(--dur-fast) var(--ease-out);
+}
+.reading-panel .reading-link:hover { text-decoration-color: currentColor; }
+
+/* ----------------------------------------------------------- reduced motion
+   Durations are already zero (tokens.css); drop the resting nudge too. */
+@media (prefers-reduced-motion: reduce) {
+  .article-back:hover svg { transform: none; }
+}
+
+}
