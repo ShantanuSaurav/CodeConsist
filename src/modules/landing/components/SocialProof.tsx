@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import { useSession } from '@/platform/session';
-import { Stat } from '@/ui';
-import { CountUp, Reveal } from './Reveal';
+import { CountUp, Reveal, Stat } from '@/ui';
 
 /**
  * The numbers strip under the hero. Derived from the content bank rather than

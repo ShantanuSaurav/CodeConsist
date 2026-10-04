@@ -177,7 +177,7 @@ const NodeDrawer: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[450]" role="presentation">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-scrim" onClick={onClose} />
       <div
         ref={ref}
         role="dialog"

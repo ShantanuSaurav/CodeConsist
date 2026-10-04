@@ -11,6 +11,8 @@ interface CodeBlockProps {
   label?: string;
   /** Slots a React node in place of each `___` placeholder (fill-in-the-blank). */
   renderBlank?: (index: number) => React.ReactNode;
+  /** Three window dots in the header, for a showcase snippet rather than lesson code. */
+  windowDots?: boolean;
   className?: string;
 }
 
@@ -44,6 +46,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
   showLineNumbers,
   label,
   renderBlank,
+  windowDots = false,
   className = ''
 }) => {
   const lines = useMemo(() => tokenize(code ?? '', language), [code, language]);
@@ -56,6 +59,13 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
     <div className={`code-block ${className}`.trim()}>
       <div className="code-block-head">
         <div className="code-block-head-left">
+          {windowDots && (
+            <span className="code-block-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+          )}
           <span className="code-block-lang">{label ?? LANGUAGE_LABELS[language] ?? language}</span>
         </div>
         <span className="code-block-lines">

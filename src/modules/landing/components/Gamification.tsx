@@ -2,8 +2,7 @@ import React from 'react';
 import { Check, Lock } from 'lucide-react';
 import { useLeveling, useSession } from '@/platform/session';
 import { describeGoalProgress } from '@/platform/habits';
-import { ProgressBar, Stat } from '@/ui';
-import { Reveal, useInView } from './Reveal';
+import { ProgressBar, Reveal, Stat, useInView } from '@/ui';
 
 /** "Progress you can see" - every figure here is the visitor's real number. */
 export const Gamification: React.FC = () => {

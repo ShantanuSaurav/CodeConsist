@@ -9,12 +9,12 @@ interface PageHeaderProps {
   className?: string;
 }
 
-/** Title block at the top of every page. One size, one weight, everywhere. */
+/** Title block at the top of every page. One size, one weight, everywhere (`.page-title`). */
 export const PageHeader: React.FC<PageHeaderProps> = ({ eyebrow, title, description, aside, className = '' }) => (
-  <header className={`flex flex-wrap items-end justify-between gap-4 pb-6 mb-6 border-b border-border-subtle ${className}`.trim()}>
+  <header className={`flex flex-wrap items-end justify-between gap-4 pb-6 mb-8 border-b border-border-subtle ${className}`.trim()}>
     <div className="flex-1 max-w-2xl min-w-[16rem]">
       {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-      <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight text-fg">{title}</h1>
+      <h1 className="page-title">{title}</h1>
       {description && <p className="text-fg-secondary mt-2 text-[0.9375rem] leading-relaxed">{description}</p>}
     </div>
     {aside && <div className="shrink-0">{aside}</div>}

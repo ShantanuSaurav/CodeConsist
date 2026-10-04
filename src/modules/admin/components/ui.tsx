@@ -296,7 +296,7 @@ export const Drawer: React.FC<{
   const close = () => closable && onClose();
   return (
     <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label={title} aria-busy={!closable || undefined}>
-      <div className="absolute inset-0 bg-black/50" onClick={close} />
+      <div className="absolute inset-0 bg-scrim" onClick={close} />
       <div
         ref={panel}
         tabIndex={-1}
@@ -349,7 +349,7 @@ export const ConfirmDialog: React.FC<{
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-message`}
     >
-      <div className="absolute inset-0 bg-black/50" onClick={busy ? undefined : onCancel} />
+      <div className="absolute inset-0 bg-scrim" onClick={busy ? undefined : onCancel} />
       <div ref={ref} tabIndex={-1} className="relative bg-surface border border-border rounded-lg shadow-dialog max-w-sm w-full p-5 outline-none" aria-busy={busy || undefined}>
         <h3 id={`${id}-title`} className="text-base font-semibold text-fg mb-1.5">
           {title}

@@ -1,9 +1,8 @@
 import React from 'react';
 import { Play } from 'lucide-react';
 import { intents } from '@/platform/events';
-import { Button, CodeBlock } from '@/ui';
+import { Button, CodeBlock, Reveal } from '@/ui';
 import type { Challenge } from '@/types';
-import { Reveal } from './Reveal';
 import { useNextChallenge } from './useNextChallenge';
 
 const FORMATS = [

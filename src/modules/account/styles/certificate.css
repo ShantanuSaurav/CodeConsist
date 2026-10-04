@@ -125,7 +125,7 @@
   font-size: var(--text-xs);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--error);
+  color: var(--error-text);
   border: 1px solid var(--error);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-xs);
@@ -157,7 +157,7 @@
   .certificate-lead, .certificate-body { color: #334155; }
   .certificate-kicker, .certificate-meta dt { color: #64748b; }
   .certificate-meta dd { color: #0f172a; }
-  .certificate-name { border-bottom-color: #15803d; }
+  .certificate-name { border-bottom-color: #BF4508; }
   .certificate-track, .certificate-title { color: #0f172a; }
   /* The wordmark is coloured by a Tailwind utility, which sits in a later layer
      than this one - so it needs !important, or it prints white on white in dark mode. */

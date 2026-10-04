@@ -13,7 +13,10 @@ interface BaseProps {
   className?: string;
 }
 
-export type ButtonProps = BaseProps & React.ButtonHTMLAttributes<HTMLButtonElement>;
+export type ButtonProps = BaseProps & {
+  /** Busy: shows a spinner, sets aria-busy and holds the button disabled until it settles. */
+  loading?: boolean;
+} & React.ButtonHTMLAttributes<HTMLButtonElement>;
 
 const VARIANT: Record<ButtonVariant, string> = {
   primary: 'btn-primary',
@@ -33,8 +36,18 @@ export function buttonClass({ variant = 'secondary', size = 'md', icon, block, c
 
 /** The one button. Every clickable action in the product goes through here or `buttonClass`. */
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant, size, icon, block, className, type = 'button', ...rest }, ref) => (
-    <button ref={ref} type={type} className={buttonClass({ variant, size, icon, block, className })} {...rest} />
+  ({ variant, size, icon, block, className, type = 'button', loading = false, disabled, children, ...rest }, ref) => (
+    <button
+      ref={ref}
+      type={type}
+      className={buttonClass({ variant, size, icon, block, className })}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...rest}
+    >
+      {loading && <span className="btn-spinner" aria-hidden="true" />}
+      {children}
+    </button>
   )
 );
 Button.displayName = 'Button';

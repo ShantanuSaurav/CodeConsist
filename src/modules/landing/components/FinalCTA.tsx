@@ -2,8 +2,7 @@ import React from 'react';
 import { ArrowRight } from 'lucide-react';
 import { useContentStats } from '@/platform/session';
 import { useCopy } from '@/platform/settings';
-import { ButtonLink } from '@/ui';
-import { Reveal } from './Reveal';
+import { ButtonLink, Reveal } from '@/ui';
 
 export const FinalCTA: React.FC = () => {
   // The heading is admin-editable (`copy.landing.finalCta`).

@@ -40,31 +40,31 @@ const SPLASH_STATUS = ['Loading CodeConsist', 'Fetching the content bank', 'Prep
 
 /**
  * The whole-window fallback while the very first route chunk downloads.
- * Mirrors the pre-mount splash in index.html (same mark, same bar, same
- * place on the page) so the hand-over from static HTML to React is
- * invisible. The status line rotates so a slow network still reads as
- * progress rather than a hang.
+ * Mirrors the pre-mount splash in index.html exactly (same mark file, same
+ * bar, same colours, same place on the page) so the hand-over from static
+ * HTML to React is invisible. The status line rotates so a slow network
+ * still reads as progress rather than a hang.
  */
 export const AppSplash: React.FC = () => {
+  // Counts up rather than wrapping, so only the very first message - the one
+  // the boot splash was already showing - appears without sliding in.
   const [step, setStep] = useState(0);
   useEffect(() => {
-    const t = window.setInterval(() => setStep((s) => (s + 1) % SPLASH_STATUS.length), 1500);
+    const t = window.setInterval(() => setStep((s) => s + 1), 1500);
     return () => window.clearInterval(t);
   }, []);
 
   return (
     <div className="app-splash" role="status" aria-live="polite" aria-label="Loading CodeConsist">
-      <div className="app-splash-bg" aria-hidden="true" />
       <div className="app-splash-mark">
-        <span className="app-splash-ring" aria-hidden="true" />
         <DevlingoLogo size="xl" decorative />
       </div>
       <div className="app-splash-name">CodeConsist</div>
       <div className="app-splash-track" aria-hidden="true">
         <span className="app-splash-fill" />
       </div>
-      <div className="app-splash-status" key={step}>
-        {SPLASH_STATUS[step]}
+      <div className={step ? 'app-splash-status is-new' : 'app-splash-status'} key={step}>
+        {SPLASH_STATUS[step % SPLASH_STATUS.length]}
       </div>
     </div>
   );

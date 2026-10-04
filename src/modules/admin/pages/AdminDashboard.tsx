@@ -56,7 +56,7 @@ export const AdminDashboard: React.FC = () => {
         <dl className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 divide-y sm:divide-y-0 divide-border-subtle sm:divide-x">
           {figures.map(([label, value]) => (
             <div key={label} className="px-4 py-3">
-              <Stat label={label} value={value} />
+              <Stat label={label} value={value} size="sm" />
             </div>
           ))}
         </dl>
@@ -91,13 +91,13 @@ export const AdminDashboard: React.FC = () => {
         {/* Paid orders only - test-mode and granted orders count as orders but carry ₹0 or a simulated amount, so the totals below are what the server recorded, not what Razorpay settled. */}
         <dl className="grid grid-cols-3 divide-x divide-border-subtle">
           <div className="pr-4">
-            <Stat label="Paid orders" value={data.revenue.paidOrders} />
+            <Stat label="Paid orders" value={data.revenue.paidOrders} size="sm" />
           </div>
           <div className="px-4">
-            <Stat label="Total" value={rupees(data.revenue.totalPaise)} />
+            <Stat label="Total" value={rupees(data.revenue.totalPaise)} size="sm" />
           </div>
           <div className="pl-4">
-            <Stat label="Last 30 days" value={rupees(data.revenue.last30DaysPaise)} />
+            <Stat label="Last 30 days" value={rupees(data.revenue.last30DaysPaise)} size="sm" />
           </div>
         </dl>
         {data.razorpayMode === 'test' && (

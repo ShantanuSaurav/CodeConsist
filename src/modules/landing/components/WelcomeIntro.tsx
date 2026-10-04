@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
-import { Button, DEVLINGO_LOGO_LAYERS } from '@/ui';
+import { Button } from '@/ui';
+import { DEVLINGO_LOGO_LAYERS } from '@/ui/brand/logoLayers';
 import { useTheme } from '@/platform/theme';
 import '../styles/welcome.css';
 

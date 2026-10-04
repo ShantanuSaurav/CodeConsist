@@ -271,7 +271,7 @@ export const SettingsPage: React.FC = () => {
               : 'Premium stages are one-time purchases - a single stage, a whole track, or a lifetime licence. No subscription.'
           }
         >
-          <span className={`font-mono text-sm ${stats.isPremium || unlockedCount > 0 ? 'text-accent' : 'text-fg'}`}>{plan}</span>
+          <span className={`font-mono text-sm ${stats.isPremium || unlockedCount > 0 ? 'text-accent-text' : 'text-fg'}`}>{plan}</span>
           <Button onClick={() => intents.openPro()} disabled={!signedIn && serverStatus === 'offline'}>
             Unlock stages &amp; certificates
           </Button>

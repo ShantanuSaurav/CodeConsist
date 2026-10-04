@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { STORAGE_KEYS, readString, writeString } from '../storage/storage';
 
 export type Theme = 'light' | 'dark';
@@ -18,11 +18,30 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
  */
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setTheme] = useState<Theme>(() => (readString(STORAGE_KEYS.theme) === 'dark' ? 'dark' : 'light'));
+  /** The theme last put on <html>; null until the first mount has run. */
+  const applied = useRef<Theme | null>(null);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.setAttribute('data-theme', theme);
+    const root = document.documentElement;
+    // A toggle would otherwise run every themed transition at once. Swap with
+    // transitions off (index.css) and turn them back on two frames later, once
+    // the new colours have painted. The first mount only confirms what
+    // index.html already set, so it is left alone.
+    let frame = 0;
+    if (applied.current !== null && applied.current !== theme) {
+      root.classList.add('theme-switching');
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => root.classList.remove('theme-switching'));
+      });
+    }
+    applied.current = theme;
+    root.classList.toggle('dark', theme === 'dark');
+    root.setAttribute('data-theme', theme);
     writeString(STORAGE_KEYS.theme, theme);
+    return () => {
+      cancelAnimationFrame(frame);
+      root.classList.remove('theme-switching');
+    };
   }, [theme]);
 
   const toggleTheme = useCallback(() => setTheme((t) => (t === 'light' ? 'dark' : 'light')), []);

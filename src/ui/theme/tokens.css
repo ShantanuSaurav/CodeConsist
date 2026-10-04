@@ -7,58 +7,143 @@
    interfaces. Dark mode is the `.dark` class on <html>.
 
    Rules of thumb
-   - Surfaces and borders do the structural work. Accent is for the primary
-     action, progress, the active nav item and success. Not for decoration.
+   - Surfaces and borders do the structural work.
+   - Colour carries meaning, one meaning each:
+       orange (accent)       brand, primary action, progress, "current"
+       violet (interactive)  focus, links, selected-but-not-graded, active tabs
+       green (success)       done, earned, correct - nothing else
+     Orange text uses --accent-text, never --accent.
    - Text has three levels: text, text-secondary, text-muted. Nothing else.
-   - Radii are small. Shadows are rare and only on floating layers
-     (menus, dialogs, drawers).
+   - Shadows are quiet: card for resting surfaces, raised/float/menu/dialog
+     for what sits above the page. Glass only on nav, rail, menus and modals.
+   - This file is unlayered and shares Tailwind's theme namespaces (--text-*,
+     --radius-*), which is why text-sm is 13px here. Never define Tailwind's
+     own keys (--container-*, --leading-*, --tracking-*, --shadow-xs..2xl,
+     --ease-in/out/in-out, --blur-*, --breakpoint-*, --spacing).
    ========================================================================== */
 :root {
   /* --------------------------------------------------------------- colour */
-  --bg: #F6F7F9;
+  --bg: #F7F6F3;
   --surface: #FFFFFF;
-  --surface-2: #F1F3F5;
-  --surface-3: #E8EBEF;
+  --surface-2: #F1EFEB;
+  --surface-3: #E9E7E2;
 
-  --border: rgba(15, 23, 42, 0.10);
-  --border-subtle: rgba(15, 23, 42, 0.06);
-  --border-strong: rgba(15, 23, 42, 0.20);
+  --border: rgba(28, 25, 20, 0.10);
+  --border-subtle: rgba(28, 25, 20, 0.06);
+  --border-strong: rgba(28, 25, 20, 0.18);
 
-  --text: #0F172A;
-  --text-secondary: #4B5563;
-  --text-muted: #6B7280;
-  --text-disabled: #9CA3AF;
+  --text: #17181C;
+  --text-secondary: #4A4E57;
+  --text-muted: #62656D;
+  --text-disabled: #A2A4AA;
 
-  --accent: #15803D;
-  --accent-hover: #166534;
+  /* A plain hex: the checkout reads it with getComputedStyle (SubscriptionModal). */
+  --accent: #BF4508;
+  --accent-hover: #A63A08;
   --accent-fg: #FFFFFF;
-  --accent-soft: rgba(21, 128, 61, 0.10);
-  --accent-ring: rgba(21, 128, 61, 0.30);
+  --accent-text: #AB3907;
+  --accent-soft: rgba(217, 77, 0, 0.10);
+  --accent-ring: rgba(217, 77, 0, 0.30);
+  --accent-glow: rgba(217, 77, 0, 0.28);
 
-  --success: #15803D;
+  --interactive: #5B5BD6;
+  --interactive-hover: #4B4AC2;
+  --interactive-text: #4B4AC2;
+  --interactive-fg: #FFFFFF;
+  --interactive-soft: rgba(91, 91, 214, 0.10);
+  --focus: #5B5BD6;
+  --focus-ring: rgba(91, 91, 214, 0.32);
+
+  /* A shade darker than first specified (success #15803D, warning #8F5A00,
+     error #D7263D, error-text #C21F35; accent-text #AD3A07 above too), so
+     status text keeps AA on --surface-3 and on its own tint over it. */
+  --success: #147739;
+  --success-text: #126B34;
+  --success-fg: #FFFFFF;
   --success-soft: rgba(21, 128, 61, 0.10);
-  --warning: #A16207;
+  --warning: #895600;
   --warning-soft: rgba(202, 138, 4, 0.12);
-  --error: #DC2626;
-  --error-soft: rgba(220, 38, 38, 0.10);
-  --info: #2563EB;
-  --info-soft: rgba(37, 99, 235, 0.10);
+  --error: #C82339;
+  --error-text: #B81D32;
+  --error-fg: #FFFFFF;
+  --error-soft: rgba(215, 38, 61, 0.10);
+  /* Information is interaction's colour, so it never competes with orange. */
+  --info: var(--interactive);
+  --info-soft: var(--interactive-soft);
+
+  --scrim: rgba(17, 18, 22, 0.48);
+  /* --scrim over --bg as one solid colour: the canvas takes it while a scrim
+     is up, so the kept scrollbar gutter (index.css) is not left bright. */
+  --scrim-canvas: #898989;
+  /* Plain tints rather than color-mix(), whose fallback in older browsers is
+     the solid colour: a ghost button's wash, and selected text. */
+  --hover-wash: rgba(23, 24, 28, 0.06);
+  --selection: rgba(91, 91, 214, 0.24);
+
+  /* The logo's own colours. Decoration only: orange fails AA as small text. */
+  --brand-orange: #D94D00;
+  --brand-yellow: #FBBC02;
+  --brand-ink: #031420;
+
+  /* Badge tiers: bronze, silver, gold, platinum, diamond. Text and its tint,
+     AA on the tint over any surface. */
+  --tier-0: #86491F;
+  --tier-0-soft: rgba(154, 91, 46, 0.10);
+  --tier-1: #525D6B;
+  --tier-1-soft: rgba(95, 107, 122, 0.10);
+  --tier-2: #8A5304;
+  --tier-2-soft: rgba(202, 138, 4, 0.12);
+  --tier-3: #0B657D;
+  --tier-3-soft: rgba(14, 116, 144, 0.10);
+  --tier-4: #6D28D9;
+  --tier-4-soft: rgba(109, 40, 217, 0.10);
+
+  /* Soft light from above for page backgrounds. Never on code surfaces. */
+  --atmos:
+    radial-gradient(60rem 30rem at 50% -10%, rgba(217, 77, 0, 0.07), transparent 70%),
+    radial-gradient(40rem 24rem at 90% 0%, rgba(91, 91, 214, 0.05), transparent 70%);
 
   /* Code surfaces stay dark in both themes: an editor is a tool, not a page. */
-  --code-bg: #0F1216;
-  --code-bg-raised: #14181D;
+  --code-bg: #0E1014;
+  --code-bg-raised: #15171C;
   --code-border: rgba(255, 255, 255, 0.08);
   --code-text: #D4D4D8;
-  --code-muted: #6B7280;
-  --code-gutter: #52525B;
-  --code-focus: rgba(255, 255, 255, 0.22);
-  --code-selection: rgba(96, 165, 250, 0.28);
+  /* Lifted from the first spec (muted #858891, focus at .45): muted keeps AA
+     even on a --code-border chip, and focus 3:1 on either code background. */
+  --code-muted: #8D9098;
+  --code-gutter: #7C8494;
+  --code-focus: rgba(154, 152, 255, 0.55);
+  --code-selection: rgba(154, 152, 255, 0.28);
   --code-caret: #F3F4F6;
+  --code-accent: #FF8F57;
+  /* Violet for the editor's active tab and chosen suggestion: dark --interactive. */
+  --code-interactive: #9A98FF;
+  /* One size for every code surface (13px), so the editor's overlay maths reads one value. */
+  --code-font-size: 0.8125rem;
+  --code-line-height: 1.6em;
+
+  --syn-keyword: #7DD3FC;
+  --syn-control: #C4B5FD;
+  --syn-type: #5EEAD4;
+  --syn-string: #FCA5A5;
+  --syn-comment: #7C8494;
+  --syn-number: #BEF264;
+  --syn-function: #FDE68A;
+  --syn-property: #BAE6FD;
+  --syn-punct: #A1A1AA;
+  --syn-plain: #D4D4D8;
+
+  /* Console and test output on the code surface. */
+  --code-error: #FCA5A5;
+  --code-ok: #4ADE80;
+  --code-warn: #FDE68A;
+  --code-info: #93C5FD;
 
   /* ----------------------------------------------------------- typography */
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, monospace;
 
+  --text-2xs: 0.6875rem;  /* 11 */
   --text-xs: 0.75rem;     /* 12 */
   --text-sm: 0.8125rem;   /* 13 */
   --text-base: 0.875rem;  /* 14 */
@@ -67,8 +152,30 @@
   --text-xl: 1.25rem;     /* 20 */
   --text-2xl: 1.5rem;     /* 24 */
   --text-3xl: 1.75rem;    /* 28 */
+  --text-4xl: 2.25rem;    /* 36 */
+
+  /* Reading sizes, for prose rather than interface. */
+  --text-body: 1rem;          /* 16 */
+  --text-body-lg: 1.0625rem;  /* 17 */
+  --text-reading: 1.125rem;   /* 18 */
+
+  /* Fluid from a 375px to a 1440px viewport. */
+  --text-h1: clamp(1.75rem, 1.5739rem + 0.751vw, 2.25rem);              /* 28-36 */
+  --text-display-sm: clamp(1.75rem, 1.4859rem + 1.127vw, 2.5rem);       /* 28-40 */
+  --text-display-md: clamp(2rem, 1.6479rem + 1.502vw, 3rem);            /* 32-48 */
+  --text-display-lg: clamp(2.5rem, 1.9718rem + 2.254vw, 4rem);          /* 40-64 */
+  --text-display-xl: clamp(2.75rem, 1.9577rem + 3.38vw, 5rem);          /* 44-80 */
+  --text-display-2xl: clamp(3rem, 1.9437rem + 4.507vw, 6rem);           /* 48-96 */
+
+  --lh-display: 1.04;
+  --lh-heading: 1.15;
+  --lh-body: 1.6;
+  --track-display: -0.035em;
+  --track-heading: -0.02em;
+  --track-eyebrow: 0.08em;
 
   /* -------------------------------------------------------------- spacing */
+  --space-0-5: 2px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -78,82 +185,161 @@
   --space-8: 32px;
   --space-10: 40px;
   --space-12: 48px;
+  --space-14: 56px;
   --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  --space-32: 128px;
+  --space-40: 160px;
+
+  /* --------------------------------------------------------------- layout */
+  --section-y: clamp(3rem, 0.0951rem + 12.394vw, 11.25rem);       /* 48-180 */
+  --section-y-app: clamp(2rem, 1.2958rem + 3.005vw, 4rem);         /* 32-64 */
+  --gutter: clamp(1rem, 0.4718rem + 2.254vw, 2.5rem);              /* 16-40 */
+  --page-max: 72rem;
+  --page-max-wide: 80rem;
+  --reading-max: 68ch;
+
+  --nav-h: 64px;
+  --nav-h-compact: 52px;
+  --nav-inset: 12px;
+  --rail-w: 64px;
+
+  --control-h: 36px;
+  --control-h-sm: 30px;
+  --control-h-lg: 44px;
+  --tap: 44px;
+
+  /* One stacking order for the whole app. */
+  --z-sticky: 30;
+  --z-nav: 40;
+  --z-dropdown: 100;
+  --z-drawer: 450;
+  --z-modal: 500;
+  --z-auth: 600;
+  --z-celebration: 700;
+  --z-toast: 900;
 
   /* ---------------------------------------------------------------- shape */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
+  --radius-xs: 6px;     /* chips, key-caps */
+  --radius-sm: 8px;     /* buttons, inputs */
+  --radius-md: 12px;    /* menus, toasts, code blocks, choice cards */
+  --radius-lg: 16px;    /* cards, panels */
+  --radius-xl: 20px;    /* modals, feature cards */
+  --radius-2xl: 28px;   /* the hero only */
   --radius-full: 999px;
 
   /* ------------------------------------------------------------- elevation */
-  --shadow-menu: 0 8px 24px -8px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.06);
-  --shadow-dialog: 0 24px 64px -16px rgba(15, 23, 42, 0.35);
+  --shadow-card: 0 1px 2px rgba(23, 24, 28, 0.04), 0 1px 1px rgba(23, 24, 28, 0.02);
+  --shadow-raised: 0 1px 2px rgba(23, 24, 28, 0.04), 0 8px 24px -12px rgba(23, 24, 28, 0.16);
+  --shadow-float: 0 2px 6px rgba(23, 24, 28, 0.04), 0 24px 48px -20px rgba(23, 24, 28, 0.22);
+  --shadow-menu: 0 12px 32px -12px rgba(23, 24, 28, 0.20), 0 0 0 1px rgba(23, 24, 28, 0.06);
+  --shadow-dialog: 0 32px 80px -24px rgba(23, 24, 28, 0.35), 0 0 0 1px rgba(23, 24, 28, 0.06);
+  --shadow-glow-accent: 0 0 0 1px rgba(217, 77, 0, 0.20), 0 10px 30px -10px rgba(217, 77, 0, 0.45);
+  --shadow-glow-focus: 0 0 0 1px rgba(91, 91, 214, 0.20), 0 10px 30px -12px rgba(91, 91, 214, 0.40);
+  /* The lit top edge of a raised surface. */
+  --highlight-inset: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  /* The .glass recipe (components.css) reads these. */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --glass-border: rgba(23, 24, 28, 0.08);
+  --glass-fallback: rgba(255, 255, 255, 0.97);
+  --glass-blur: 20px;
+  --glass-saturate: 180%;
 
   /* --------------------------------------------------------------- motion */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-std: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --instant: 80ms;
   --fast: 120ms;
   --med: 220ms;
-
-  /* -------------------------------------------------------- legacy aliases
-     Older component CSS still speaks the previous vocabulary. These map it
-     onto the new tokens so nothing breaks while it is migrated. New code
-     should use the names above. */
-  --bg-raise: var(--surface);
-  --ink: var(--text);
-  --ink-dim: var(--text-secondary);
-  --ink-faint: var(--text-muted);
-  --accent-ink: var(--accent-fg);
-  --accent-2: var(--warning);
-  --accent-2-ink: var(--warning);
-  --secondary: var(--info);
-  --danger: var(--error);
-  --ok: var(--success);
-  --line: var(--border);
-  --line-soft: var(--border-subtle);
-  --brand: var(--accent);
-  --card: var(--surface);
-  --bg-soft: var(--surface-2);
-  --font-display: var(--font-sans);
-  --font-head: var(--font-sans);
-  --font-label: var(--font-sans);
-  --font-body: var(--font-sans);
-  --radius: var(--radius-lg);
+  --slow: 360ms;
+  --slower: 560ms;
+  --reveal: 600ms;
+  --stagger: 60ms;
+  --lift-y: -2px;
+  --press-scale: 0.98;
 }
 
 .dark {
-  --bg: #090B0D;
-  --surface: #0F1216;
-  --surface-2: #14181D;
-  --surface-3: #1A1F26;
+  --bg: #0B0C0E;
+  --surface: #131418;
+  --surface-2: #1A1B20;
+  --surface-3: #22242A;
 
   --border: rgba(255, 255, 255, 0.08);
   --border-subtle: rgba(255, 255, 255, 0.05);
   --border-strong: rgba(255, 255, 255, 0.16);
 
-  --text: #F3F4F6;
-  --text-secondary: #A1A1AA;
-  --text-muted: #71717A;
-  --text-disabled: #52525B;
+  --text: #EDEDEF;
+  --text-secondary: #A3A6AE;
+  --text-muted: #8B8E97;
+  --text-disabled: #55585F;
 
-  --accent: #7BE06E;
-  --accent-hover: #93EA88;
-  --accent-fg: #07110A;
-  --accent-soft: rgba(123, 224, 110, 0.12);
-  --accent-ring: rgba(123, 224, 110, 0.35);
+  /* Never white on orange in the dark: it fails contrast. */
+  --accent: #FF7A33;
+  --accent-hover: #FF8C4D;
+  --accent-fg: #1A0D04;
+  --accent-text: #FF8F57;
+  --accent-soft: rgba(255, 122, 51, 0.14);
+  --accent-ring: rgba(255, 122, 51, 0.32);
+  --accent-glow: rgba(255, 122, 51, 0.32);
+
+  --interactive: #9A98FF;
+  --interactive-hover: #B0AEFF;
+  --interactive-text: #A9A7FF;
+  --interactive-fg: #0D0C24;
+  --interactive-soft: rgba(154, 152, 255, 0.14);
+  --focus: #9A98FF;
+  --focus-ring: rgba(154, 152, 255, 0.40);
 
   --success: #4ADE80;
+  --success-text: #4ADE80;
+  --success-fg: #06140A;
   --success-soft: rgba(74, 222, 128, 0.12);
   --warning: #EAB308;
   --warning-soft: rgba(234, 179, 8, 0.12);
-  --error: #F87171;
-  --error-soft: rgba(248, 113, 113, 0.12);
-  --info: #60A5FA;
-  --info-soft: rgba(96, 165, 250, 0.12);
+  --error: #FF6B7A;
+  --error-text: #FF6B7A;
+  --error-fg: #1A0508;
+  --error-soft: rgba(255, 107, 122, 0.14);
 
-  --shadow-menu: 0 8px 24px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-dialog: 0 24px 64px -16px rgba(0, 0, 0, 0.7);
+  --scrim: rgba(0, 0, 0, 0.60);
+  --scrim-canvas: #040506;
+  --hover-wash: rgba(237, 237, 239, 0.06);
+  --selection: rgba(154, 152, 255, 0.24);
+
+  --tier-0: #E0A070;
+  --tier-0-soft: rgba(224, 160, 112, 0.12);
+  --tier-1: #C3CBD5;
+  --tier-1-soft: rgba(195, 203, 213, 0.12);
+  --tier-2: #FACC15;
+  --tier-2-soft: rgba(250, 204, 21, 0.12);
+  --tier-3: #67E8F9;
+  --tier-3-soft: rgba(103, 232, 249, 0.12);
+  --tier-4: #C4B5FD;
+  --tier-4-soft: rgba(196, 181, 253, 0.12);
+
+  --atmos:
+    radial-gradient(60rem 30rem at 50% -10%, rgba(217, 77, 0, 0.10), transparent 70%),
+    radial-gradient(40rem 24rem at 90% 0%, rgba(91, 91, 214, 0.08), transparent 70%);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-raised: 0 12px 32px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-float: 0 24px 56px -20px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-menu: 0 12px 32px -8px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.07);
+  --shadow-dialog: 0 32px 80px -16px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-glow-accent: 0 0 0 1px rgba(255, 122, 51, 0.25), 0 12px 40px -12px rgba(255, 122, 51, 0.45);
+  --shadow-glow-focus: 0 0 0 1px rgba(154, 152, 255, 0.25), 0 12px 40px -12px rgba(154, 152, 255, 0.40);
+  --highlight-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+  --glass-bg: rgba(19, 20, 24, 0.64);
+  --glass-bg-strong: rgba(19, 20, 24, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-fallback: rgba(19, 20, 24, 0.97);
 }
 
 @media (prefers-reduced-motion: reduce) {

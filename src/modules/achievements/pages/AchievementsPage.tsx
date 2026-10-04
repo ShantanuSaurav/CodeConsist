@@ -110,7 +110,7 @@ const FamilyCard: React.FC<{ family: BadgeFamilyProgress }> = ({ family: f }) =>
     <li className="p-4 border-r border-b border-border-subtle">
       <div className="flex items-center gap-3">
         <div
-          className={`w-7 h-7 rounded-sm flex items-center justify-center shrink-0 ${f.current ? 'bg-accent-soft text-accent' : 'border border-border text-fg-muted'}`}
+          className={`w-7 h-7 rounded-sm flex items-center justify-center shrink-0 ${f.current ? 'bg-success-soft text-success' : 'border border-border text-fg-muted'}`}
           aria-hidden="true"
         >
           {ICONS[KIND_OF_METRIC[f.family.metric] ?? 'xp']}
@@ -126,7 +126,7 @@ const FamilyCard: React.FC<{ family: BadgeFamilyProgress }> = ({ family: f }) =>
           <span
             key={t.id}
             title={`${t.tierName}: ${t.title}${t.earnedAt ? ' (earned)' : ''}`}
-            className={`h-1.5 flex-1 rounded-full ${t.earnedAt ? 'bg-accent' : 'bg-surface-3'}`}
+            className={`h-1.5 flex-1 rounded-full ${t.earnedAt ? 'bg-success' : 'bg-surface-3'}`}
           />
         ))}
       </div>
@@ -264,7 +264,7 @@ export const AchievementsPage: React.FC = () => {
             <li key={b.id} className={`flex items-center gap-3 p-4 border-r border-b border-border-subtle ${b.earnedAt ? '' : 'opacity-60'}`}>
               <div
                 className={`w-7 h-7 rounded-sm flex items-center justify-center shrink-0 ${
-                  b.earnedAt ? 'bg-accent-soft text-accent' : 'border border-border'
+                  b.earnedAt ? 'bg-success-soft text-success' : 'border border-border'
                 }`}
                 aria-hidden="true"
               >

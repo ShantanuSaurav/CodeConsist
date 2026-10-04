@@ -1740,7 +1740,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         spread: 68,
         origin: { y: 0.65 },
         disableForReducedMotion: true,
-        colors: ['#4839FF', '#FFB020', '#00B873', '#FF5A4E']
+        colors: ['#D94D00', '#FBBC02', '#5B5BD6', '#22C55E']
       })
     );
   }, []);

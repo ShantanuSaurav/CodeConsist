@@ -178,7 +178,7 @@ export const AdminLayout: React.FC = () => {
 
       {drawerOpen && (
         <div className="lg:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Admin navigation">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
+          <div className="absolute inset-0 bg-scrim" onClick={() => setDrawerOpen(false)} />
           <div className="absolute left-0 top-0 h-full shadow-dialog">
             <Nav onNavigate={() => setDrawerOpen(false)} />
           </div>

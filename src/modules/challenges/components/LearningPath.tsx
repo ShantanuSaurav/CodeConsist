@@ -378,7 +378,7 @@ const UnitNode: React.FC<{ unit: Unit; gate: UnitGate; perfect: boolean; done: n
         </span>
       )
     ) : gate === 'current' ? (
-      <span className={`${base} border-accent text-accent font-semibold`} aria-hidden="true">
+      <span className={`${base} border-accent text-accent-text font-semibold`} aria-hidden="true">
         {unit.index + 1}
       </span>
     ) : (
@@ -418,7 +418,7 @@ const StageMarker: React.FC<{ visual: Visual; index: string }> = ({ visual, inde
     );
   if (visual === 'current')
     return (
-      <span className={`${base} border-accent text-accent font-semibold`} aria-hidden="true">
+      <span className={`${base} border-accent text-accent-text font-semibold`} aria-hidden="true">
         {String(index).padStart(2, '0')}
       </span>
     );

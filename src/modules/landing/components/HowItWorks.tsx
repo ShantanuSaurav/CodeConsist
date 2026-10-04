@@ -3,7 +3,7 @@ import { BookOpen, Code2, Hammer, TrendingUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useContentStats, useSession } from '@/platform/session';
 import { useCopy } from '@/platform/settings';
-import { Reveal } from './Reveal';
+import { Reveal } from '@/ui';
 
 interface Step {
   step: string;

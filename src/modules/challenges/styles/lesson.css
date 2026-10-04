@@ -36,10 +36,9 @@
 }
 .lesson-step-label { font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; }
 .lesson-step-connector { width: 16px; height: 1px; background: var(--border); margin: 0 var(--space-1); }
-.lesson-step-active .lesson-step-dot { border-color: var(--accent); color: var(--accent); }
+.lesson-step-active .lesson-step-dot { border-color: var(--accent); color: var(--accent-text); }
 .lesson-step-active .lesson-step-label { color: var(--text); font-weight: 500; }
-.lesson-step-done .lesson-step-dot { border-color: var(--success); background: var(--success); color: #fff; }
-.dark .lesson-step-done .lesson-step-dot { color: #06140a; }
+.lesson-step-done .lesson-step-dot { border-color: var(--success); background: var(--success); color: var(--success-fg); }
 .lesson-step-done .lesson-step-label { color: var(--text-secondary); }
 
 /* ---------------------------------------------------------------- lesson intro */
@@ -118,7 +117,7 @@
   max-height: 10rem;
   overflow: auto;
 }
-.try-it-output.is-error { color: #FCA5A5; }
+.try-it-output.is-error { color: var(--code-error); }
 
 /* -------------------------------------------------------------- quick check bridge */
 

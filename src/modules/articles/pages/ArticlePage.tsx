@@ -73,7 +73,7 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ relatedFor }) => {
                   <a
                     href={`#${s.id}`}
                     className={`flex gap-2 py-1.5 pl-3 -ml-px border-l text-sm ${
-                      active ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-secondary hover:text-fg'
+                      active ? 'border-interactive text-fg font-medium' : 'border-transparent text-fg-secondary hover:text-fg'
                     }`}
                   >
                     <span className="font-mono text-xs text-fg-muted w-5 shrink-0 pt-0.5">{String(i + 1).padStart(2, '0')}</span>

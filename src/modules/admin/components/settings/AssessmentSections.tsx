@@ -78,7 +78,7 @@ const StageRow: React.FC<{
       {test && (
         <Link
           to={`/admin/challenges?stage=${encodeURIComponent(stage.id)}&edit=${encodeURIComponent(test.id)}`}
-          className="inline-flex items-center gap-1 text-xs text-accent hover:underline min-h-[32px]"
+          className="inline-flex items-center gap-1 text-xs text-interactive-text hover:underline min-h-[32px]"
           title="The stage tests are the placement and test-out content"
         >
           Edit the test <ExternalLink size={12} />

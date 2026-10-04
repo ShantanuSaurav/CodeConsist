@@ -61,7 +61,7 @@
 .roadmap-node.is-clickable { cursor: pointer; }
 .roadmap-node.is-clickable:hover .roadmap-node-title { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border-strong); }
 .roadmap-node:disabled { opacity: 0.7; }
-.roadmap-node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.roadmap-node:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 .roadmap-node-locked .roadmap-node-title,
 .roadmap-node-locked .roadmap-node-desc { color: var(--text-muted); }
@@ -84,7 +84,7 @@
 }
 .roadmap-node-icon-emoji { font-size: var(--text-xs); line-height: 1; font-family: var(--font-mono); font-weight: 600; }
 .roadmap-node-completed .roadmap-node-marker { border-color: color-mix(in srgb, var(--success) 40%, transparent); color: var(--success); }
-.roadmap-node-current .roadmap-node-marker { border-color: var(--accent); color: var(--accent); }
+.roadmap-node-current .roadmap-node-marker { border-color: var(--accent); color: var(--accent-text); }
 .roadmap-node-pulse { display: none; }
 
 .roadmap-node-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; padding-top: 2px; }
@@ -102,8 +102,8 @@
   font-weight: 500;
 }
 .roadmap-node-pro { color: var(--warning); background: var(--warning-soft); font-family: var(--font-mono); }
-.roadmap-node-tag.is-done { color: var(--success); background: var(--success-soft); }
-.roadmap-node-tag.is-ready { color: var(--info); background: var(--info-soft); }
+.roadmap-node-tag.is-done { color: var(--success-text); background: var(--success-soft); }
+.roadmap-node-tag.is-ready { color: var(--interactive-text); background: var(--info-soft); }
 
 .roadmap-node-title { font-size: var(--text-md); font-weight: 600; color: var(--text); letter-spacing: -0.01em; }
 .roadmap-node-desc { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
@@ -138,7 +138,7 @@
   margin-top: var(--space-2);
   font-size: var(--text-sm);
   font-weight: 500;
-  color: var(--accent);
+  color: var(--accent-text);
   align-self: flex-start;
 }
 .roadmap-node-cta.is-muted { color: var(--text-muted); font-weight: 400; }
@@ -186,9 +186,9 @@
   transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease), background var(--fast) var(--ease);
 }
 .rm-filter-btn:hover { color: var(--text); background: var(--surface-2); }
-.rm-filter-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rm-filter-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .rm-filter-btn.is-active { color: var(--text); border-color: var(--border); background: var(--surface); }
-.rm-filter-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--text-muted); }
+.rm-filter-dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: var(--text-muted); }
 .rm-filter-btn.is-learning .rm-filter-dot { background: var(--info); }
 .rm-filter-btn.is-done .rm-filter-dot { background: var(--success); }
 .rm-filter-btn.is-skipped .rm-filter-dot { background: var(--border-strong); }
@@ -217,7 +217,7 @@
   font-size: var(--text-xs);
   font-weight: 500;
 }
-.rm-section-marker.is-started { border-color: var(--accent); color: var(--accent); }
+.rm-section-marker.is-started { border-color: var(--accent); color: var(--accent-text); }
 .rm-section-marker.is-complete { border-color: color-mix(in srgb, var(--success) 40%, transparent); color: var(--success); }
 .rm-section-body { flex: 1; min-width: 0; padding-top: 4px; display: flex; flex-direction: column; gap: var(--space-1); }
 .rm-section-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); }
@@ -247,7 +247,7 @@
   transition: background var(--fast) var(--ease);
 }
 .rm-topic:hover { background: var(--surface-2); }
-.rm-topic:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rm-topic:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .rm-topic.is-active { background: var(--surface-2); }
 .rm-topic.is-optional .rm-topic-title { color: var(--text-secondary); }
 .rm-topic-marker {
@@ -282,8 +282,8 @@
   color: var(--text-muted);
   background: var(--surface-2);
 }
-.rm-topic-status.is-learning { color: var(--info); background: var(--info-soft); }
-.rm-topic-status.is-done { color: var(--success); background: var(--success-soft); }
+.rm-topic-status.is-learning { color: var(--interactive-text); background: var(--info-soft); }
+.rm-topic-status.is-done { color: var(--success-text); background: var(--success-soft); }
 .rm-topic-chevron { flex: none; color: var(--text-muted); }
 .rm-empty { margin: var(--space-4) 0 0 48px; font-size: var(--text-sm); color: var(--text-muted); }
 

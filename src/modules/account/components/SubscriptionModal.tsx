@@ -88,7 +88,7 @@ function loadRazorpay(): Promise<void> {
 /** The product's accent, so the Razorpay sheet matches the app. */
 function accentColor(): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-  return value || '#16a34a';
+  return value || '#BF4508';
 }
 
 /* ------------------------------------------------------------- helpers */

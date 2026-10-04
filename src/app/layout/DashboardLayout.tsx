@@ -62,7 +62,7 @@ export const DashboardLayout: React.FC = () => {
 
       {drawerOpen && (
         <div className="lg:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Navigation">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
+          <div className="absolute inset-0 bg-scrim" onClick={() => setDrawerOpen(false)} />
           <div className="absolute left-0 top-0 h-full shadow-dialog">
             <Sidebar onNavigate={() => setDrawerOpen(false)} />
           </div>
@@ -99,7 +99,7 @@ export const DashboardLayout: React.FC = () => {
               )}
             </span>
             {serverStatus !== 'offline' && (
-              <button type="button" onClick={openAuthModal} className="shrink-0 font-medium text-fg hover:text-accent">
+              <button type="button" onClick={openAuthModal} className="shrink-0 font-medium text-fg hover:text-interactive-text">
                 Sign in to sync
               </button>
             )}
