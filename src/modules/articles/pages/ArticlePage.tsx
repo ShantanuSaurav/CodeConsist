@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, Clock, Map as MapIcon, Play } from 'lucide-react';
 import { Markdown } from '@/platform/markdown';
@@ -8,6 +8,7 @@ import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
 import { Button } from '@/ui';
 import { articleFor } from '../content';
+import '../styles/articles.css';
 
 export interface RelatedLink {
   href: string;
@@ -28,6 +29,7 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ relatedFor }) => {
   const { stageId = '' } = useParams();
   const { hash } = useLocation();
   const { stages, stats } = useSession();
+  const [contentsOpen, setContentsOpen] = useState(false);
   const article = articleFor(stageId);
   const stage = stages.find((s) => s.id === stageId);
 
@@ -56,15 +58,17 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ relatedFor }) => {
         : 'Start the lessons';
 
   return (
-    <div className="page max-w-6xl">
+    <div className="page article-reader max-w-6xl">
       <Link to={ROUTES.learn} className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-fg mb-6">
         <ArrowLeft size={14} /> Learning path
       </Link>
 
       <div className="grid grid-cols-1 lg:grid-cols-[15rem_1fr] gap-10 lg:gap-14">
         {/* Table of contents */}
-        <aside className="lg:sticky lg:top-8 self-start order-2 lg:order-1 min-w-0 lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto scroll-thin">
-          <div className="eyebrow">In this article</div>
+        <aside className="article-toc self-start min-w-0 scroll-thin">
+          <div className="eyebrow article-contents-heading">In this article</div>
+          <button type="button" className="article-contents-toggle" aria-expanded={contentsOpen} aria-controls="article-contents" onClick={() => setContentsOpen((open) => !open)}>In this article <span aria-hidden="true">{contentsOpen ? '−' : '+'}</span></button>
+          <div id="article-contents" className="article-contents-body" data-open={contentsOpen}>
           <ol className="border-l border-border">
             {article.sections.map((s, i) => {
               const active = hash === `#${s.id}`;
@@ -72,6 +76,7 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ relatedFor }) => {
                 <li key={s.id}>
                   <a
                     href={`#${s.id}`}
+                    onClick={() => setContentsOpen(false)}
                     className={`flex gap-2 py-1.5 pl-3 -ml-px border-l text-sm ${
                       active ? 'border-interactive text-fg font-medium' : 'border-transparent text-fg-secondary hover:text-fg'
                     }`}
@@ -106,10 +111,11 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ relatedFor }) => {
               </ul>
             </div>
           )}
+          </div>
         </aside>
 
         {/* Article */}
-        <article className="order-1 lg:order-2 min-w-0 max-w-[68ch]">
+        <article className="article-body min-w-0">
           <header className="mb-10">
             <div className="flex flex-wrap items-center gap-3 text-xs font-mono text-fg-muted mb-3">
               <span className="uppercase tracking-wider">Stage {String(stage.index).padStart(2, '0')} · Reading</span>
@@ -118,14 +124,14 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ relatedFor }) => {
               </span>
               <span>{article.sections.length} sections</span>
             </div>
-            <h1 className="text-[1.75rem] sm:text-[2rem] font-semibold tracking-tight text-fg leading-tight">{article.title}</h1>
-            {article.summary && <p className="text-lg text-fg-secondary mt-4 leading-relaxed">{article.summary}</p>}
+            <h1 className="article-title text-fg">{article.title}</h1>
+            {article.summary && <p className="article-summary text-fg-secondary mt-4">{article.summary}</p>}
           </header>
 
           {article.sections.map((s) => (
             <section key={s.id} id={s.id} className="scroll-mt-24 mb-12">
-              <h2 className="text-xl font-semibold tracking-tight text-fg mb-4">{s.title}</h2>
-              <Markdown source={s.body} headingOffset={1} />
+              <h2 className="article-section-title text-fg">{s.title}</h2>
+              <Markdown source={s.body} headingOffset={1} className="article-prose" />
             </section>
           ))}
 

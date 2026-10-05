@@ -11,7 +11,7 @@ interface PageHeaderProps {
 
 /** Title block at the top of every page. One size, one weight, everywhere (`.page-title`). */
 export const PageHeader: React.FC<PageHeaderProps> = ({ eyebrow, title, description, aside, className = '' }) => (
-  <header className={`flex flex-wrap items-end justify-between gap-4 pb-6 mb-8 border-b border-border-subtle ${className}`.trim()}>
+  <header className={`page-header flex flex-wrap items-end justify-between gap-4 pb-6 mb-8 border-b border-border-subtle ${className}`.trim()}>
     <div className="flex-1 max-w-2xl min-w-[16rem]">
       {eyebrow && <div className="eyebrow">{eyebrow}</div>}
       <h1 className="page-title">{title}</h1>

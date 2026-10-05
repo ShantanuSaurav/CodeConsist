@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   BarChart3,
@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useAdminAuth } from '../services/AdminAuthContext';
 import { Spinner } from '../components/ui';
-import { DevlingoLogo } from '@/ui';
+import { DevlingoLogo, useBodyScrollLock, useFocusTrap } from '@/ui';
 
 const ICON = 16;
 
@@ -107,6 +107,18 @@ export const AdminLayout: React.FC = () => {
   const { admin, loading, logout } = useAdminAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(drawerRef, drawerOpen);
+  useBodyScrollLock(drawerOpen);
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawerOpen(false); };
+    const query = window.matchMedia('(min-width: 1024px)');
+    const closeOnDesktop = () => { if (query.matches) setDrawerOpen(false); };
+    window.addEventListener('keydown', closeOnEscape);
+    query.addEventListener('change', closeOnDesktop);
+    return () => { window.removeEventListener('keydown', closeOnEscape); query.removeEventListener('change', closeOnDesktop); };
+  }, [drawerOpen]);
 
   useEffect(() => setDrawerOpen(false), [location.pathname]);
 
@@ -120,7 +132,7 @@ export const AdminLayout: React.FC = () => {
   if (!admin) return <Navigate to="/admin/login" replace />;
 
   const Nav = ({ onNavigate }: { onNavigate?: () => void }) => (
-    <div className="w-60 h-full border-r border-border bg-surface flex flex-col">
+    <div className="admin-sidebar w-60 h-full border-r border-border bg-surface flex flex-col">
       <div className="px-3 pt-4 pb-3 flex-1 overflow-y-auto scroll-thin">
         <div className="flex items-center px-3 h-8 mb-4">
           <DevlingoLogo size="sm" wordmark suffix={<span className="badge badge-mono ml-1">admin</span>} />
@@ -164,20 +176,21 @@ export const AdminLayout: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-bg text-fg">
+    <div className="admin-shell min-h-screen bg-bg text-fg">
+      <a href="#admin-content" className="admin-skip">Skip to admin content</a>
       <aside className="hidden lg:block fixed left-0 top-0 h-screen w-60 z-40">
         <Nav />
       </aside>
 
       <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between h-12 px-4 border-b border-border bg-surface">
         <DevlingoLogo size="sm" wordmark suffix={<span className="badge badge-mono ml-1">admin</span>} />
-        <button type="button" onClick={() => setDrawerOpen(true)} className="btn btn-ghost btn-sm btn-icon" aria-label="Open navigation">
+        <button type="button" onClick={() => setDrawerOpen(true)} className="btn btn-ghost btn-sm btn-icon" aria-label="Open navigation" aria-expanded={drawerOpen} aria-controls={drawerOpen ? 'admin-navigation-sheet' : undefined}>
           <Menu size={18} />
         </button>
       </header>
 
       {drawerOpen && (
-        <div className="lg:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Admin navigation">
+        <div id="admin-navigation-sheet" ref={drawerRef} tabIndex={-1} className="lg:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Admin navigation">
           <div className="absolute inset-0 bg-scrim" onClick={() => setDrawerOpen(false)} />
           <div className="absolute left-0 top-0 h-full shadow-dialog">
             <Nav onNavigate={() => setDrawerOpen(false)} />
@@ -194,7 +207,8 @@ export const AdminLayout: React.FC = () => {
       )}
 
       <div className="lg:ml-60 min-h-screen">
-        <main className="page max-w-6xl">
+        <header className="admin-topbar"><span>CodeConsist <span aria-hidden="true">/</span> Administration</span><NavLink to="/dashboard" className="btn btn-ghost btn-sm">Open learning app ↗</NavLink></header>
+        <main id="admin-content" className="page max-w-6xl" tabIndex={-1}>
           <Outlet />
         </main>
       </div>

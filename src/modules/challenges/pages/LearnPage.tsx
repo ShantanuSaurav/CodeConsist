@@ -1,3 +1,4 @@
+import '../styles/learning.css';
 import React from 'react';
 import type { ReadingResolver } from '@/types';
 import { LearningModeSwitch, PageHeader } from '@/ui';
@@ -71,7 +72,7 @@ export const LearnPage: React.FC<{ readingFor?: ReadingResolver }> = ({ readingF
   const single = tracks.length <= 1;
 
   return (
-    <div className="page max-w-4xl">
+    <div className="page learning-page">
       <PageHeader
         eyebrow="Learn"
         title={activeTrack.track.label}

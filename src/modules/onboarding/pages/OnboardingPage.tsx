@@ -1,3 +1,4 @@
+import '../styles/onboarding.css';
 import React, { useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
@@ -158,7 +159,7 @@ export const OnboardingPage: React.FC = () => {
   const percent = steps.length ? Math.round((position / steps.length) * 100) : 100;
 
   return (
-    <div className="min-h-screen bg-bg text-fg">
+    <div className="onboarding-page min-h-screen bg-bg text-fg">
       <header className="flex items-center justify-between gap-4 px-4 sm:px-6 h-14 border-b border-border-subtle">
         <Link to={ROUTES.landing} className="inline-flex" aria-label="CodeConsist home">
           <CodeConsistLogo size="sm" wordmark />
@@ -171,7 +172,7 @@ export const OnboardingPage: React.FC = () => {
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         {index === 0 && !done && (
           <div className="mb-8">
-            <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight">{config.intro.title}</h1>
+            <h1 className="onboarding-title">{config.intro.title}</h1>
             {config.intro.body && <p className="text-fg-secondary mt-2">{config.intro.body}</p>}
           </div>
         )}
@@ -185,7 +186,7 @@ export const OnboardingPage: React.FC = () => {
 
         {step && (
           <section aria-labelledby="onboarding-step-title">
-            <h2 id="onboarding-step-title" className="text-xl font-semibold tracking-tight">
+            <h2 id="onboarding-step-title" className="onboarding-step-title">
               {step.title}
             </h2>
             {step.subtitle && <p className="text-fg-secondary mt-1 mb-5">{step.subtitle}</p>}
@@ -237,7 +238,7 @@ export const OnboardingPage: React.FC = () => {
 
         {done && (
           <section aria-labelledby="onboarding-finish-title">
-            <h2 id="onboarding-finish-title" className="text-[1.5rem] leading-tight font-semibold tracking-tight">
+            <h2 id="onboarding-finish-title" className="onboarding-finish-title">
               {config.finish.title}
             </h2>
             {config.finish.body && <p className="text-fg-secondary mt-2">{config.finish.body}</p>}

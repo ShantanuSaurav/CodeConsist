@@ -8,8 +8,9 @@
    ========================================================================== */
 
 .certificate-page {
+  background-image: var(--atmos);
   min-height: 100vh;
-  background: var(--bg);
+  background-color: var(--bg);
   color: var(--text);
   display: flex;
   flex-direction: column;
@@ -32,10 +33,10 @@
   width: min(52rem, 100%);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   padding: clamp(var(--space-6), 6vw, var(--space-16));
   position: relative;
-  box-shadow: var(--shadow-menu);
+  box-shadow: var(--shadow-raised);
 }
 /* A second, inset rule gives the sheet its "certificate" frame without images. */
 .certificate-sheet::before {

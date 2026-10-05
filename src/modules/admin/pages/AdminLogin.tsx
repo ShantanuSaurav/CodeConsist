@@ -46,7 +46,7 @@ export const AdminLogin: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg px-4 py-10">
+    <div className="admin-login min-h-screen flex items-center justify-center bg-bg px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="flex items-center mb-6">
           <DevlingoLogo size="md" wordmark suffix={<span className="badge badge-mono ml-1">admin</span>} />

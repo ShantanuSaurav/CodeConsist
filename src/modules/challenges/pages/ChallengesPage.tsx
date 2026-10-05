@@ -1,3 +1,4 @@
+import '../styles/library.css';
 import React from 'react';
 import type { ReadingResolver } from '@/types';
 import { PageHeader } from '@/ui';
@@ -10,10 +11,10 @@ export const ChallengesPage: React.FC<{ readingFor?: ReadingResolver }> = ({ rea
   const tests = allChallenges.filter((c) => c.isStageTest).length;
 
   return (
-    <div className="page max-w-5xl">
+    <div className="page challenges-page">
       <PageHeader
         eyebrow="Challenges"
-        title="Library"
+        title="Put your skills to work."
         description={`${lessons} lessons and ${tests} stage tests across ${stages.length} stages${
           tracks.length > 1 ? `. Showing ${activeTrack.track.label}; pick "All tracks" to search everything` : ''
         }.`}

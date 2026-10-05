@@ -1,3 +1,4 @@
+import '../styles/account.css';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLeveling, useSession } from '@/platform/session';
@@ -25,7 +26,7 @@ const Row: React.FC<{ title: React.ReactNode; description?: React.ReactNode; chi
 );
 
 const Section: React.FC<{ id: string; title: string; children: React.ReactNode }> = ({ id, title, children }) => (
-  <section aria-labelledby={id} className="pb-8 mb-8 border-b border-border-subtle last:border-b-0 last:pb-0 last:mb-0">
+  <section aria-labelledby={id} className="settings-group">
     <h2 id={id} className="section-title mb-1">
       {title}
     </h2>
@@ -240,8 +241,15 @@ export const SettingsPage: React.FC = () => {
   );
 
   return (
-    <div className="page max-w-3xl">
-      <PageHeader title="Settings" />
+    <div className="page settings-page">
+      <PageHeader eyebrow="Your space" title="Make it yours." description="Your account, your learning rhythm, your preferences." />
+      <nav className="settings-jump" aria-label="Settings sections">
+        <a href="#settings-account">Account</a>
+        <a href="#settings-appearance">Appearance</a>
+        <a href="#settings-learning">Learning</a>
+        {signedIn && <><a href="#settings-signin">Sign-in methods</a><a href="#settings-purchases">Purchases</a><a href="#settings-certificates">Certificates</a></>}
+        <a href="#settings-danger">Reset progress</a>
+      </nav>
 
       <Section id="settings-account" title="Account">
         <Row

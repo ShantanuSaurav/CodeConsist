@@ -22,12 +22,12 @@ export const LearningExperience: React.FC = () => {
   const sample = next?.challenge;
 
   return (
-    <section className="py-20 sm:py-28 border-t border-border bg-surface">
+    <section className="landing-story landing-practice-story">
       <div className="max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
         <div className="max-w-lg">
           <Reveal>
-            <div className="eyebrow">Practice</div>
-            <h2 className="text-[1.75rem] sm:text-[2.25rem] font-semibold tracking-tight text-fg leading-tight">Learn by doing.</h2>
+            <div className="eyebrow">02 / PRACTICE</div>
+            <h2 className="landing-story-title">Turn the idea<br />into instinct.</h2>
             <p className="mt-4 text-fg-secondary text-lg leading-relaxed">
               No long videos. Seven interactive lesson formats that get straight to the point, and a coding test at the end of
               every stage.

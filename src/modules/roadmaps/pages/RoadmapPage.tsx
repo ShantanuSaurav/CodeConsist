@@ -1,3 +1,4 @@
+import '../styles/constellation.css';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
@@ -15,11 +16,11 @@ const RoadmapRow: React.FC<{ roadmap: Roadmap; statuses: Record<string, any> }> 
   const total = roadmapNodeIds(roadmap).length;
   const started = summary.done + summary.learning > 0;
   return (
-    <li className="border-b border-border-subtle">
-      <Link to={ROUTES.roadmap(roadmap.slug)} className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 py-3 -mx-2 px-2 rounded-xs hover:bg-surface-2 transition-colors">
+    <li className="roadmap-directory-row border-b border-border-subtle">
+      <Link to={ROUTES.roadmap(roadmap.slug)} className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-4 hover:bg-surface-2 transition-colors">
         <span className="min-w-0">
           <span className="flex items-center gap-2">
-            <span className="text-sm font-medium text-fg truncate">{roadmap.title}</span>
+            <span className="roadmap-directory-title text-fg">{roadmap.title}</span>
             {summary.percent === 100 && <span className="badge badge-success">Done</span>}
           </span>
           <span className="text-sm text-fg-secondary mt-0.5 line-clamp-1">{roadmap.description}</span>
@@ -45,9 +46,10 @@ export const RoadmapPage: React.FC = () => {
   const skills = ROADMAPS.filter((r) => r.kind === 'skill');
 
   return (
-    <div className="page max-w-4xl">
+    <div className="page roadmaps-page">
       <PageHeader
-        title="Roadmaps"
+        eyebrow="Roadmaps"
+        title="Your next direction."
         description="Step-by-step maps of what to learn and in which order. Each topic has a short explanation, curated free resources and - where CodeConsist covers it - a jump into the lessons. Mark topics done, learning or skipped; progress is saved in this browser."
       />
 
@@ -74,7 +76,7 @@ export const RoadmapPage: React.FC = () => {
       <section aria-labelledby="skill-map-heading" className="max-w-2xl">
         <SectionHeader
           title={<span id="skill-map-heading">{core ? 'Your CodeConsist path' : `Your path: ${activeTrack.track.label}`}</span>}
-          description={tracks.length > 1 ? 'Switch tracks from the sidebar to see that path instead.' : undefined}
+          description={tracks.length > 1 ? 'Switch tracks from the header to see that path instead.' : undefined}
           aside={
             <div className="sm:text-right">
               <div className="font-mono text-lg font-semibold text-fg tabular-nums leading-none">

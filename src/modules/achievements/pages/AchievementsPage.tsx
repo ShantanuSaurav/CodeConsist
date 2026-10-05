@@ -1,3 +1,4 @@
+import '../styles/achievements.css';
 import React, { useMemo } from 'react';
 import { Award, Code2, Flame, Layers, Sparkles, Star, Swords } from 'lucide-react';
 import { PageHeader, ProgressBar, SectionHeader, Stat, StreakFlame, StreakStrip } from '@/ui';
@@ -107,10 +108,10 @@ const StreakHistory: React.FC<{ habits: HabitStatus; strip: ReturnType<ReturnTyp
 const FamilyCard: React.FC<{ family: BadgeFamilyProgress }> = ({ family: f }) => {
   const unit = METRIC_UNIT[f.family.metric] ?? '';
   return (
-    <li className="p-4 border-r border-b border-border-subtle">
+    <li className="achievement-family" data-earned={Boolean(f.current)}>
       <div className="flex items-center gap-3">
         <div
-          className={`w-7 h-7 rounded-sm flex items-center justify-center shrink-0 ${f.current ? 'bg-success-soft text-success' : 'border border-border text-fg-muted'}`}
+          className={`achievement-medal flex items-center justify-center shrink-0 ${f.current ? 'bg-success-soft text-success' : 'border border-border text-fg-muted'}`}
           aria-hidden="true"
         >
           {ICONS[KIND_OF_METRIC[f.family.metric] ?? 'xp']}
@@ -188,8 +189,8 @@ export const AchievementsPage: React.FC = () => {
   const testsPassed = stages.filter((s) => s.test && solved.has(s.test.id)).length;
 
   return (
-    <div className="page max-w-5xl">
-      <PageHeader eyebrow="Achievements" title="Progress" description="Every figure on this page is derived from what you have actually solved." />
+    <div className="page achievements-page">
+      <PageHeader eyebrow="Achievements" title="Made of small wins." description="Every figure on this page is derived from what you have actually solved." />
 
       {/* ------------------------------------------------------------- level */}
       <section className="pb-8 mb-8 border-b border-border-subtle" aria-labelledby="level-heading">
@@ -199,7 +200,7 @@ export const AchievementsPage: React.FC = () => {
               Developer level
             </h2>
             <div className="flex items-baseline gap-3">
-              <span className="text-4xl font-semibold font-mono text-fg tabular-nums leading-none">{String(level.level).padStart(2, '0')}</span>
+              <span className="achievement-level font-mono text-fg tabular-nums leading-none">{String(level.level).padStart(2, '0')}</span>
               <span className="text-sm text-fg-secondary">{rankTitle(level.level)}</span>
             </div>
             <ProgressBar value={level.percent} className="mt-4" label={`${level.into} of ${level.needed} XP to level ${level.level + 1}`} />
@@ -261,9 +262,9 @@ export const AchievementsPage: React.FC = () => {
         {/* The single badges: the first solve and one per stage. */}
         <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 border-t border-l border-border-subtle" aria-label="Stage badges">
           {singles.map((b) => (
-            <li key={b.id} className={`flex items-center gap-3 p-4 border-r border-b border-border-subtle ${b.earnedAt ? '' : 'opacity-60'}`}>
+            <li key={b.id} className="achievement-single flex items-center gap-3 p-4 border-r border-b border-border-subtle" data-earned={Boolean(b.earnedAt)}>
               <div
-                className={`w-7 h-7 rounded-sm flex items-center justify-center shrink-0 ${
+                className={`achievement-medal flex items-center justify-center shrink-0 ${
                   b.earnedAt ? 'bg-success-soft text-success' : 'border border-border'
                 }`}
                 aria-hidden="true"
@@ -277,6 +278,10 @@ export const AchievementsPage: React.FC = () => {
             </li>
           ))}
         </ul>
+      </section>
+      <section className="achievement-timeline" aria-labelledby="achievement-timeline-title">
+        <SectionHeader title={<span id="achievement-timeline-title">Your milestones</span>} />
+        {earned.length ? <ol>{[...earned].sort((first, second) => String(second.earnedAt).localeCompare(String(first.earnedAt))).slice(0, 12).map((badge) => <li key={badge.id}><span>{badge.title}</span><time dateTime={badge.earnedAt!}>{relativeDay(badge.earnedAt!)}</time></li>)}</ol> : <p className="text-fg-muted">Your first completed challenge starts the story.</p>}
       </section>
     </div>
   );

@@ -23,6 +23,34 @@
   background: var(--surface-2);
   white-space: nowrap;
 }
+
+  .admin-shell { background-image: var(--atmos); }
+  .admin-shell .admin-sidebar { background: var(--surface); border-right-color: var(--border-subtle); }
+  .admin-sidebar .nav-item { min-height: 36px; margin-block: 2px; font-size: 13px; border-radius: 8px; }
+  .admin-sidebar .nav-group-label { margin-top: 24px; font-size: 10px; letter-spacing: .12em; }
+  .admin-sidebar .nav-item.is-active { background: var(--interactive-soft); color: var(--interactive-text); }
+  .admin-topbar { min-height: 66px; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); background: var(--surface); color: var(--text-muted); font: 12px var(--font-mono); }
+  .admin-topbar > span > span { padding-inline: 12px; color: var(--text-disabled); }
+  .admin-shell .admin-page-header { padding-bottom: 28px; margin-bottom: 28px; }
+  .admin-page-header h1 { font-size: 32px; line-height: 1.2; font-weight: 550; letter-spacing: -.04em; }
+  .admin-page-header p { line-height: 1.7; margin-top: 8px; }
+  .admin-shell .panel { border-radius: 12px; box-shadow: var(--shadow-card); }
+  .admin-shell .panel-body { padding: 24px; }
+  .admin-shell .admin-table th { background: var(--surface-2); height: 42px; }
+  .admin-shell .admin-table td { height: 52px; }
+  .admin-shell .admin-table tbody tr:hover td { background: var(--hover-wash); }
+  .admin-shell .type-pill { border-radius: 8px; height: 32px; }
+  .admin-login { background-image: var(--atmos); }
+  .admin-login > div { max-width: 440px; }
+  .admin-login .panel { border-radius: 20px; box-shadow: var(--shadow-raised); }
+  .admin-login .panel-head { padding: 28px 28px 12px; border: 0; }
+  .admin-login .panel-title { font-size: 23px; letter-spacing: -.035em; line-height: 1.2; }
+  .admin-login .panel-body { padding: 20px 28px 28px; }
+  .admin-login input, .admin-login .btn { min-height: 44px; }
+  .admin-skip { position: fixed; top: -80px; left: 260px; z-index: 100; padding: 12px; background: var(--surface); border: 1px solid var(--focus); border-radius: 8px; }
+  .admin-skip:focus { top: 12px; }
+  @media (max-width: 1023px) { .admin-topbar { padding: 14px 20px; font-size: 10px; } .admin-skip { left: 20px; } }
+  @media (max-width: 600px) { .admin-topbar > span { max-width: 50%; } .admin-page-header h1 { font-size: 28px; } .admin-page-header > div:last-child { flex-wrap: wrap; } .admin-shell .panel-body { padding: 16px; } .admin-shell .admin-table td { padding-inline: 12px; } }
 .admin-table td {
   padding: var(--space-2) var(--space-4);
   height: 44px;

@@ -1,3 +1,4 @@
+import { IdeWorkspace } from './IdeWorkspace';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Eraser, Play, RotateCcw, Trash2 } from 'lucide-react';
 import { SupportedLanguage } from '@/types';
@@ -596,9 +597,9 @@ export const WebPlayground: React.FC = () => {
   const current = exampleById(draft.example);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-5 border border-border rounded-lg overflow-hidden bg-surface">
+    <IdeWorkspace explorer={<><h2>EXPLORER</h2>{TABS.map((file) => <button key={file.value} type="button" aria-pressed={draft.tab === file.value} onClick={() => setDraft((previous) => ({ ...previous, tab: file.value }))}>{file.label}</button>)}<h2>EXAMPLES</h2>{WEB_EXAMPLES.map((example) => <button key={example.id} type="button" aria-pressed={draft.example === example.id} onClick={() => loadExample(example.id)}>{example.name}</button>)}</>}>
       {/* ------------------------------------------------------------- editor */}
-      <div className="xl:col-span-3 flex flex-col min-w-0 xl:border-r border-border">
+      <div className="ide-editor flex flex-col min-w-0 xl:border-r border-border">
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 h-auto min-h-[44px] py-1.5 border-b border-border bg-surface-2">
           <Segmented
             value={draft.tab}
@@ -612,7 +613,7 @@ export const WebPlayground: React.FC = () => {
             }))}
           />
 
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="ide-toolbar-actions is-web">
             <label className="sr-only" htmlFor="web-playground-example">
               Example
             </label>
@@ -680,7 +681,7 @@ export const WebPlayground: React.FC = () => {
       </div>
 
       {/* ------------------------------------------------------- preview pane */}
-      <div className="xl:col-span-2 flex flex-col min-w-0 border-t xl:border-t-0 border-border">
+      <div className="ide-output flex flex-col min-w-0 border-t xl:border-t-0 border-border">
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 h-auto min-h-[44px] py-1.5 border-b border-border bg-surface-2">
           <Segmented
             value={view}
@@ -775,6 +776,6 @@ export const WebPlayground: React.FC = () => {
           <span className="block">Sandboxed frame: no network, no storage, no access to this app.</span>
         </div>
       </div>
-    </div>
+    </IdeWorkspace>
   );
 };

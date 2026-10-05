@@ -10,6 +10,7 @@ import { ROUTES } from '@/config/routes';
 import { articleFor, sectionForTags } from './content';
 
 export { ArticlePage } from './pages/ArticlePage';
+export { ArticlesIndexPage } from './pages/ArticlesIndexPage';
 export type { ArticlePageProps, RelatedLink } from './pages/ArticlePage';
 export { ReadingPanel } from './components/ReadingPanel';
 export { ARTICLES, articleFor, sectionFor, sectionForTags } from './content';

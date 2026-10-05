@@ -248,9 +248,9 @@ export const AdminPageHeader: React.FC<{ title: string; description?: React.Reac
   description,
   actions
 }) => (
-  <div className="flex flex-wrap items-end justify-between gap-3 pb-4 mb-6 border-b border-border-subtle">
+  <div className="admin-page-header flex flex-wrap items-end justify-between gap-3 pb-4 mb-6 border-b border-border-subtle">
     <div className="min-w-0 max-w-2xl">
-      <h1 className="text-xl font-semibold tracking-tight text-fg">{title}</h1>
+      <h1 className="admin-page-title text-fg">{title}</h1>
       {description && <p className="text-sm text-fg-secondary mt-1">{description}</p>}
     </div>
     {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}

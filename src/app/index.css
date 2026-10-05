@@ -154,9 +154,7 @@
 /* ------------------------------------------------------- app-level helpers
    Small layout utilities that every page uses, so paddings stay on the scale. */
 @utility page {
-  padding: var(--space-6) var(--space-4);
-  @media (min-width: 640px) { padding: var(--space-8) var(--space-6); }
-  @media (min-width: 1024px) { padding: var(--space-10) var(--space-8); }
+  padding: clamp(28px, 4vw, 48px) var(--gutter) 64px;
   margin-inline: auto;
   width: 100%;
 }

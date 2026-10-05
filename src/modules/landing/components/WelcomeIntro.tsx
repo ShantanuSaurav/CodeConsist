@@ -38,6 +38,7 @@ export const WelcomeIntro: React.FC<WelcomeIntroProps> = ({ onEnter, onExplore }
   const timer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => { if (reducedMotion()) enterRef.current?.focus({ preventScroll: true }); }, []);
 
   const leave = useCallback(
     (next: () => void) => {

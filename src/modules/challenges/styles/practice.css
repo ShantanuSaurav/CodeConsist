@@ -19,6 +19,21 @@
 }
 
 .practice-card { height: min(92vh, 60rem); }
+.practice-card .modal-header { padding: 24px 28px 20px; }
+.practice-card .modal-title { font-size: 24px; letter-spacing: -.035em; }
+.practice-card .modal-body { padding: 28px; gap: 20px; }
+.practice-card .challenge-prompt { font-size: 18px; line-height: 1.7; }
+.practice-card .option-btn { padding: 14px 16px; min-height: 48px; border-radius: 10px; }
+.practice-card .modal-footer { padding: 16px 28px; }
+.practice-card .modal-footer .btn, .practice-card .modal-close-btn { min-height: 44px; }
+.practice-card .modal-close-btn { width: 44px; }
+@media (max-width: 600px) {
+  .practice-card .modal-header { padding: 20px 16px 16px; }
+  .practice-card .modal-body { padding: 20px 16px; }
+  .practice-card .modal-footer { padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
+  .practice-card .modal-title { font-size: 21px; }
+  .practice-card .challenge-prompt { font-size: 16px; }
+}
 .practice-card.is-wide { width: min(72rem, 100%); }
 .practice-card.is-ui { width: min(96vw, 100rem); height: 94vh; max-height: 94vh; }
 

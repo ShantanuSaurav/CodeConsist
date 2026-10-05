@@ -1,0 +1,22 @@
+@layer components {
+  .challenge-filters { padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .challenge-filters input[type=search] { min-height: 48px; font-size: 15px; border-color: transparent; background: var(--surface-2); }
+  .challenge-row { padding-inline: 16px; transition: background var(--fast) var(--ease); }
+  .challenge-row:hover, .challenge-row:focus-within { background: var(--surface); }
+  .challenge-row-layout { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) auto; align-items: start; padding-block: 24px; gap: 20px; }
+  .challenge-row .challenge-actions { align-items: flex-end; flex-direction: column; }
+  .challenge-row > div > div > div > button { font-size: 17px; letter-spacing: -.02em; font-weight: 550; }
+  .challenge-row p { margin-top: 8px; line-height: 1.6; }
+  .challenge-row[data-solved=true] { border-left: 2px solid var(--success); }
+  .challenge-row > div > span:first-child { padding-top: 4px; }
+  .challenge-list { margin-top: 32px; }
+  @media (max-width: 600px) {
+    .challenge-filters { padding: 16px; }
+    .challenge-row { padding-inline: 4px; }
+    .challenge-row-layout { grid-template-columns: 18px minmax(0, 1fr); gap: 12px; }
+    .challenge-row .challenge-actions { grid-column: 2; align-items: center; flex-direction: row; justify-content: space-between; }
+    .challenge-actions .btn { min-height: 44px; }
+    .challenge-row > div > div > div > button { white-space: normal; }
+    .challenge-filters .segmented { width: 100%; }
+  }
+}
