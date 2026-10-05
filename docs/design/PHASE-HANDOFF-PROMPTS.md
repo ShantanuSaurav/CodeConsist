@@ -2,7 +2,7 @@
 
 Updated: 5 October 2026.
 
-These are standalone continuation prompts for ChatGPT, Codex, Claude or another coding assistant with repository access. Each includes safety and verification instructions. **Phases 3–9 are already implemented.** Use these to review/refine a particular phase, not to recreate completed work. Phase 10 still has protected-session acceptance checks; see `HANDOFF.md` and `REMAINING-PHASES.md`.
+These are standalone continuation prompts for ChatGPT, Codex, Claude or another coding assistant with repository access. Each includes safety and verification instructions. **Phases 3–9 are already implemented and published on GitHub's `adi` branch (implementation commit `e0dff52`).** Use these to review/refine a particular phase, not to recreate completed work. Phase 10 still has protected-session acceptance checks; see `HANDOFF.md` and `REMAINING-PHASES.md`.
 
 If the next assistant cannot read the local worktree, provide a sanitized copy of current source and these docs, including untracked files and excluding secrets/databases. Pasting a prompt alone does not transfer code.
 
@@ -25,7 +25,7 @@ For a single Phase 5 slice, paste its scope into the Phase 5 prompt and explicit
 ```text
 Continue Phase 3 of the CodeConsist premium UI/UX redesign.
 
-Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. HEAD ebf5736 contains Phase 2. Later phases already exist as uncommitted implementation: review/refine them, do not start over or discard work.
+Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. Phase 2 is commit ebf5736. Later phases are implemented in e0dff52 and published on GitHub's adi branch: review/refine them, do not start over or discard work. Inspect current git status for any later local edits.
 
 Use localhost:3200 and the isolated Devlingo-dev API on 4100. Do not touch the live Devlingo-merged checkout or ports 3000/4000. Preserve CodeConsist branding, Phase 2 tokens, module boundaries, all existing routes, auth/API contracts, admin-editable copy and real learning/execution data. No mock data, schema changes, heavy animation dependency, or business-logic rewrite. Orange is brand/current/progress; violet is interactive/focus; green is completion. Keep light/dark and reduced-motion support.
 
@@ -42,7 +42,7 @@ After changes, run the focused checks and npm run check, npm run build, node scr
 ```text
 Continue Phase 4 of the CodeConsist premium UI/UX redesign.
 
-Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. HEAD ebf5736 contains Phase 2. Later phases already exist as uncommitted implementation: review/refine them, do not start over or discard work.
+Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. Phase 2 is commit ebf5736. Later phases are implemented in e0dff52 and published on GitHub's adi branch: review/refine them, do not start over or discard work. Inspect current git status for any later local edits.
 
 Use localhost:3200 and the isolated Devlingo-dev API on 4100. Do not touch the live Devlingo-merged checkout or ports 3000/4000. Preserve CodeConsist branding, Phase 2 tokens, module boundaries, all existing routes, auth/API contracts, admin-editable copy and real learning/execution data. No mock data, schema changes, heavy animation dependency, or business-logic rewrite. Orange is brand/current/progress; violet is interactive/focus; green is completion. Keep light/dark and reduced-motion support.
 
@@ -59,7 +59,7 @@ After changes, run the focused checks and npm run check, npm run build, node scr
 ```text
 Continue Phase 5 of the CodeConsist premium UI/UX redesign.
 
-Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. HEAD ebf5736 contains Phase 2. Later phases already exist as uncommitted implementation: review/refine them, do not start over or discard work.
+Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. Phase 2 is commit ebf5736. Later phases are implemented in e0dff52 and published on GitHub's adi branch: review/refine them, do not start over or discard work. Inspect current git status for any later local edits.
 
 Use localhost:3200 and the isolated Devlingo-dev API on 4100. Do not touch the live Devlingo-merged checkout or ports 3000/4000. Preserve CodeConsist branding, Phase 2 tokens, module boundaries, all existing routes, auth/API contracts, admin-editable copy and real learning/execution data. No mock data, schema changes, heavy animation dependency, or business-logic rewrite. Orange is brand/current/progress; violet is interactive/focus; green is completion. Keep light/dark and reduced-motion support.
 
@@ -76,7 +76,7 @@ After changes, run the focused checks and npm run check, npm run build, node scr
 ```text
 Continue Phase 6 of the CodeConsist premium UI/UX redesign.
 
-Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. HEAD ebf5736 contains Phase 2. Later phases already exist as uncommitted implementation: review/refine them, do not start over or discard work.
+Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. Phase 2 is commit ebf5736. Later phases are implemented in e0dff52 and published on GitHub's adi branch: review/refine them, do not start over or discard work. Inspect current git status for any later local edits.
 
 Use localhost:3200 and the isolated Devlingo-dev API on 4100. Do not touch the live Devlingo-merged checkout or ports 3000/4000. Preserve CodeConsist branding, Phase 2 tokens, module boundaries, all existing routes, auth/API contracts, admin-editable copy and real learning/execution data. No mock data, schema changes, heavy animation dependency, or business-logic rewrite. Orange is brand/current/progress; violet is interactive/focus; green is completion. Keep light/dark and reduced-motion support.
 
@@ -93,7 +93,7 @@ After changes, run the focused checks and npm run check, npm run build, node scr
 ```text
 Continue Phase 7 of the CodeConsist premium UI/UX redesign.
 
-Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. HEAD ebf5736 contains Phase 2. Later phases already exist as uncommitted implementation: review/refine them, do not start over or discard work.
+Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. Phase 2 is commit ebf5736. Later phases are implemented in e0dff52 and published on GitHub's adi branch: review/refine them, do not start over or discard work. Inspect current git status for any later local edits.
 
 Use localhost:3200 and the isolated Devlingo-dev API on 4100. Do not touch the live Devlingo-merged checkout or ports 3000/4000. Preserve CodeConsist branding, Phase 2 tokens, module boundaries, all existing routes, auth/API contracts, admin-editable copy and real learning/execution data. No mock data, schema changes, heavy animation dependency, or business-logic rewrite. Orange is brand/current/progress; violet is interactive/focus; green is completion. Keep light/dark and reduced-motion support.
 
@@ -110,7 +110,7 @@ After changes, run the focused checks and npm run check, npm run build, node scr
 ```text
 Continue Phase 8 of the CodeConsist premium UI/UX redesign.
 
-Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. HEAD ebf5736 contains Phase 2. Later phases already exist as uncommitted implementation: review/refine them, do not start over or discard work.
+Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. Phase 2 is commit ebf5736. Later phases are implemented in e0dff52 and published on GitHub's adi branch: review/refine them, do not start over or discard work. Inspect current git status for any later local edits.
 
 Use localhost:3200 and the isolated Devlingo-dev API on 4100. Do not touch the live Devlingo-merged checkout or ports 3000/4000. Preserve CodeConsist branding, Phase 2 tokens, module boundaries, all existing routes, auth/API contracts, admin-editable copy and real learning/execution data. No mock data, schema changes, heavy animation dependency, or business-logic rewrite. Orange is brand/current/progress; violet is interactive/focus; green is completion. Keep light/dark and reduced-motion support.
 
@@ -127,7 +127,7 @@ After changes, run the focused checks and npm run check, npm run build, node scr
 ```text
 Continue Phase 9 of the CodeConsist premium UI/UX redesign.
 
-Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. HEAD ebf5736 contains Phase 2. Later phases already exist as uncommitted implementation: review/refine them, do not start over or discard work.
+Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. Phase 2 is commit ebf5736. Later phases are implemented in e0dff52 and published on GitHub's adi branch: review/refine them, do not start over or discard work. Inspect current git status for any later local edits.
 
 Use localhost:3200 and the isolated Devlingo-dev API on 4100. Do not touch the live Devlingo-merged checkout or ports 3000/4000. Preserve CodeConsist branding, Phase 2 tokens, module boundaries, all existing routes, auth/API contracts, admin-editable copy and real learning/execution data. No mock data, schema changes, heavy animation dependency, or business-logic rewrite. Orange is brand/current/progress; violet is interactive/focus; green is completion. Keep light/dark and reduced-motion support.
 
@@ -144,14 +144,14 @@ After changes, run the focused checks and npm run check, npm run build, node scr
 ```text
 Continue Phase 10 of the CodeConsist premium UI/UX redesign.
 
-Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. HEAD ebf5736 contains Phase 2. Later phases already exist as uncommitted implementation: review/refine them, do not start over or discard work.
+Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign on branch redesign. First read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md; inspect git status and the diff, including untracked files. Phase 2 is commit ebf5736. Later phases are implemented in e0dff52 and published on GitHub's adi branch: review/refine them, do not start over or discard work. Inspect current git status for any later local edits.
 
 Use localhost:3200 and the isolated Devlingo-dev API on 4100. Do not touch the live Devlingo-merged checkout or ports 3000/4000. Preserve CodeConsist branding, Phase 2 tokens, module boundaries, all existing routes, auth/API contracts, admin-editable copy and real learning/execution data. No mock data, schema changes, heavy animation dependency, or business-logic rewrite. Orange is brand/current/progress; violet is interactive/focus; green is completion. Keep light/dark and reduced-motion support.
 
 PHASE SCOPE
 Finish verification of the current implementation rather than starting another redesign. Begin with the outstanding owner-assisted authenticated admin and learner checks in HANDOFF.md. Then inspect every major route and relevant states in both themes and all six requested widths. Test existing navigation, search/filter, practice entry/gates, roadmap status, reader links and real playground execution. Check signed-in Settings/purchases/certificate print only with legitimate dev data. Never bypass auth, use fictional analytics, perform payments or make destructive changes for a screenshot.
 
-Run all automated gates and record exact results, shell budget, existing warnings and any failures. Last complete run: 92 test files/1,524 tests, boundaries across 381 files, successful production build, 180.12 kB gzipped shell versus 195 kB. Re-measure rather than copying those figures blindly. Separate implemented, browser-tested and release-ready. No production integration is authorized. After QA, provide a reviewed diff summary and integration recommendation; the owner must explicitly approve any commit/merge/deployment. Keep a resume prompt for any genuinely unfinished check.
+Run all automated gates and record exact results, shell budget, existing warnings and any failures. Last complete run: 92 test files/1,524 tests, boundaries across 381 files, successful production build, 180.12 kB gzipped shell versus 195 kB. Re-measure rather than copying those figures blindly. Separate implemented, browser-tested and release-ready. Remote adi publication was authorized and completed; production deployment is not authorized. After QA, provide a reviewed diff summary and deployment recommendation; the owner must explicitly approve any commit/merge/deployment. Keep a resume prompt for any genuinely unfinished check.
 
 After changes, run the focused checks and npm run check, npm run build, node scripts/check-dist.mjs and git diff --check. Keep the shell <=195 kB gzipped. Do not weaken tests. Record exact changed files, reasons, observed checks, warnings, untested states and the next step in REMAINING-PHASES.md. Update HANDOFF.md and this phase's continuation guidance. Never claim a skipped test passed. Do not commit, push, merge or deploy without a new explicit request.
 ```

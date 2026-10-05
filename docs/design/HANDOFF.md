@@ -5,8 +5,9 @@ Updated: 5 October 2026.
 ## Where the work is
 
 - **Working tree:** `C:/Users/KIIT0001/Desktop/Devlingo-redesign`.
-- **Branch:** `redesign`; HEAD `ebf5736` (`Redesign phase 2: design system`).
-- **Current work:** uncommitted UI implementation for phases 3–9 plus verification work for phase 10. Include new/untracked source and documentation when reviewing or transferring it.
+- **Working branch:** `redesign`; Phase 2 baseline `ebf5736`; phases 3–9 implementation commit `e0dff52`.
+- **Publication:** implementation and Markdown handoff pushed to `https://github.com/ShantanuSaurav/CodeConsist`, branch `adi`, on 5 October 2026 at the owner's explicit request. Remote SHA was verified as `e0dff5233fa3c0f4b70de4e1bd980572b44fb3a0` before this documentation follow-up.
+- **Current work:** committed UI implementation for phases 3–9 plus verification work for phase 10. Inspect current git status for any subsequent changes rather than assuming the tree is unchanged.
 - **Preview:** `http://localhost:3200`; isolated API at port 4100 from `C:/Users/KIIT0001/Desktop/Devlingo-dev`.
 - **Live checkout:** `C:/Users/KIIT0001/Desktop/Devlingo-merged`. Do not edit, build, run or deploy there; ports 3000/4000 are live.
 - Historical audit/prompts are under the live checkout's `docs/design`, read-only. The current progress record is **this worktree's `docs/design/REMAINING-PHASES.md`**, which supersedes historical “waiting for Phase 2” status text.
@@ -38,7 +39,7 @@ Then review a real isolated learner account's Settings and purchase/certificate 
 ```text
 Continue the CodeConsist (formerly Devlingo) premium UI redesign from its existing implementation. Do not rebuild it.
 
-Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign, branch redesign. Read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md, then inspect git status and the current diff, including untracked files. HEAD ebf5736 contains Phase 2; phases 3–9 already exist as uncommitted UI changes. Do not discard or duplicate them.
+Work only in C:/Users/KIIT0001/Desktop/Devlingo-redesign, branch redesign. Read AGENTS.md, docs/design/HANDOFF.md and docs/design/REMAINING-PHASES.md, then inspect git status and the current diff, including untracked files. Phase 2 is commit ebf5736; phases 3–9 are implemented in e0dff52 and published to GitHub's adi branch. Do not discard or duplicate them. Publication is not a claim that protected browser QA or deployment is complete.
 
 Use preview localhost:3200 with the isolated Devlingo-dev API on 4100. Never touch the live Devlingo-merged checkout or ports 3000/4000. Do not commit, merge, push or deploy without a new explicit request.
 
@@ -51,8 +52,8 @@ Fix only confirmed UI regressions. Run npm run check, npm run build, node script
 
 ## Switching to an assistant without local filesystem access
 
-Provide the current source and these Markdown files, including untracked files. Exclude `.env*`, database files, tokens, logs containing secrets, `node_modules`, `.git` internals and build output. A historical Phase 2 ZIP alone does not contain the uncommitted redesign. Do not share credentials or private account data to make a UI review possible.
+Provide the current source and these Markdown files from GitHub's `adi` branch, plus any subsequent uncommitted files. Exclude `.env*`, database files, tokens, logs containing secrets, `node_modules`, `.git` internals and build output. A historical Phase 2 ZIP alone does not contain the later redesign. Do not share credentials or private account data to make a UI review possible.
 
 ## Integration
 
-The UI is already wired into this worktree; there is no additional `main.tsx` integration step. Finish acceptance review, inspect all changed/new files, and authorize a checkpoint commit before discussing deployment. Never manually copy only `App.tsx` or a single CSS file into the live checkout.
+The UI is already wired into this worktree and published on remote `adi`; there is no additional `main.tsx` integration step. The live checkout's local `adi` branch was deliberately left at `93622a4`; it was not pulled, reset, rebuilt or restarted. Finish acceptance review and obtain explicit deployment approval before updating that checkout. Never manually copy only `App.tsx` or a single CSS file into it.

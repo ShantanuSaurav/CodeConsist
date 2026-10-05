@@ -187,7 +187,20 @@ Paths below are relative to `C:/Users/KIIT0001/Desktop/Devlingo-redesign`.
 
 Do **not** copy a single main file into production. The design is already integrated through the existing imports, shared primitives, routes and module styles in this worktree. Partial file copying would omit dependencies and risk breaking the app.
 
-Keep the live `Devlingo-merged` checkout and ports 3000/4000 untouched. Finish the protected-session checks, review the complete diff (including untracked source files), then explicitly authorize a checkpoint commit and an integration plan. No commit, push, merge or deployment was performed in this session. The earlier Phase 2 foundation commit remains intact.
+Keep the live `Devlingo-merged` checkout and ports 3000/4000 untouched. Finish the protected-session checks and review the complete diff before approving deployment. The earlier Phase 2 foundation commit remains intact. Repository publication, separately authorized after implementation, is recorded below.
+
+## GitHub publication — 5 October 2026
+
+- The owner explicitly requested a push to GitHub's `adi` branch.
+- Confirmed local `adi` tracks `origin/adi` at `https://github.com/ShantanuSaurav/CodeConsist`. Fetched the branch and verified it was an ancestor of the redesign; no force push or history rewrite was necessary.
+- Committed phases 3–9 and handoff documentation as **`e0dff5233fa3c0f4b70de4e1bd980572b44fb3a0`**, message `Redesign phases 3-9: premium product UI and handoff docs` (59 files). This includes the existing Phase 2 commit in its ancestry.
+- Pushed `HEAD:refs/heads/adi`. GitHub confirmed a fast-forward from `93622a4` to `e0dff52`; `git ls-remote` returned the same full SHA.
+- A documentation-only follow-up records this result and removes obsolete instructions describing the implementation as uncommitted.
+- Staged whitespace checks caught and removed two extra blank EOF lines in newly added files. `git diff --cached --check` then passed. Distribution guard was rechecked: **180.12 kB gzipped / 195 kB budget**, no source maps. The previously completed full 1,524-test/build validation remains the code validation baseline.
+- No secrets, environment files, generated build output, database files or local AGENTS instructions were staged.
+- The live checkout and its local `adi` ref remain at `93622a4`. It was not pulled, reset, built or restarted. Publishing the remote branch is not a production deployment.
+- CI is configured to run on `adi` pushes. A successful push does not by itself confirm CI has finished; inspect GitHub Actions separately.
+- Protected admin/account and other outstanding acceptance checks are **still pending**, unchanged by publication.
 
 ## Resume / assistant handoff
 
