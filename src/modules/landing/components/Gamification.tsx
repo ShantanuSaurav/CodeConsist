@@ -2,8 +2,7 @@ import React from 'react';
 import { Check, Lock } from 'lucide-react';
 import { useLeveling, useSession } from '@/platform/session';
 import { describeGoalProgress } from '@/platform/habits';
-import { ProgressBar, Stat } from '@/ui';
-import { Reveal, useInView } from './Reveal';
+import { ProgressBar, Reveal, Stat, useInView } from '@/ui';
 
 /** "Progress you can see" - every figure here is the visitor's real number. */
 export const Gamification: React.FC = () => {
@@ -20,16 +19,15 @@ export const Gamification: React.FC = () => {
   const [barsRef, barsIn] = useInView<HTMLDivElement>();
 
   return (
-    <section className="py-20 sm:py-28 border-t border-border">
+    <section className="landing-story landing-progress-story">
       <div className="max-w-6xl mx-auto px-6">
         <Reveal className="max-w-2xl mb-12">
-          <div className="eyebrow">Progress</div>
-          <h2 className="text-[1.75rem] sm:text-[2.25rem] font-semibold tracking-tight text-fg leading-tight">
-            Progress you can see, computed from what you solved.
+          <div className="eyebrow">05 / MOMENTUM</div>
+          <h2 className="landing-story-title">
+            Look how far<br />you’ve come.
           </h2>
           <p className="mt-4 text-fg-secondary text-lg leading-relaxed">
-            XP, levels, streaks and stage unlocks are all derived from your real attempts. Nothing on this page is a mock-up:
-            these are your numbers right now.
+            Every small win adds up. Find your rhythm, build a streak, and see your progress turn into possibilities.
           </p>
         </Reveal>
 

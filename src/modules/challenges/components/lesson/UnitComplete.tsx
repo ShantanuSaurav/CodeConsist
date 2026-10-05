@@ -229,7 +229,7 @@ const UnitComplete: React.FC<UnitCompleteProps> = ({
         <ul className="unit-complete-badges" aria-hidden="true">
           {newBadges.map((badge) => (
             <li key={badge.id}>
-              <Award size={14} className="text-accent" />
+              <Award size={14} className="text-success" />
               <span>{badge.title}</span>
               {badge.tierName ? <BadgeTierChip tierName={badge.tierName} tierIndex={badge.tier ?? 0} /> : null}
             </li>

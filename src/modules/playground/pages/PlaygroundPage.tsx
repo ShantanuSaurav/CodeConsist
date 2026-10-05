@@ -8,8 +8,8 @@ export const PlaygroundPage: React.FC = () => {
   // naming infrastructure.
   const copy = useCopy();
   return (
-    <div className="page max-w-6xl">
-      <PageHeader eyebrow="Playground" title="Scratchpad" description={copy('copy.playground.description')} />
+    <div className="page playground-page">
+      <PageHeader eyebrow="Playground" title="Room to experiment." description={copy('copy.playground.description')} />
       <Playground />
     </div>
   );

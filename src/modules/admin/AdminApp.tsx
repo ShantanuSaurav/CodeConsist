@@ -18,6 +18,7 @@ import { AdminRules } from './pages/AdminRules';
 import { AdminFeedback } from './pages/AdminFeedback';
 import { AdminTeaching } from './pages/AdminTeaching';
 import { AdminLeagues } from './pages/AdminLeagues';
+import './styles/admin.css';
 
 /**
  * The /admin route tree. Mounted by the app at `/admin/*`, so every path

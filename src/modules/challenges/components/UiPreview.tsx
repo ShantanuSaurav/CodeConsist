@@ -43,7 +43,7 @@ export const UiPreview: React.FC<UiPreviewProps> = ({
           if (!bar) {
             bar = document.createElement('div');
             bar.id = '__error_bar';
-            bar.style.cssText = 'position:fixed;bottom:10px;left:10px;right:10px;padding:10px 14px;background:#ef4444;color:#fff;border-radius:8px;font-family:sans-serif;font-size:12px;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+            bar.style.cssText = 'position:fixed;bottom:10px;left:10px;right:10px;padding:10px 14px;background:#C82339;color:#fff;border-radius:8px;font-family:sans-serif;font-size:12px;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
             document.body.appendChild(bar);
           }
           bar.textContent = 'Runtime error: ' + (e.message || String(e));
@@ -51,6 +51,9 @@ export const UiPreview: React.FC<UiPreviewProps> = ({
       </script>
     `;
 
+    // The frame cannot read the app's CSS variables, so its colours copy
+    // tokens.css by hand: --code-bg and --code-text below, --error behind the
+    // error bar above.
     const baseCss = `
       <style>
         * { box-sizing: border-box; }
@@ -58,8 +61,8 @@ export const UiPreview: React.FC<UiPreviewProps> = ({
           margin: 0;
           padding: 24px;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-          background-color: #0F1216;
-          color: #E4E4E7;
+          background-color: #0E1014;
+          color: #D4D4D8;
           min-height: 100vh;
           display: flex;
           flex-direction: column;

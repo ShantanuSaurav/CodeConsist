@@ -18,7 +18,8 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; to?: string;
       { label: 'Learn', to: '/dashboard/learn' },
       { label: 'Challenges', to: '/dashboard/challenges' },
       { label: 'Playground', to: '/dashboard/practice' },
-      { label: 'Roadmaps', to: '/dashboard/roadmap' }
+      { label: 'Roadmaps', to: '/dashboard/roadmap' },
+      { label: 'Articles', to: '/dashboard/articles' }
     ]
   },
   {

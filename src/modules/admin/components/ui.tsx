@@ -248,9 +248,9 @@ export const AdminPageHeader: React.FC<{ title: string; description?: React.Reac
   description,
   actions
 }) => (
-  <div className="flex flex-wrap items-end justify-between gap-3 pb-4 mb-6 border-b border-border-subtle">
+  <div className="admin-page-header flex flex-wrap items-end justify-between gap-3 pb-4 mb-6 border-b border-border-subtle">
     <div className="min-w-0 max-w-2xl">
-      <h1 className="text-xl font-semibold tracking-tight text-fg">{title}</h1>
+      <h1 className="admin-page-title text-fg">{title}</h1>
       {description && <p className="text-sm text-fg-secondary mt-1">{description}</p>}
     </div>
     {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
@@ -296,7 +296,7 @@ export const Drawer: React.FC<{
   const close = () => closable && onClose();
   return (
     <div className="fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label={title} aria-busy={!closable || undefined}>
-      <div className="absolute inset-0 bg-black/50" onClick={close} />
+      <div className="absolute inset-0 bg-scrim" onClick={close} />
       <div
         ref={panel}
         tabIndex={-1}
@@ -349,7 +349,7 @@ export const ConfirmDialog: React.FC<{
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-message`}
     >
-      <div className="absolute inset-0 bg-black/50" onClick={busy ? undefined : onCancel} />
+      <div className="absolute inset-0 bg-scrim" onClick={busy ? undefined : onCancel} />
       <div ref={ref} tabIndex={-1} className="relative bg-surface border border-border rounded-lg shadow-dialog max-w-sm w-full p-5 outline-none" aria-busy={busy || undefined}>
         <h3 id={`${id}-title`} className="text-base font-semibold text-fg mb-1.5">
           {title}

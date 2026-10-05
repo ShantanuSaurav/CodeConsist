@@ -1,3 +1,4 @@
+import { IdeWorkspace } from './IdeWorkspace';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Play, RotateCcw, Trash2 } from 'lucide-react';
 import { useSession } from '@/platform/session';
@@ -372,13 +373,13 @@ export const Playground: React.FC = () => {
       : 'Press Run to execute this code.';
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-5 border border-border rounded-lg overflow-hidden bg-surface">
+    <IdeWorkspace explorer={<><h2>EXPLORER</h2><span className="ide-file">{FILE_NAMES[language]}</span><h2>EXAMPLES</h2>{Object.keys(SNIPPETS[language] ?? {}).map((name) => <button key={name} type="button" aria-pressed={draft.snippet === name} onClick={() => loadSnippet(name)}>{name}</button>)}</>}>
       {/* ------------------------------------------------------------- editor */}
-      <div className="xl:col-span-3 flex flex-col min-w-0 xl:border-r border-border">
+      <div className="ide-editor flex flex-col min-w-0 xl:border-r border-border">
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 h-auto min-h-[44px] py-1.5 border-b border-border bg-surface-2">
           <span className="font-mono text-xs text-fg-secondary truncate pl-1">{FILE_NAMES[language]}</span>
 
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="ide-toolbar-actions">
             {languageSelector}
 
             <Dropdown
@@ -478,7 +479,7 @@ export const Playground: React.FC = () => {
       </div>
 
       {/* ------------------------------------------------------------ console */}
-      <div className="xl:col-span-2 flex flex-col min-w-0 border-t xl:border-t-0 border-border">
+      <div className="ide-output flex flex-col min-w-0 border-t xl:border-t-0 border-border">
         <div className="flex items-center justify-between px-4 h-11 border-b border-border bg-surface-2">
           <span className="text-sm font-medium text-fg">Console</span>
           <div className="flex items-center gap-3 text-xs font-mono">
@@ -491,6 +492,9 @@ export const Playground: React.FC = () => {
         </div>
 
         <pre
+          role="log"
+          aria-live="polite"
+          aria-label="Execution output"
           className={`flex-1 m-0 p-4 font-mono text-[0.8125rem] leading-relaxed whitespace-pre-wrap break-words min-h-[16rem] overflow-auto ${
             errored ? 'text-error' : 'text-fg'
           }`}
@@ -525,6 +529,6 @@ export const Playground: React.FC = () => {
           </Button>
         </div>
       </div>
-    </div>
+    </IdeWorkspace>
   );
 };

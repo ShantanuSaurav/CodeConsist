@@ -1,0 +1,11 @@
+@layer components {
+  .onboarding-page { background-image: var(--atmos); }
+  .onboarding-page > header { height: 76px; padding-inline: clamp(20px, 5vw, 80px); }
+  .onboarding-page > main { max-width: 760px; padding-block: clamp(40px, 7vw, 88px); }
+  .onboarding-page h1 { font-size: clamp(32px, 4vw, 48px); letter-spacing: -.045em; line-height: 1.15; }
+  .onboarding-page h2 { font-size: clamp(26px, 3vw, 34px); letter-spacing: -.035em; line-height: 1.25; }
+  .onboarding-page h1 + p, .onboarding-page h2 + p { font-size: 16px; line-height: 1.7; margin-top: 14px; }
+  .onboarding-page .choice-card { padding: 24px; }
+  .onboarding-page .onboarding-actions { padding-top: 24px; border-top: 1px solid var(--border); }
+  .onboarding-page .onboarding-actions .btn { min-height: 44px; padding-inline: 20px; }
+}

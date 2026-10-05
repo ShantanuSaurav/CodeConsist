@@ -113,7 +113,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
   return (
     <div>
       {/* ------------------------------------------------------------ filters */}
-      <div className="flex flex-col gap-3">
+      <div className="challenge-filters flex flex-col gap-3">
         <label className="relative block">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none" />
           <input
@@ -194,7 +194,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
         <EmptyState className="mt-6" title="Nothing matches those filters." action={<Button onClick={reset}>Clear filters</Button>} />
       ) : (
         <>
-          <ul className="mt-6 border-t border-border">
+          <ul className="challenge-list border-t border-border">
             {visible.map((c) => {
               const solved = stats.completedChallenges.includes(c.id);
               // The server sent a stub (`locked`): whatever the cached
@@ -211,8 +211,8 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                 needsUnlock ? intents.openPro({ stageId: c.stageId }) : c.isStageTest ? intents.openStageTest(c.stageId) : intents.openPractice(c.stageId, c.id);
 
               return (
-                <li key={c.id} className="border-b border-border-subtle">
-                  <div className="grid grid-cols-[1.25rem_1fr_auto] items-start gap-3 py-3.5">
+                <li key={c.id} className="challenge-row border-b border-border-subtle" data-solved={solved}>
+                  <div className="challenge-row-layout">
                     {/* status mark */}
                     <span className="pt-0.5 flex justify-center">
                       {solved ? (
@@ -234,7 +234,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                           type="button"
                           onClick={open}
                           disabled={locked}
-                          className={`text-left text-sm font-medium truncate hover:underline underline-offset-2 disabled:no-underline disabled:cursor-not-allowed ${
+                          className={`challenge-title text-left hover:underline underline-offset-2 disabled:no-underline disabled:cursor-not-allowed ${
                             locked ? 'text-fg-muted' : 'text-fg'
                           }`}
                         >
@@ -274,7 +274,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                       </div>
                     </div>
 
-                    <div className="flex flex-col items-end gap-2 shrink-0">
+                    <div className="challenge-actions flex gap-2 shrink-0">
                       <span className="font-mono text-xs text-fg-muted">+{c.xpReward} XP</span>
                       <Button
                         size="sm"

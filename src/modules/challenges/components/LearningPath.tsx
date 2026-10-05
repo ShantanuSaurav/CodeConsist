@@ -79,9 +79,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
         )}
       </div>
     )}
-    <ol className="relative">
-      {/* The rail behind the stage markers. */}
-      <span className="absolute left-[15px] top-4 bottom-4 w-px bg-border" aria-hidden="true" />
+    <ol className="learning-path relative">
 
       {stages.map((stage) => {
         const status = stageStatus(stage, stats);
@@ -99,7 +97,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
         if (explainOffline) offlineExplained = true;
 
         return (
-          <li key={stage.id} className="relative pl-12 pb-8 last:pb-0">
+          <li key={stage.id} className={`learning-stage is-${visual}`} data-expanded={expanded}>
             <StageMarker visual={visual} index={stage.index} />
 
             {/* Stage header - the one row that is always visible. */}
@@ -118,7 +116,7 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
                   {stage.state === 'Test pending' && <Badge tone="info">Test ready</Badge>}
                   {stage.testedOut && <Badge tone="success">Tested out</Badge>}
                 </div>
-                <h3 className={`mt-0.5 text-[1.0625rem] font-semibold tracking-tight ${locked ? 'text-fg-muted' : 'text-fg'}`}>
+                <h3 className={`learning-stage-title ${locked ? 'text-fg-muted' : 'text-fg'}`}>
                   {stage.name}
                   {!locked && (
                     <ChevronDown
@@ -378,7 +376,7 @@ const UnitNode: React.FC<{ unit: Unit; gate: UnitGate; perfect: boolean; done: n
         </span>
       )
     ) : gate === 'current' ? (
-      <span className={`${base} border-accent text-accent font-semibold`} aria-hidden="true">
+      <span className={`${base} border-accent text-accent-text font-semibold`} aria-hidden="true">
         {unit.index + 1}
       </span>
     ) : (
@@ -409,7 +407,7 @@ const UnitNode: React.FC<{ unit: Unit; gate: UnitGate; perfect: boolean; done: n
 };
 
 const StageMarker: React.FC<{ visual: Visual; index: string }> = ({ visual, index }) => {
-  const base = 'absolute left-0 top-0.5 w-8 h-8 rounded-sm border flex items-center justify-center font-mono text-xs bg-surface';
+  const base = 'learning-stage-marker absolute border flex items-center justify-center font-mono text-xs bg-surface';
   if (visual === 'completed')
     return (
       <span className={`${base} border-success/40 text-success`} aria-hidden="true">
@@ -418,7 +416,7 @@ const StageMarker: React.FC<{ visual: Visual; index: string }> = ({ visual, inde
     );
   if (visual === 'current')
     return (
-      <span className={`${base} border-accent text-accent font-semibold`} aria-hidden="true">
+      <span className={`${base} border-accent text-accent-text font-semibold`} aria-hidden="true">
         {String(index).padStart(2, '0')}
       </span>
     );

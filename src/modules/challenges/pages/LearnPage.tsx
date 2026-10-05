@@ -1,3 +1,4 @@
+import '../styles/learning.css';
 import React from 'react';
 import type { ReadingResolver } from '@/types';
 import { LearningModeSwitch, PageHeader } from '@/ui';
@@ -30,7 +31,7 @@ const HeldNotice: React.FC = () => {
         {names.length === 1 ? 'its stage is' : 'their stages are'} not open on it yet{names.length ? `: ${names.join(', ')}` : ''}. Solve{' '}
         {n === 1 ? 'it' : 'them'} again once the stage opens and {n === 1 ? 'it counts' : 'they count'}.
       </p>
-      <button type="button" className="mt-2 inline-flex items-center min-h-[44px] px-2 -ml-2 text-xs font-medium text-accent hover:underline" onClick={dismissHeldChallenges}>
+      <button type="button" className="mt-2 inline-flex items-center min-h-[44px] px-2 -ml-2 text-xs font-medium text-interactive-text hover:underline" onClick={dismissHeldChallenges}>
         Got it
       </button>
     </div>
@@ -52,7 +53,7 @@ const PlacementOffer: React.FC = () => {
     <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
       <button
         type="button"
-        className="inline-flex items-center min-h-[44px] font-medium text-accent hover:underline disabled:text-fg-muted disabled:no-underline disabled:cursor-not-allowed"
+        className="inline-flex items-center min-h-[44px] font-medium text-interactive-text hover:underline disabled:text-fg-muted disabled:no-underline disabled:cursor-not-allowed"
         onClick={() => intents.openAssessment({ kind: 'placement', trackId: activeTrack.track.id })}
         disabled={status.offline}
       >
@@ -71,7 +72,7 @@ export const LearnPage: React.FC<{ readingFor?: ReadingResolver }> = ({ readingF
   const single = tracks.length <= 1;
 
   return (
-    <div className="page max-w-4xl">
+    <div className="page learning-page">
       <PageHeader
         eyebrow="Learn"
         title={activeTrack.track.label}

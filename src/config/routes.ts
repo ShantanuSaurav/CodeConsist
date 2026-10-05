@@ -9,6 +9,7 @@ export const ROUTES = {
   onboarding: '/welcome',
   dashboard: '/dashboard',
   learn: '/dashboard/learn',
+  articles: '/dashboard/articles',
   /** The reading for a stage; `section` is a heading slug for a deep link. */
   article: (stageId: string, section?: string) =>
     `/dashboard/learn/${stageId}/read${section ? `#${section}` : ''}`,
@@ -47,6 +48,7 @@ export const STATIC_ROUTES: readonly string[] = [
   ROUTES.onboarding,
   ROUTES.dashboard,
   ROUTES.learn,
+  ROUTES.articles,
   ROUTES.challenges,
   ROUTES.playground,
   ROUTES.roadmaps,

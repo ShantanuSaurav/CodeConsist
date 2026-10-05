@@ -12,8 +12,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  /* Reset the default palette we do not want reaching into the product. The
-     handful of neutrals/utility colours below are the whole vocabulary. */
+  /* The product's colour vocabulary. Tailwind's default palette is not reset
+     (`bg-black`, `text-white` still resolve), but those colours ignore the
+     tokens and do not flip under `.dark`, so pages use these names. */
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
@@ -32,48 +33,99 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-fg: var(--accent-fg);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+
+  --color-interactive: var(--interactive);
+  --color-interactive-hover: var(--interactive-hover);
+  --color-interactive-soft: var(--interactive-soft);
+  --color-interactive-text: var(--interactive-text);
+  --color-focus: var(--focus);
 
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
+  --color-success-text: var(--success-text);
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
   --color-error: var(--error);
   --color-error-soft: var(--error-soft);
+  --color-error-text: var(--error-text);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
 
+  --color-scrim: var(--scrim);
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-yellow: var(--brand-yellow);
+
   --color-code-bg: var(--code-bg);
+  --color-code-bg-raised: var(--code-bg-raised);
   --color-code-border: var(--code-border);
   --color-code-text: var(--code-text);
   --color-code-muted: var(--code-muted);
-
-  /* Legacy names, kept while the last pages are migrated. */
-  --color-primary: var(--accent);
-  --color-primary-dark: var(--accent-hover);
-  --color-secondary: var(--info);
+  --color-code-gutter: var(--code-gutter);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+
+  /* Display sizes carry their own line height, tracking and weight, so
+     `text-display-lg` alone sets a headline. */
+  --text-display-sm: var(--text-display-sm);
+  --text-display-sm--line-height: var(--lh-display);
+  --text-display-sm--letter-spacing: var(--track-display);
+  --text-display-sm--font-weight: 600;
+  --text-display-md: var(--text-display-md);
+  --text-display-md--line-height: var(--lh-display);
+  --text-display-md--letter-spacing: var(--track-display);
+  --text-display-md--font-weight: 600;
+  --text-display-lg: var(--text-display-lg);
+  --text-display-lg--line-height: var(--lh-display);
+  --text-display-lg--letter-spacing: var(--track-display);
+  --text-display-lg--font-weight: 600;
+  --text-display-xl: var(--text-display-xl);
+  --text-display-xl--line-height: var(--lh-display);
+  --text-display-xl--letter-spacing: var(--track-display);
+  --text-display-xl--font-weight: 600;
+  --text-display-2xl: var(--text-display-2xl);
+  --text-display-2xl--line-height: var(--lh-display);
+  --text-display-2xl--letter-spacing: var(--track-display);
+  --text-display-2xl--font-weight: 600;
 
   --radius-xs: var(--radius-xs);
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
-  --radius-xl: var(--radius-lg);
-  --radius-2xl: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
 
+  --shadow-card: var(--shadow-card);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-float: var(--shadow-float);
   --shadow-menu: var(--shadow-menu);
   --shadow-dialog: var(--shadow-dialog);
+  --shadow-glow-accent: var(--shadow-glow-accent);
+  --shadow-glow-focus: var(--shadow-glow-focus);
 }
 
 @layer base {
   :root { color-scheme: light; }
   :root.dark { color-scheme: dark; }
 
+  /* ThemeProvider sets this for a couple of frames around a theme toggle, so
+     the page swaps colours at once instead of running every transition. */
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after { transition: none !important; }
+
   html {
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
+    /* Room for the scrollbar is always kept, so a modal's scroll lock or a
+       page too short to scroll never shifts the layout sideways. */
+    scrollbar-gutter: stable;
   }
+  /* The gutter shows the canvas, which no fixed scrim can reach, so while one
+     is up the canvas takes the scrim's colour. !important because index.html's
+     unlayered background rule would otherwise win. */
+  html:has(.modal-overlay, .level-up-backdrop, .bg-scrim) { background-color: var(--scrim-canvas) !important; }
   body {
     background-color: var(--bg);
     color: var(--text);
@@ -84,9 +136,11 @@
     text-rendering: optimizeLegibility;
     font-feature-settings: 'cv11', 'ss01';
   }
-  ::selection { background: var(--accent-soft); }
+  /* Selection is interaction, so violet; --interactive-soft alone is too faint
+     to see a selected word by. */
+  ::selection { background: var(--selection); }
   :focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
   /* Buttons and links inherit type, so the hierarchy is set once. */
@@ -100,9 +154,7 @@
 /* ------------------------------------------------------- app-level helpers
    Small layout utilities that every page uses, so paddings stay on the scale. */
 @utility page {
-  padding: var(--space-6) var(--space-4);
-  @media (min-width: 640px) { padding: var(--space-8) var(--space-6); }
-  @media (min-width: 1024px) { padding: var(--space-10) var(--space-8); }
+  padding: clamp(28px, 4vw, 48px) var(--gutter) 64px;
   margin-inline: auto;
   width: 100%;
 }

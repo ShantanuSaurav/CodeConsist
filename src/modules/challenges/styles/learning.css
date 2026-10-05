@@ -1,0 +1,23 @@
+@layer components {
+  .learning-page .learning-path { padding-block: 12px; }
+  .learning-path::before { content: ''; position: absolute; top: 32px; bottom: 36px; left: 23px; width: 1px; background: var(--border-strong); }
+  .learning-stage { position: relative; padding: 26px 24px 30px 84px; margin-bottom: 18px; border: 1px solid transparent; border-radius: var(--radius-lg); }
+  .learning-stage.is-current { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow-card); }
+  .learning-stage .learning-stage-marker { width: 46px; height: 46px; left: 0; top: 24px; border-radius: 50%; font-size: 14px; }
+  .learning-stage.is-current .learning-stage-marker { background: var(--surface); box-shadow: 0 0 0 6px var(--accent-soft); }
+  .learning-stage.is-completed .learning-stage-marker { background: var(--surface); box-shadow: 0 0 0 5px var(--success-soft); }
+  .learning-stage > div > button h3 { font-size: 24px; line-height: 1.3; margin-block: 8px; letter-spacing: -.035em; }
+  .learning-stage > div > button p { font-size: 15px; line-height: 1.7; max-width: 65ch; }
+  .learning-stage > div > button { padding-right: 8px; }
+  .learning-stage ol > li > div { padding-block: 14px; }
+  .learning-stage .btn { min-height: 40px; }
+  @media (min-width: 1000px) { .learning-path { margin-inline: 12px; } }
+  @media (max-width: 600px) {
+    .learning-stage { padding: 20px 12px 24px 56px; margin-bottom: 10px; }
+    .learning-stage .learning-stage-marker { width: 34px; height: 34px; top: 24px; font-size: 12px; }
+    .learning-path::before { left: 17px; }
+    .learning-stage > div > button h3 { font-size: 21px; }
+    .learning-stage > div > button p { font-size: 14px; }
+    .learning-stage > div > .shrink-0 { text-align: left; }
+  }
+}

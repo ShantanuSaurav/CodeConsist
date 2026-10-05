@@ -13,7 +13,9 @@ import { Gamification } from '../components/Gamification';
 import { FinalCTA } from '../components/FinalCTA';
 import { Footer } from '../components/Footer';
 import { WelcomeIntro } from '../components/WelcomeIntro';
+import { PlaygroundStory, ReadingStory, RoadmapStory } from '../components/ProductStories';
 import '../styles/landing.css';
+import '../styles/premium.css';
 
 /** Session-only memory - the intro should greet every visit, not just the first one ever. */
 const introSeen = () => {
@@ -101,9 +103,12 @@ export const Landing: React.FC = () => {
       <Navbar />
       <Hero />
       <SocialProof />
-      <HowItWorks />
+      <RoadmapStory />
       <LearningExperience />
+      <ReadingStory />
+      <PlaygroundStory />
       <Gamification />
+      <HowItWorks />
       <FinalCTA />
       <Footer />
     </div>

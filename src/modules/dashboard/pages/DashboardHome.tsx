@@ -1,3 +1,4 @@
+import '../styles/dashboard.css';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ArrowRight, Check, Dumbbell, Lock, Snowflake } from 'lucide-react';
@@ -43,7 +44,7 @@ const DailyGoalCard: React.FC = () => {
   const chosen = dailyGoalId && goalOptions.some((o) => o.id === dailyGoalId) ? dailyGoalId : goal && !goal.fromSnapshot ? goal.optionId : settings.goals.defaultOptionId;
 
   return (
-    <section id="daily-goal" aria-labelledby="goals-heading" className="min-w-0 scroll-mt-16">
+    <section id="daily-goal" aria-labelledby="goals-heading" className="dashboard-goal min-w-0 scroll-mt-16">
       <div className="flex items-baseline justify-between gap-3 mb-4">
         <h2 id="goals-heading" className="section-title">
           {goal ? 'Daily goal' : 'Streak'}
@@ -206,7 +207,7 @@ const SetupCard: React.FC = () => {
           <h2 id="setup-heading" className="eyebrow">
             Get started
           </h2>
-          <h3 className="text-xl font-semibold text-fg tracking-tight">Finish setting up</h3>
+          <h3 className="dashboard-stage-title">Finish setting up</h3>
           {onboarding.intro.body && <p className="text-fg-secondary mt-1 max-w-2xl">{onboarding.intro.body}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -289,11 +290,11 @@ export const DashboardHome: React.FC = () => {
   const stageNo = current ? String(current.index).padStart(2, '0') : null;
 
   return (
-    <div className="page max-w-5xl">
+    <div className="page dashboard-page">
       {/* ------------------------------------------------------------ header */}
-      <header className="mb-8">
+      <header className="dashboard-greeting mb-8">
         <div className="eyebrow">Dashboard</div>
-        <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight text-fg">
+        <h1 className="dashboard-heading">
           {greeting()}, {name}.
         </h1>
         <p className="text-fg-secondary mt-1.5">{headline}</p>
@@ -303,7 +304,7 @@ export const DashboardHome: React.FC = () => {
       <SetupCard />
 
       {/* ------------------------------------------------- continue learning */}
-      <section aria-labelledby="continue-heading" className="pb-8 mb-8 border-b border-border-subtle">
+      <section aria-labelledby="continue-heading" className="dashboard-continue">
         <h2 id="continue-heading" className="eyebrow">
           {current?.state === 'Test pending' ? 'Stage test waiting' : 'Continue learning'}
         </h2>
@@ -314,7 +315,7 @@ export const DashboardHome: React.FC = () => {
               <div className="font-mono text-xs text-fg-muted mb-1">
                 {activeTrack.track.label} · Stage {stageNo}
               </div>
-              <h3 className="text-xl font-semibold text-fg tracking-tight">{current.name}</h3>
+              <h3 className="dashboard-stage-title">{current.name}</h3>
               <p className="text-fg-secondary mt-1 max-w-2xl">
                 {current.state === 'Test pending' && current.test
                   ? `All ${currentStatus.total} lessons done. Pass "${current.test.title}" to unlock the next stage.`
@@ -348,7 +349,7 @@ export const DashboardHome: React.FC = () => {
         ) : (
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h3 className="text-xl font-semibold text-fg tracking-tight">{allDone ? 'Every stage cleared' : 'Nothing in progress'}</h3>
+              <h3 className="dashboard-stage-title">{allDone ? 'Every stage cleared' : 'Nothing in progress'}</h3>
               <p className="text-fg-secondary mt-1">
                 {allDone
                   ? 'Revisit any stage from the Learn page, or drill specific topics in Challenges.'
@@ -366,7 +367,7 @@ export const DashboardHome: React.FC = () => {
       <PracticeCard />
 
       {/* -------------------------------------------------------------- stats */}
-      <section aria-label="Your numbers" className="pb-8 mb-8 border-b border-border-subtle">
+      <section aria-label="Your numbers" className="dashboard-numbers">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-6 sm:divide-x sm:divide-border-subtle">
           <Stat
             label="Streak"
@@ -386,7 +387,7 @@ export const DashboardHome: React.FC = () => {
       </section>
 
       {/* ------------------------------------------------- activity + goals */}
-      <div className="grid gap-10 lg:grid-cols-[1fr_18rem]">
+      <div className="dashboard-bottom">
         <section aria-labelledby="activity-heading" className="min-w-0">
           <div className="flex items-baseline justify-between mb-4">
             <h2 id="activity-heading" className="section-title">

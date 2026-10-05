@@ -12,6 +12,7 @@ import {
   CompletionItem,
   ReplaceResult
 } from './editorEngine';
+import { readEditorMetrics } from './editorMetrics';
 
 interface UseEditorEngineOptions {
   value: string;
@@ -91,10 +92,7 @@ export function useEditorEngine({
 
         const lineIdx = lineNum - 1;
         const colIdx = colNum - 1;
-        const lineHeight = 24;
-        const paddingTop = 14;
-        const paddingLeft = 14;
-        const charWidth = 8.25;
+        const { lineHeight, paddingTop, paddingLeft, charWidth } = readEditorMetrics(el);
 
         let top = (lineIdx + 1) * lineHeight + paddingTop - el.scrollTop;
         if (el.clientHeight > 0 && top + 220 > el.clientHeight && lineIdx > 3) {

@@ -102,7 +102,7 @@ export const UserHabitsPanel: React.FC<{ user: AdminUserRow; data: UserLearning;
               : 'no XP this week yet'}
           {data.league.tiersEnabled && ` · tier ${data.league.tierName ?? 'not set (the lowest)'}`}
           {' · '}
-          <Link to="/admin/leagues" className="text-accent">
+          <Link to="/admin/leagues" className="text-interactive-text">
             Leagues
           </Link>
         </p>

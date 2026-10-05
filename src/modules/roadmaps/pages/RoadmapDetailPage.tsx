@@ -17,9 +17,10 @@ import {
   X
 } from 'lucide-react';
 import '../styles/roadmap.css';
+import '../styles/constellation.css';
 import { ROADMAP_BY_SLUG, roadmapNodeIds } from '../content';
 import { useRoadmapProgress, summarise } from '../services/progress';
-import { Badge, Button, ButtonLink, ProgressBar, useFocusTrap } from '@/ui';
+import { Badge, Button, ButtonLink, ProgressBar, useBodyScrollLock, useFocusTrap } from '@/ui';
 import { useSession } from '@/platform/session';
 import { intents } from '@/platform/events';
 import { ROUTES } from '@/config/routes';
@@ -160,6 +161,7 @@ const NodeDrawer: React.FC<{
   const { stages } = useSession();
   const ref = useRef<HTMLDivElement>(null);
   useFocusTrap(ref, true);
+  useBodyScrollLock(true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -177,7 +179,7 @@ const NodeDrawer: React.FC<{
 
   return (
     <div className="fixed inset-0 z-[450]" role="presentation">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-scrim" onClick={onClose} />
       <div
         ref={ref}
         role="dialog"
@@ -307,7 +309,7 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
       <header className="flex flex-wrap items-end justify-between gap-6 pb-6 mb-6 border-b border-border-subtle">
         <div className="flex-1 max-w-2xl min-w-[16rem]">
           <div className="eyebrow">{roadmap.kind === 'role' ? 'Role-based roadmap' : 'Skill-based roadmap'}</div>
-          <h1 className="text-[1.75rem] leading-tight font-semibold tracking-tight text-fg">{roadmap.title}</h1>
+          <h1 className="page-title">{roadmap.title}</h1>
           <p className="text-fg-secondary mt-2 text-[0.9375rem] leading-relaxed">{roadmap.description}</p>
         </div>
 

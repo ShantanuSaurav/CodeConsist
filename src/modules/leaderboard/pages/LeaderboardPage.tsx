@@ -1,3 +1,4 @@
+import '../styles/leaderboard.css';
 import React, { useState } from 'react';
 import { Button, PageHeader, Segmented } from '@/ui';
 import type { SegmentedOption } from '@/ui';
@@ -34,7 +35,7 @@ export const LeaderboardPage: React.FC = () => {
   };
 
   return (
-    <div className="page max-w-3xl">
+    <div className="page leaderboard-page">
       <PageHeader
         eyebrow="Community"
         title="Leaderboard"

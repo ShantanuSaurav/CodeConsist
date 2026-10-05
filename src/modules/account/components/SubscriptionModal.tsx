@@ -1,3 +1,4 @@
+import '../styles/account.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Copy, ExternalLink, X } from 'lucide-react';
@@ -88,7 +89,7 @@ function loadRazorpay(): Promise<void> {
 /** The product's accent, so the Razorpay sheet matches the app. */
 function accentColor(): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-  return value || '#16a34a';
+  return value || '#BF4508';
 }
 
 /* ------------------------------------------------------------- helpers */
@@ -362,9 +363,9 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
   const certNameError = certNameTouched ? certNameProblem : null;
 
   return (
-    <div className="modal-overlay" onMouseDown={requestClose}>
+    <div className="modal-overlay unlock-overlay" onMouseDown={requestClose}>
       <div
-        className="modal-card !w-[min(38rem,100%)] !h-auto !max-h-[92vh]"
+        className="modal-card unlock-card !w-[min(38rem,100%)] !h-auto !max-h-[92vh]"
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

@@ -8,54 +8,65 @@
   <meta name="description" content="CodeConsist - learn to code with %CC_LESSONS% bite-sized lessons and %CC_TESTS% stage tests across %CC_STAGES% stages on %CC_TRACKS% tracks, with real code execution. Free to start." />
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <!-- The browser chrome follows the system scheme; --bg in each theme. -->
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F7F6F3" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0B0C0E" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet" />
 
   <!-- Prevent theme flash: the app stores the theme under cq-theme and keys
-       dark mode off the .dark class (Tailwind) and data-theme (component CSS). -->
+       dark mode off the .dark class (Tailwind) and data-theme (component CSS).
+       Storage throws when the browser blocks site data; the page stays light. -->
   <script>
-    if (localStorage.getItem('cq-theme') === 'dark') {
-      document.documentElement.classList.add('dark');
-      document.documentElement.setAttribute('data-theme', 'dark');
-    }
+    try {
+      if (localStorage.getItem('cq-theme') === 'dark') {
+        document.documentElement.classList.add('dark');
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    } catch (e) {}
   </script>
 
   <!-- The boot splash: painted by the browser before any script runs, and
        replaced the moment React mounts. It is the same composition as the
        app's own AppSplash (src/ui/primitives/Skeleton.tsx) so the hand-over
-       is invisible. Self-contained on purpose: the design tokens have not
-       loaded yet, so the two colours it needs are inlined here. -->
+       is invisible. Self-contained on purpose: the design tokens may not have
+       loaded yet, so its colours are inlined here as the tokens' own values
+       (tokens.css) - change them with the tokens and the .app-splash CSS. The
+       page background reads --bg once the stylesheet is in, so it can never
+       outlive the tokens. -->
   <style>
-    html, body { margin: 0; background: #F6F7F9; }
-    html.dark, html.dark body { background: #090B0D; }
+    html, body { margin: 0; background-color: var(--bg, #F7F6F3); }
+    html.dark, html.dark body { background-color: var(--bg, #0B0C0E); }
     .boot {
       position: fixed; inset: 0;
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
       font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
-      color: #0F172A;
+      color: #17181C;
     }
-    html.dark .boot { color: #F3F4F6; }
-    .boot img { width: 140px; height: 112px; object-fit: contain; display: block; animation: bootBlink 2.4s ease-in-out infinite; }
-    .boot-name { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
-    .boot-track { width: 160px; height: 3px; border-radius: 999px; background: #E8EBEF; overflow: hidden; }
-    html.dark .boot-track { background: #1A1F26; }
-    .boot-fill { display: block; width: 40%; height: 100%; border-radius: inherit; background: #15803D; animation: bootSweep 1.3s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
-    html.dark .boot-fill { background: #7BE06E; }
-    .boot-status { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: #6B7280; }
-    html.dark .boot-status { color: #71717A; }
+    html.dark .boot { color: #EDEDEF; }
+    .boot img { width: 140px; height: 112px; display: block; animation: bootBlink 2.4s ease-in-out infinite; }
+    .boot-name { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+    .boot-track { width: 10rem; height: 3px; border-radius: 999px; background: #E9E7E2; overflow: hidden; }
+    html.dark .boot-track { background: #22242A; }
+    .boot-fill { display: block; width: 40%; height: 100%; border-radius: inherit; background: #BF4508; animation: bootSweep 1.3s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+    html.dark .boot-fill { background: #FF7A33; }
+    .boot-status { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: #62656D; }
+    html.dark .boot-status { color: #8B8E97; }
     @keyframes bootSweep { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
-    @keyframes bootBlink { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 transparent); } 50% { transform: scale(1.04); filter: drop-shadow(0 0 18px rgba(21, 128, 61, 0.35)); } }
+    @keyframes bootBlink { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 transparent); } 50% { transform: scale(1.04); filter: drop-shadow(0 0 18px rgba(217, 77, 0, 0.35)); } }
     html.dark .boot img { animation-name: bootBlinkDark; }
-    @keyframes bootBlinkDark { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 transparent); } 50% { transform: scale(1.04); filter: drop-shadow(0 0 18px rgba(123, 224, 110, 0.35)); } }
+    @keyframes bootBlinkDark { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 transparent); } 50% { transform: scale(1.04); filter: drop-shadow(0 0 18px rgba(255, 122, 51, 0.35)); } }
     @media (prefers-reduced-motion: reduce) { .boot img { animation: none; } }
   </style>
 </head>
 <body>
   <div id="root">
     <div class="boot" role="status" aria-label="Loading CodeConsist">
-      <img src="/apple-touch-icon.png" alt="" width="140" height="112" />
+      <!-- The app's own mark file, so the hand-over is pixel-identical: Vite
+           fingerprints it and AppSplash reuses the cached copy. -->
+      <img src="/src/ui/brand/devlingo-logo.png" alt="" width="140" height="112" />
       <div class="boot-name">CodeConsist</div>
       <div class="boot-track" aria-hidden="true"><span class="boot-fill"></span></div>
       <div class="boot-status">Loading CodeConsist</div>

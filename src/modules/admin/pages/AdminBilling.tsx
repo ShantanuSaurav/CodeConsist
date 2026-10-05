@@ -118,7 +118,7 @@ const PremiumLockLine: React.FC = () => {
     <p className="text-sm text-fg-secondary mb-6 flex flex-wrap items-center gap-2">
       Server-side premium lock:
       <Badge tone={mode === 'enforce' ? 'success' : 'warning'}>{mode === 'enforce' ? 'Enforced' : 'Logging only'}</Badge>
-      <Link to="/admin/rules/access" className="text-accent hover:underline">
+      <Link to="/admin/rules/access" className="text-interactive-text hover:underline">
         Change on Limits &amp; access
       </Link>
     </p>

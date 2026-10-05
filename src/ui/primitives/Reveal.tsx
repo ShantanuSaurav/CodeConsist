@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 /**
- * Scroll-reveal helpers for the landing page. Everything is driven by a single
- * IntersectionObserver per element and plain CSS (landing.css) so there is no
- * animation library in the landing chunk. With reduced motion the CSS simply
- * shows the element and none of this matters.
+ * Scroll-reveal helpers, first written for the landing page and now shared.
+ * Everything is driven by a single IntersectionObserver per element and plain
+ * CSS (.reveal / .is-in in components.css), so there is no animation library
+ * anywhere. The observer is only ever created inside an effect, so importing
+ * this in node is safe. With reduced motion the CSS simply shows the element
+ * and none of this matters.
  */
 
 const OBSERVER_OPTIONS: IntersectionObserverInit = { rootMargin: '0px 0px -10% 0px', threshold: 0.15 };

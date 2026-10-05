@@ -40,12 +40,31 @@ export { StreakStrip } from './primitives/StreakStrip';
 export type { StreakStripDay, StreakStripState } from './primitives/StreakStrip';
 export { GoalMetCard } from './primitives/GoalMetCard';
 export type { SegmentedOption } from './primitives/Segmented';
-export {
-  CodeConsistLogo,
-  DevlingoLogo,
-  CODECONSIST_LOGO_URL,
-  DEVLINGO_LOGO_URL,
-  CODECONSIST_LOGO_LAYERS,
-  DEVLINGO_LOGO_LAYERS
-} from './primitives/DevlingoLogo';
+export { Card } from './primitives/Card';
+export type { CardProps, CardVariant, CardPadding } from './primitives/Card';
+export { GlassPanel } from './primitives/GlassPanel';
+export { Modal } from './primitives/Modal';
+export type { ModalProps, ModalSize } from './primitives/Modal';
+export { Tabs, TabPanel } from './primitives/Tabs';
+export type { TabItem } from './primitives/Tabs';
+export { Tooltip } from './primitives/Tooltip';
+export type { TooltipPlacement } from './primitives/Tooltip';
+export { Menu, MenuItem, MenuSeparator } from './primitives/Menu';
+export type { MenuTriggerProps } from './primitives/Menu';
+export { StatCard } from './primitives/StatCard';
+export type { StatCardTone } from './primitives/StatCard';
+export { LearningCard } from './primitives/LearningCard';
+export { ChallengeCard } from './primitives/ChallengeCard';
+export type { ChallengeCardStatus, ChallengeCardDifficulty } from './primitives/ChallengeCard';
+export { RoadmapNode } from './primitives/RoadmapNode';
+export type { RoadmapNodeState } from './primitives/RoadmapNode';
+export { Kbd } from './primitives/Kbd';
+export { Avatar } from './primitives/Avatar';
+export { Spinner } from './primitives/Spinner';
+export { Section, Container } from './primitives/Layout';
+// Scroll reveal, moved here from the landing page so any page can use it.
+export { Reveal, useInView, CountUp } from './primitives/Reveal';
+// The welcome intro's split logo layers are their own entry
+// (`@/ui/brand/logoLayers`), kept out of this barrel and so out of the shell.
+export { CodeConsistLogo, DevlingoLogo, CODECONSIST_LOGO_URL, DEVLINGO_LOGO_URL } from './primitives/DevlingoLogo';
 export type { LogoSize, CodeConsistLogoProps, DevlingoLogoProps } from './primitives/DevlingoLogo';

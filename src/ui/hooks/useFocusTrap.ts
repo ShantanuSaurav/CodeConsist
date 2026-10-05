@@ -4,6 +4,9 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** Where focus recovers to: the dialog's primary action, under either class name. */
+const PRIMARY = '.btn-solid, .btn-primary';
+
 function focusables(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
     (el) => el.offsetParent !== null || el === document.activeElement
@@ -100,7 +103,7 @@ export function useFocusTrap(
         const current = document.activeElement;
         if (!current || current === document.body || !root.contains(current)) {
           const items = focusables(root);
-          (items.find((el) => el.matches('.btn-solid')) ?? items[0] ?? root).focus({ preventScroll: true });
+          (items.find((el) => el.matches(PRIMARY)) ?? items[0] ?? root).focus({ preventScroll: true });
         }
       }, 0);
     };
@@ -113,7 +116,7 @@ export function useFocusTrap(
       const current = document.activeElement;
       if (!current || current === document.body || !root.contains(current)) {
         const items = focusables(root);
-        (items.find((el) => el.matches('.btn-solid')) ?? items[0] ?? root).focus({ preventScroll: true });
+        (items.find((el) => el.matches(PRIMARY)) ?? items[0] ?? root).focus({ preventScroll: true });
       }
     });
     observer.observe(root, { childList: true, subtree: true });

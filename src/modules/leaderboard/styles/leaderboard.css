@@ -1,0 +1,11 @@
+@layer components {
+  .leaderboard-page { max-width: 1100px; }
+  .leaderboard-page .leaderboard-tabs { margin-bottom: 32px; }
+  .leaderboard-page table { border-collapse: separate; border-spacing: 0; }
+  .leaderboard-page table td { padding-block: 20px; border-bottom: 1px solid var(--border-subtle); }
+  .leaderboard-page table th { padding-block: 16px; }
+  .leaderboard-page table tbody tr:hover { background: var(--surface); }
+  .leaderboard-page table tbody tr:first-child td:first-child { color: var(--tier-2); }
+  .leaderboard-page .empty-state { padding-block: 64px; }
+  @media (max-width: 600px) { .leaderboard-page table { font-size: 12px; } .leaderboard-page table td { padding-inline: 6px; max-width: 120px; } }
+}

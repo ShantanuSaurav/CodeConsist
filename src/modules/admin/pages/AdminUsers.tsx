@@ -66,7 +66,7 @@ const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void;
               type="button"
               role="tab"
               aria-selected={tab === id}
-              className={`px-3 py-2 -mb-px text-sm border-b-2 ${tab === id ? 'border-accent text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`}
+              className={`px-3 py-2 -mb-px text-sm border-b-2 ${tab === id ? 'border-interactive text-fg font-medium' : 'border-transparent text-fg-muted hover:text-fg'}`}
               onClick={() => setTab(id)}
             >
               {label}

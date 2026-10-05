@@ -62,7 +62,7 @@
   width: 140%;
   height: 140%;
   border-radius: 50%;
-  background: radial-gradient(closest-side, var(--accent-ring), transparent 70%);
+  background: radial-gradient(closest-side, var(--accent-glow), transparent 70%);
   filter: blur(14px);
   opacity: 0;
   animation: logoGlow 2.4s ease-in-out 2100ms infinite;
@@ -82,7 +82,7 @@
 }
 @keyframes logoBreathe {
   0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 0 transparent); }
-  50%      { transform: scale(1.04); filter: drop-shadow(0 0 22px var(--accent-ring)); }
+  50%      { transform: scale(1.04); filter: drop-shadow(0 0 22px var(--accent-glow)); }
 }
 
 .welcome-layer {

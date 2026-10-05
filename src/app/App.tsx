@@ -34,6 +34,7 @@ const DashboardHome = lazyPage(() => import('@/modules/dashboard'), 'DashboardHo
 const LearnRoute = lazyPage(() => import('./routes/LearnRoute'), 'LearnRoute');
 const ChallengesRoute = lazyPage(() => import('./routes/ChallengesRoute'), 'ChallengesRoute');
 const ArticleRoute = lazyPage(() => import('./routes/ArticleRoute'), 'ArticleRoute');
+const ArticlesRoute = lazyPage(() => import('./routes/ArticlesRoute'), 'ArticlesRoute');
 const RoadmapPage = lazyPage(() => import('@/modules/roadmaps'), 'RoadmapPage');
 const RoadmapDetailRoute = lazyPage(() => import('./routes/RoadmapDetailRoute'), 'RoadmapDetailRoute');
 const PlaygroundPage = lazyPage(() => import('@/modules/playground'), 'PlaygroundPage');
@@ -108,11 +109,13 @@ const AppRoutes: React.FC = () => (
     <Route path="/challenges" element={<Navigate to={ROUTES.challenges} replace />} />
     <Route path="/roadmap" element={<Navigate to={ROUTES.roadmaps} replace />} />
     <Route path="/community" element={<Navigate to={ROUTES.leaderboard} replace />} />
+    <Route path="/articles" element={<Navigate to={ROUTES.articles} replace />} />
 
     <Route path={ROUTES.dashboard} element={<DashboardLayout />}>
       <Route index element={<DashboardHome />} />
       <Route path="learn" element={<LearnRoute />} />
       <Route path="learn/:stageId/read" element={<ArticleRoute />} />
+      <Route path="articles" element={<ArticlesRoute />} />
       <Route path="challenges" element={<ChallengesRoute />} />
       <Route path="practice" element={<PlaygroundPage />} />
       <Route path="roadmap" element={<RoadmapPage />} />

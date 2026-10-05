@@ -54,7 +54,7 @@ export const OnboardingSection: React.FC<SectionProps> = (props) => {
               type="button"
               role="tab"
               aria-selected={shown === id}
-              className={`px-2.5 py-1 rounded-xs text-xs border ${shown === id ? 'border-accent text-fg' : 'border-border text-fg-muted hover:text-fg'}`}
+              className={`px-2.5 py-1 rounded-xs text-xs border ${shown === id ? 'border-interactive text-fg' : 'border-border text-fg-muted hover:text-fg'}`}
               onClick={() => setScreen(id)}
             >
               {id === 'intro' ? 'Intro' : id === 'finish' ? 'Finish' : steps.find((s) => s.id === id)?.title || id}

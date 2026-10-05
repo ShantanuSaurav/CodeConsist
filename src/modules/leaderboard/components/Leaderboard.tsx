@@ -77,7 +77,7 @@ export const Leaderboard: React.FC = () => {
                 </td>
                 <td className="py-2.5 pr-3 font-medium text-fg truncate max-w-[14rem]">
                   {row.username}
-                  {you && <span className="ml-2 text-[11px] font-mono text-accent">you</span>}
+                  {you && <span className="ml-2 text-[11px] font-mono text-accent-text">you</span>}
                 </td>
                 <td className="py-2.5 pl-3 font-mono tabular-nums text-fg text-right">{row.xp.toLocaleString()}</td>
                 <td className="py-2.5 pl-3 font-mono tabular-nums text-fg-muted text-right hidden sm:table-cell">{String(row.level).padStart(2, '0')}</td>

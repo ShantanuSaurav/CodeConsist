@@ -16,19 +16,8 @@
   to   { opacity: 1; }
 }
 
-/* ----------------------------------------------------------- scroll reveal */
-
-.reveal {
-  opacity: 0;
-  transform: translateY(16px);
-  transition:
-    opacity 600ms var(--ease),
-    transform 600ms var(--ease);
-}
-.reveal.is-in {
-  opacity: 1;
-  transform: none;
-}
+/* The scroll reveal (.reveal / .is-in) belongs to the Reveal primitive and
+   lives in src/ui/theme/components.css. */
 
 /* -------------------------------------------------------------------- hero */
 
@@ -51,10 +40,7 @@
   animation: heroIn 700ms var(--ease) 240ms forwards;
 }
 .hero-panel {
-  box-shadow: 0 20px 50px -28px rgba(15, 23, 42, 0.3);
-}
-.dark .hero-panel {
-  box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow-float);
 }
 
 /* ------------------------------------------------------------------- cards */
@@ -71,7 +57,7 @@
   transition: transform var(--med) var(--ease), border-color var(--med) var(--ease);
 }
 .step-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(var(--lift-y));
   border-color: var(--border-strong);
 }
 .step-num {
@@ -90,9 +76,8 @@
 .step-icon { color: var(--text-muted); }
 
 .practice-panel {
-  box-shadow: 0 20px 50px -28px rgba(15, 23, 42, 0.3);
+  box-shadow: var(--shadow-float);
 }
-.dark .practice-panel { box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.7); }
 
 /* ---------------------------------------------------------------- progress */
 
@@ -119,7 +104,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .landing, .hero-in, .hero-panel-wrap { animation: none; opacity: 1; transform: none; }
-  .reveal { opacity: 1; transform: none; transition: none; }
   .step-card, .cta-arrow svg { transition: none; }
   .landing-progress .progress-fill { transition: none; }
 }

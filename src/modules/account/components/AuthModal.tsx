@@ -1,3 +1,4 @@
+import '../styles/account.css';
 import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useSession } from '@/platform/session';
@@ -130,7 +131,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="modal-overlay !z-[600]" onMouseDown={onClose}>
+    <div className="modal-overlay auth-overlay !z-[600]" onMouseDown={onClose}>
       <div
         onMouseDown={(e) => e.stopPropagation()}
         ref={dialogRef}
@@ -138,8 +139,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         aria-modal="true"
         aria-label={isSignUp ? 'Create an account' : 'Sign in'}
         tabIndex={-1}
-        className="modal-card !w-[min(26rem,100%)] !h-auto !max-h-[92vh] overflow-y-auto"
+        className="modal-card auth-card !h-auto !max-h-[92vh] overflow-y-auto"
       >
+        <aside className="auth-brand">
+          <DevlingoLogo size="lg" decorative />
+          <div><span className="eyebrow">YOUR NEXT CHAPTER</span><h2>Keep building.<br />Keep becoming.</h2><p>A little curiosity. A little practice.<br />A developer in the making.</p></div>
+          <span className="auth-brand-signature">CODECONSIST / LEARN · PRACTICE · BUILD</span>
+        </aside>
+        <div className="auth-form">
         <div className="modal-header items-center">
           <div className="modal-header-main flex items-center gap-3">
             <DevlingoLogo size="md" decorative />
@@ -295,6 +302,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               {isSignUp ? 'Sign in' : 'Sign up'}
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>

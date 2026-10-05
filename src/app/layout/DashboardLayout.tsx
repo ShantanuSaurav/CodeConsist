@@ -1,120 +1,59 @@
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
-import { Sidebar } from './Sidebar';
-import { HabitChip } from './HabitChip';
-import { HabitBanner } from './HabitBanner';
+import { Moon, Sun, X } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { useCopy } from '@/platform/settings';
+import { useTheme } from '@/platform/theme';
 import { intents } from '@/platform/events';
-import { DevHint, DevlingoLogo, PageSkeleton } from '@/ui';
+import { Button, DevHint, DevlingoLogo, PageSkeleton, useBodyScrollLock, useFocusTrap } from '@/ui';
+import { HabitBanner } from './HabitBanner';
+import { AccountSummary, NavigationLinks, TopBar, TrackPicker } from './Navigation';
+import './shell.css';
 
-/**
- * The app shell: fixed sidebar on desktop, a drawer on small screens.
- *
- * Guests are welcome here - progress lives in the browser until they sign in,
- * and the banner says so rather than bouncing them to the landing page.
- *
- * Pages render inside one Suspense (their chunk may still be downloading)
- * behind one content gate (the bank may still be downloading). Doing both
- * here, once, means no page ever sees an empty stage list and mistakes it
- * for a missing stage.
- */
 export const DashboardLayout: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const { user, stats, serverStatus, contentReady } = useSession();
+  const { user, stats, serverStatus, contentReady, logout } = useSession();
+  const { theme, toggleTheme } = useTheme();
   const copy = useCopy();
-  const openAuthModal = intents.openAuth;
   const location = useLocation();
+  const drawerRef = useRef<HTMLDivElement>(null);
   const isGuest = !user || user.provider === 'guest';
-
-  // Route changes close the drawer; so does Escape.
-  useEffect(() => setDrawerOpen(false), [location.pathname]);
+  useFocusTrap(drawerRef, drawerOpen);
+  useBodyScrollLock(drawerOpen);
+  useEffect(() => setDrawerOpen(false), [location.pathname, location.hash]);
   useEffect(() => {
-    if (!drawerOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setDrawerOpen(false);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [drawerOpen]);
+    const media = window.matchMedia('(min-width: 1024px)');
+    const closeOnDesktop = () => { if (media.matches) setDrawerOpen(false); };
+    media.addEventListener('change', closeOnDesktop);
+    return () => media.removeEventListener('change', closeOnDesktop);
+  }, []);
 
   return (
-    <div className="min-h-screen bg-bg text-fg">
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:block fixed left-0 top-0 h-screen w-64 z-40">
-        <Sidebar />
-      </aside>
-
-      {/* Mobile top bar + drawer */}
-      <header className="lg:hidden sticky top-0 z-40 flex items-center justify-between gap-2 h-12 px-4 border-b border-border bg-surface">
-        <DevlingoLogo size="sm" wordmark />
-        {/* The streak and today's goal, one tap from the goal card. */}
-        <HabitChip compact className="ml-auto" />
-        <button
-          type="button"
-          onClick={() => setDrawerOpen(true)}
-          className="btn btn-ghost btn-sm btn-icon"
-          aria-label="Open navigation"
-          aria-expanded={drawerOpen}
-        >
-          <Menu size={18} />
-        </button>
-      </header>
-
-      {drawerOpen && (
-        <div className="lg:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Navigation">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
-          <div className="absolute left-0 top-0 h-full shadow-dialog">
-            <Sidebar onNavigate={() => setDrawerOpen(false)} />
-          </div>
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(false)}
-            className="btn btn-secondary btn-sm btn-icon absolute top-3 left-[17rem]"
-            aria-label="Close navigation"
-          >
-            <X size={16} />
-          </button>
+    <div className="app-shell">
+      <a href="#main-content" className="app-skip-link">Skip to content</a>
+      <div className="app-atmosphere" aria-hidden="true" />
+      <NavigationLinks rail />
+      <TopBar drawerOpen={drawerOpen} onOpen={() => setDrawerOpen(true)} />
+      <div id="app-navigation-sheet" className="app-sheet" data-state={drawerOpen ? 'open' : 'closed'} aria-hidden={!drawerOpen} {...(!drawerOpen ? { inert: '' } : {})}>
+        <div className={drawerOpen ? 'app-sheet-backdrop bg-scrim' : 'app-sheet-backdrop'} onClick={() => setDrawerOpen(false)} />
+        <div ref={drawerRef} className="app-sheet-panel" role="dialog" aria-modal={drawerOpen || undefined} aria-label="Navigation" tabIndex={-1} onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.stopPropagation(); setDrawerOpen(false); } }}>
+          <div className="app-sheet-heading"><DevlingoLogo size="sm" wordmark /><Button variant="ghost" icon onClick={() => setDrawerOpen(false)} aria-label="Close navigation"><X size={18} /></Button></div>
+          <TrackPicker />
+          <NavigationLinks onNavigate={() => setDrawerOpen(false)} />
+          <AccountSummary />
+          <div className="app-sheet-actions"><Button variant="ghost" onClick={toggleTheme}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}{theme === 'dark' ? 'Light mode' : 'Dark mode'}</Button><Button variant="secondary" onClick={() => { setDrawerOpen(false); if (isGuest) window.setTimeout(() => intents.openAuth(), 0); else void logout(); }}>{isGuest ? 'Sign in to sync' : 'Sign out'}</Button></div>
         </div>
-      )}
-
-      <div className="lg:ml-64 min-h-screen flex flex-col">
-        {/* Signed in, the sidebar's sync mark says so too - but phones hide the sidebar. */}
-        {(isGuest || serverStatus === 'offline') && (
-          <div
-            className="px-4 sm:px-8 h-10 text-sm bg-surface border-b border-border text-fg-secondary flex items-center justify-between gap-3"
-            role={serverStatus === 'offline' ? 'status' : undefined}
-            data-testid={serverStatus === 'offline' ? 'offline-banner' : undefined}
-          >
-            <span className="truncate">
-              {serverStatus === 'offline' ? (
-                <>
-                  {copy('copy.offline.banner')}
-                  <DevHint> The API is offline: start it with npm run dev:api.</DevHint>
-                </>
-              ) : (
-                <>
-                  Practising as a guest — progress is saved in this browser
-                  {stats.completedChallenges.length > 0 ? ` (${stats.completedChallenges.length} solved so far)` : ''}.
-                </>
-              )}
-            </span>
-            {serverStatus !== 'offline' && (
-              <button type="button" onClick={openAuthModal} className="shrink-0 font-medium text-fg hover:text-accent">
-                Sign in to sync
-              </button>
-            )}
-          </div>
-        )}
-        {/* One in-app reminder at a time: welcome back, a streak to repair, a freeze used, a streak at risk. */}
-        <HabitBanner />
-        <main className="flex-1">
-          {contentReady ? (
-            <Suspense fallback={<PageSkeleton />}>
-              <Outlet />
-            </Suspense>
-          ) : (
-            <PageSkeleton label="Loading your lessons" />
-          )}
+      </div>
+      <div className="app-content">
+        <div className="app-notices">
+          {(isGuest || serverStatus === 'offline') && <div className="app-notice" role={serverStatus === 'offline' ? 'status' : undefined} data-testid={serverStatus === 'offline' ? 'offline-banner' : undefined}>
+            <span>{serverStatus === 'offline' ? <>{copy('copy.offline.banner')}<DevHint> The API is offline: start it with npm run dev:api.</DevHint></> : <>Practising as a guest — progress is saved in this browser{stats.completedChallenges.length > 0 ? ` (${stats.completedChallenges.length} solved so far)` : ''}.</>}</span>
+            {serverStatus !== 'offline' && <button type="button" onClick={() => intents.openAuth()} className="app-notice-action">Sign in to sync <span aria-hidden="true">↗</span></button>}
+          </div>}
+          <HabitBanner />
+        </div>
+        <main id="main-content" tabIndex={-1} className="app-main">
+          {contentReady ? <Suspense fallback={<PageSkeleton />}><Outlet /></Suspense> : <PageSkeleton label="Loading your lessons" />}
         </main>
       </div>
     </div>
