@@ -134,18 +134,19 @@ const api = async (method, path, body) => {
 
 const lessonsOf = (stageId) => allChallenges().filter((c) => c.stageId === stageId && !c.isStageTest).map((c) => c.id);
 const testOf = (stageId) => allChallenges().find((c) => c.stageId === stageId && c.isStageTest).id;
+const stageThreeUnitIds = ['stage-3:a1', 'stage-3:a2', 'stage-3:b1', 'stage-3:b2', ...Array.from({ length: 8 }, (_, index) => `stage-3:c${index + 1}`)];
 
 describe('GET /content/stages/:id/units', () => {
-  it('gives the default grouping of stage-3: four units of five, in authored order', async () => {
+  it('gives the default grouping of stage-3: twelve units of five, in authored order', async () => {
     const res = await api('GET', '/admin/content/stages/stage-3/units');
     expect(res.status).toBe(200);
     expect(res.json.source).toBe('default');
-    expect(res.json.units.map((u) => u.id)).toEqual(['stage-3:a1', 'stage-3:a2', 'stage-3:b1', 'stage-3:b2']);
-    expect(res.json.units.map((u) => u.size)).toEqual([5, 5, 5, 5]);
+    expect(res.json.units.map((u) => u.id)).toEqual(stageThreeUnitIds);
+    expect(res.json.units.map((u) => u.size)).toEqual(Array(12).fill(5));
     expect(res.json.units.flatMap((u) => u.challengeIds)).toEqual(lessonsOf('stage-3'));
     expect(res.json.units[0]).toMatchObject({ name: 'Unit 1', estMinutes: expect.any(Number), xp: expect.any(Number) });
     expect(res.json.defaults).toEqual(res.json.units);
-    expect(res.json.lessons).toHaveLength(20);
+    expect(res.json.lessons).toHaveLength(60);
     expect(res.json.unassigned).toEqual([]);
   });
 
@@ -163,8 +164,8 @@ describe('PUT /content/stages/:id/units', () => {
     const body = {
       units: [
         { id: 'stage-3:a1', name: 'Arrays first', challengeIds: ids.slice(0, 7) },
-        { name: 'The middle', description: 'Maps and sets.', challengeIds: ids.slice(7, 14) },
-        { name: 'The rest', challengeIds: ids.slice(14) }
+        { name: 'The middle', description: 'Maps and sets.', challengeIds: ids.slice(7, 30) },
+        { name: 'The rest', challengeIds: ids.slice(30) }
       ]
     };
     const res = await api('PUT', '/admin/content/stages/stage-3/units', body);
@@ -182,8 +183,8 @@ describe('PUT /content/stages/:id/units', () => {
     // Deleting a unit never frees its id: the next new unit is m3.
     const again = await api('PUT', '/admin/content/stages/stage-3/units', {
       units: [
-        { id: 'stage-3:a1', name: 'Arrays first', challengeIds: ids.slice(0, 7) },
-        { name: 'Everything else', challengeIds: ids.slice(7) }
+        { id: 'stage-3:a1', name: 'Arrays first', challengeIds: ids.slice(0, 30) },
+        { name: 'Everything else', challengeIds: ids.slice(30) }
       ]
     });
     expect(again.json.units.map((u) => u.id)).toEqual(['stage-3:a1', 'stage-3:m3']);
@@ -191,7 +192,7 @@ describe('PUT /content/stages/:id/units', () => {
 
   it('warns about a unit outside the size or time targets, without refusing it', async () => {
     const ids = lessons();
-    const res = await api('PUT', '/admin/content/stages/stage-3/units', { units: [{ name: 'All of it', challengeIds: ids }] });
+    const res = await api('PUT', '/admin/content/stages/stage-3/units', { units: [{ name: 'First half', challengeIds: ids.slice(0, 30) }, { name: 'Second half', challengeIds: ids.slice(30) }] });
     expect(res.status).toBe(200);
     expect(res.json.warnings.map((w) => w.path)).toContain('units.0');
   });
@@ -230,11 +231,12 @@ describe('PUT /content/stages/:id/units', () => {
 describe('DELETE and the stage list', () => {
   it('reverts to the default grouping, and the stage list shows counts and the custom marker', async () => {
     const ids = lessonsOf('stage-3');
-    await api('PUT', '/admin/content/stages/stage-3/units', { units: [{ name: 'One', challengeIds: ids.slice(0, 10) }, { name: 'Two', challengeIds: ids.slice(10) }] });
+    const saved = await api('PUT', '/admin/content/stages/stage-3/units', { units: [{ name: 'One', challengeIds: ids.slice(0, 30) }, { name: 'Two', challengeIds: ids.slice(30) }] });
+    expect(saved.status).toBe(200);
 
     let stages = (await api('GET', '/admin/content/stages')).json.stages;
     expect(stages.find((s) => s.id === 'stage-3')).toMatchObject({ unitCount: 2, unitsCustomized: true });
-    expect(stages.find((s) => s.id === 'stage-4')).toMatchObject({ unitCount: 4, unitsCustomized: false });
+    expect(stages.find((s) => s.id === 'stage-4')).toMatchObject({ unitCount: 12, unitsCustomized: false });
 
     const reset = await api('DELETE', '/admin/content/stages/stage-3/units');
     expect(reset.status).toBe(200);
@@ -243,33 +245,48 @@ describe('DELETE and the stage list', () => {
     expect(store.db().auditLog.at(-1)).toMatchObject({ action: 'content.units.reset', target: 'stage-3' });
 
     stages = (await api('GET', '/admin/content/stages')).json.stages;
-    expect(stages.find((s) => s.id === 'stage-3')).toMatchObject({ unitCount: 4, unitsCustomized: false });
+    expect(stages.find((s) => s.id === 'stage-3')).toMatchObject({ unitCount: 12, unitsCustomized: false });
   });
 });
 
 describe('units as learners get them (server/units.js)', () => {
+  it('preserves a pre-expansion custom layout and exposes every added lesson without moving the old ones', () => {
+    const ids = lessonsOf('stage-3');
+    const oldUnits = [
+      { id: 'stage-3:m1', name: 'Existing first unit', challengeIds: ids.slice(0, 10) },
+      { id: 'stage-3:m2', name: 'Existing second unit', challengeIds: ids.slice(10, 20) }
+    ];
+    store.setUnitOverride('stage-3', { units: oldUnits, nextSeq: 3 });
+    const expanded = units.unitsForStage('stage-3');
+    expect(expanded.slice(0, 2).map(({ id, name, challengeIds }) => ({ id, name, challengeIds }))).toEqual(oldUnits);
+    expect(expanded[2]).toMatchObject({ id: 'stage-3:auto', name: 'More lessons', challengeIds: ids.slice(20) });
+    expect(expanded.flatMap(unit => unit.challengeIds)).toEqual(ids);
+    expect(new Set(expanded.flatMap(unit => unit.challengeIds)).size).toBe(60);
+    expect(store.getUnitOverride('stage-3')).toEqual({ units: oldUnits, nextSeq: 3 });
+  });
+
   it('leaves a hidden lesson out, and its unit shrinks', () => {
     const ids = lessonsOf('stage-3');
     const before = units.unitsForStage('stage-3');
     expect(before[0].challengeIds).toHaveLength(5);
     store.setChallengeOverride(ids[0], { hidden: true });
     const after = units.unitsForStage('stage-3');
-    // Only the hidden lesson's own unit changes: 4/5/5/5, not a re-balanced 5/4/5/5.
+    // Only the hidden lesson's own unit changes; the remaining units stay intact.
     expect(after[0].challengeIds).toEqual(ids.slice(1, 5));
-    expect(after.map((u) => u.challengeIds.length)).toEqual([4, 5, 5, 5]);
+    expect(after.map((u) => u.challengeIds.length)).toEqual([4, ...Array(11).fill(5)]);
     expect(after.slice(1)).toEqual(before.slice(1));
     expect(units.unitFor(ids[0])).toBeNull();
     expect(units.unitFor(ids[5]).id).toBe('stage-3:a2');
     // The default ids stay put.
-    expect(after.map((u) => u.id)).toEqual(['stage-3:a1', 'stage-3:a2', 'stage-3:b1', 'stage-3:b2']);
+    expect(after.map((u) => u.id)).toEqual(stageThreeUnitIds);
   });
 
   it('with a whole default unit hidden, numbers the rest without a gap', () => {
     const ids = lessonsOf('stage-3');
     for (const id of ids.slice(0, 5)) store.setChallengeOverride(id, { hidden: true });
     const after = units.unitsForStage('stage-3');
-    expect(after.map((u) => u.id)).toEqual(['stage-3:a2', 'stage-3:b1', 'stage-3:b2']);
-    expect(after.map((u) => u.name)).toEqual(['Unit 1', 'Unit 2', 'Unit 3']);
+    expect(after.map((u) => u.id)).toEqual(stageThreeUnitIds.slice(1));
+    expect(after.map((u) => u.name)).toEqual(Array.from({ length: 11 }, (_, index) => `Unit ${index + 1}`));
     expect(after[0].challengeIds).toEqual(ids.slice(5, 10));
   });
 
@@ -285,14 +302,14 @@ describe('units as learners get them (server/units.js)', () => {
 
   it('attaches units to every stage of the learner view, the test in none', () => {
     const view = units.attachUnits({ stages: [{ id: 'stage-3' }, { id: 'stage-c1' }], challenges: [] });
-    expect(view.stages[0].units).toHaveLength(4);
-    expect(view.stages[1].units.map((u) => u.challengeIds.length)).toEqual([5, 5, 5]);
+    expect(view.stages[0].units).toHaveLength(12);
+    expect(view.stages[1].units.map((u) => u.challengeIds.length)).toEqual(Array(11).fill(5));
     expect(view.stages[1].units.flatMap((u) => u.challengeIds)).not.toContain(testOf('stage-c1'));
   });
 
   it('follows the unit settings', () => {
     settings.units = { ...lib.DEFAULT_SETTINGS.units, targetSize: 10, maxSize: 12 };
     settings.rev = 1;
-    expect(units.unitsForStage('stage-3').map((u) => u.challengeIds.length)).toEqual([10, 10]);
+    expect(units.unitsForStage('stage-3').map((u) => u.challengeIds.length)).toEqual(Array(6).fill(10));
   });
 });

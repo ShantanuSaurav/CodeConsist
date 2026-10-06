@@ -9,7 +9,7 @@ landing page, a dashboard with XP, streaks, ten roadmap.sh-style roadmaps, a
 reading article per stage, a leaderboard and an admin console.
 
 <!-- content-stats:start -->
-**234 lessons and 12 stage tests across 12 stages on 3 tracks** (10 free, 2 premium) - Developer path: 204 lessons in 10 stages · C: 15 lessons in 1 stage · C++: 15 lessons in 1 stage.
+**734 lessons and 12 stage tests across 12 stages on 3 tracks** (10 free, 2 premium) - Developer path: 624 lessons in 10 stages · C: 55 lessons in 1 stage · C++: 55 lessons in 1 stage.
 <!-- content-stats:end -->
 
 Everything runs on your machine. No cloud account, no Docker, no native build step.
