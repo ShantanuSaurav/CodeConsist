@@ -1,7 +1,7 @@
 /**
- * The default unit grouping over the REAL challenge bank: every core stage
- * splits into four units, C and C++ into three, every unit has 5-8
- * questions, 46 in all - and the units, read in order, are exactly the
+ * The default unit grouping over the REAL challenge bank: core stages
+ * split into 12 or 14 units, C and C++ into 11, every unit has 5-8
+ * questions, 146 in all - and the units, read in order, are exactly the
  * authored lesson order (grouping never reorders the default path).
  */
 import { describe, expect, it } from 'vitest';
@@ -15,17 +15,17 @@ const cfg = DEFAULT_SETTINGS.units;
 const stages = buildStages(ALL_CHALLENGES);
 
 describe('the default units of the real bank', () => {
-  it('gives every core stage four units and the C and C++ stages three', () => {
+  it('gives the expanded core stages 12 or 14 units and the C/C++ stages 11', () => {
     for (const stage of stages) {
       const units = defaultUnits(stage.id, stage.challenges, cfg);
-      const expected = /^stage-\d+$/.test(stage.id) ? 4 : 3;
+      const expected = ['stage-1', 'stage-2'].includes(stage.id) ? 14 : /^stage-\d+$/.test(stage.id) ? 12 : 11;
       expect(units.length, `${stage.id}: ${units.map((u) => u.challengeIds.length).join('/')}`).toBe(expected);
     }
   });
 
-  it('keeps every unit between 5 and 8 questions, 46 units in all', () => {
+  it('keeps every unit between 5 and 8 questions, 146 units in all', () => {
     const all = stages.flatMap((stage) => defaultUnits(stage.id, stage.challenges, cfg));
-    expect(all).toHaveLength(46);
+    expect(all).toHaveLength(146);
     for (const unit of all) {
       expect(unit.challengeIds.length, unit.id).toBeGreaterThanOrEqual(5);
       expect(unit.challengeIds.length, unit.id).toBeLessThanOrEqual(8);

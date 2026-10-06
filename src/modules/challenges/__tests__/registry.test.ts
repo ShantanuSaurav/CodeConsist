@@ -77,24 +77,24 @@ describe('challenge content (dev loader)', () => {
     }
   });
 
-  it('keeps the whole bank: 200 core lessons + 2 concept-led openers, 30 C/C++ lessons, one test per stage', () => {
+  it('keeps all 734 lessons, including the 500-question expansion, and one test per stage', () => {
     const lessons = Object.fromEntries(buildStages().map((s) => [s.id, s.challenges.length]));
     expect(lessons).toEqual({
-      'stage-1': 22,
-      'stage-2': 20,
-      'stage-3': 20,
-      'stage-4': 20,
-      'stage-5': 22,
-      'stage-6': 20,
-      'stage-7': 20,
-      'stage-8': 20,
-      'stage-9': 20,
-      'stage-10': 20,
-      'stage-c1': 15,
-      'stage-cpp1': 15
+      'stage-1': 72,
+      'stage-2': 70,
+      'stage-3': 60,
+      'stage-4': 60,
+      'stage-5': 62,
+      'stage-6': 60,
+      'stage-7': 60,
+      'stage-8': 60,
+      'stage-9': 60,
+      'stage-10': 60,
+      'stage-c1': 55,
+      'stage-cpp1': 55
     });
     for (const stage of buildStages()) expect(stage.test?.isStageTest).toBe(true);
-    expect(ALL_CHALLENGES.length).toBe(246);
+    expect(ALL_CHALLENGES.length).toBe(746);
   });
 
   it('every stage belongs to exactly one track, and every track names real stages', () => {

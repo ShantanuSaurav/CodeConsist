@@ -234,11 +234,44 @@ So a **batch file is a unit boundary**: keep a batch at 5-7, 10-12 or 15-17
 lessons and it splits cleanly (8, 9, 13 and 14 produce 4-question units:
 4/4, 5/4, 5/4/4, 5/5/4), and put lessons that belong together in the same
 batch. The
-real bank gives 46 units - four per core stage, three for C and C++ - and
+real bank gives 146 units after the 500-question expansion: 14 each for
+stages 1 and 2, 12 each for stages 3–10, and 11 each for C and C++. The new
+40/50-question batches divide into five-question units without changing
+earlier batches or their unit IDs. The test
 `src/modules/challenges/__tests__/units-bank.test.ts` fails if a content change
 breaks that shape (a unit outside 5-8 questions, or a stage with a different
 number of units). Update the test's expectations when the change is
 deliberate.
+
+### Expansion authoring and executable checks
+
+The October 2026 expansion lives in core-topic `c.ts` batches and the C/C++
+`b.ts` batches. `src/modules/challenges/authoring/expansion.ts` expands typed
+rows into the existing `Challenge` schema; it does not change grading. A row
+contains an explicit stable number, title, topic, difficulty, question/code,
+four choices (the correct one first in source), explanation and hint. The
+helper rotates stored answer positions; the existing UI still applies its
+normal answer ordering. Never renumber an existing row when inserting content.
+
+The second tag is a subject-specific `*-practice` category, not a generic
+article tag. This prevents broad tags such as `data-structures` and
+`system-design` from tying with a specific topic and selecting an unrelated
+first article section. The app integration tests exercise the actual reading
+resolver for every new question, not just whether some tag exists.
+
+`npm run content:verify-expansion` is part of `npm run check`. It executes all
+140 new output predictions using Node, Python 3, a C11 compiler and a C++14
+compiler, and compares actual output to the selected answer. It fails rather
+than silently skipping missing runtimes. Put Python and GCC/Clang on PATH,
+or supply executable paths through `PYTHON`, `CC`, and `CXX`. Also keep Python
+on PATH for the older `content:validate` runner checks. No production service
+or database is needed. The CI Ubuntu image supplies GCC/G++ and the workflow
+already provisions Python.
+
+These tests verify snippets and structural placement, not every conceptual
+claim. Review conceptual questions, assumptions and distractors against
+primary references. See `docs/content/QUESTION-EXPANSION.md` and
+`docs/content/QUESTION-SOURCES.md` for scope, verification and handoff details.
 
 An administrator can regroup and rename a stage's units in the console
 (Stages > Units); that is stored in `contentOverrides.units` in
