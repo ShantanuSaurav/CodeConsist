@@ -137,6 +137,31 @@ COMMIT;     -- or ROLLBACK, and neither update happens
 
 Schema changes are code: versioned migration files applied in order, each with an up and (where possible) a down. Make them **backwards compatible** with the running application - add the new column nullable, deploy code that writes both, backfill, then make it `NOT NULL` and drop the old one. Adding an index on a large table should use the concurrent/online form so it does not lock writes.
 
+## SQLite expressions: strings, dates and CASE
+<!-- tags: sql-strings, sql-dates, sql-case -->
+
+The SQL playground and hands-on exercises run real SQLite in an isolated, in-memory database. Each run starts fresh. This is not a connection to the application's account or progress database. SQL dialects differ: these examples use SQLite syntax, not every MySQL or PostgreSQL extension.
+
+Use `LOWER`, `UPPER`, `LENGTH` and `LIKE` for simple text expressions. SQLite's built-in case conversion is ASCII-oriented; do not assume it performs full Unicode case folding. `CASE WHEN condition THEN value ELSE fallback END` chooses the first matching branch. `COALESCE` supplies a default for NULL.
+
+Dates in the exercises are ISO `YYYY-MM-DD` text. `strftime('%Y-%m', ordered_at)` extracts a year-month; `date(ordered_at, '+7 days')` adds calendar days. Prefer half-open ranges, such as `>= '2024-02-01' AND < '2024-03-01'`, to guessing the final day of a month.
+
+## Common table expressions and window functions
+<!-- tags: sql-cte, sql-window -->
+
+`WITH name AS (SELECT ...)` gives a query result a name for the statement. `WITH RECURSIVE` combines an anchor with a recursive step and needs a stopping condition. A reporting-tree traversal also needs an acyclic hierarchy or explicit cycle protection.
+
+Window functions preserve individual rows: `SUM(salary) OVER (PARTITION BY department_id)` repeats each department's total beside its employees. `ROW_NUMBER` numbers rows uniquely; `RANK` shares ranks for ties and leaves gaps; `DENSE_RANK` shares ranks without gaps. Do not add an id to a ranking expression when equal salaries are meant to tie. To select the first ranked row per group, filter in an outer query or CTE.
+
+The window's `ORDER BY` is not the final result order: use an outer `ORDER BY` too. Specify a `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` frame for a row-by-row running total. `LAG` and `LEAD` inspect neighboring rows in the window ordering.
+
+## Set operations and data changes
+<!-- tags: sql-sets, sql-dml -->
+
+`UNION` removes duplicate result rows; `UNION ALL` keeps them. `INTERSECT` keeps common rows; `EXCEPT` subtracts the right result from the left. Give compound results an explicit order when row order matters.
+
+`INSERT`, `UPDATE` and `DELETE` modify only the isolated run's database. A missing `WHERE` in UPDATE or DELETE affects every row. SQLite upserts use `ON CONFLICT(key) DO UPDATE` and `excluded.column` for the proposed insert's value. Transactions, savepoints, tables and views last only for that run. File attachment, extension loading and configuration PRAGMAs are disabled. Exercise answers return one result set, compared as an ordered JSON array of rows; column aliases do not affect grading, but column and row order do.
+
 ## Debugging a slow or wrong query
 <!-- tags: debugging, sql -->
 

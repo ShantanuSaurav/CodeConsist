@@ -80,7 +80,7 @@ export const STAGE_ID = /^stage-[a-z0-9]+$/;
  * Web Worker for JavaScript, Pyodide for Python). Everything else runs only
  * through an optional Judge0 endpoint, so its stage test is answer-graded.
  */
-export const EXECUTABLE_LANGUAGES = ['javascript', 'typescript', 'python'] as const satisfies readonly SupportedLanguage[];
+export const EXECUTABLE_LANGUAGES = ['javascript', 'typescript', 'python', 'sql'] as const satisfies readonly SupportedLanguage[];
 
 const CodeCalloutSchema = z.object({ line: z.number().int().positive(), text: z.string().min(1) }).strict();
 
@@ -185,11 +185,18 @@ export const ChallengeSchema: z.ZodType<Challenge> = Base.superRefine((c, ctx) =
     case 'code_runner':
     case 'debug':
       need(Boolean(c.starterCode), 'needs starterCode', ['starterCode']);
-      if (c.language !== 'html') {
+      if (c.language !== 'html' && c.language !== 'sql') {
         need(Boolean(c.entryFunction), 'needs entryFunction', ['entryFunction']);
       }
       need((c.testCases?.length ?? 0) >= 1, 'needs test cases', ['testCases']);
       need(Boolean(c.solutionCode), 'needs solutionCode (the validator executes it)', ['solutionCode']);
+      if (c.language === 'sql') {
+        for (const [index, testCase] of (c.testCases ?? []).entries()) {
+          let rows: unknown;
+          try { rows = JSON.parse(testCase.expected); } catch { rows = null; }
+          need(Array.isArray(rows) && rows.every(row => Array.isArray(row) && row.every(value => value === null || typeof value === 'string' || typeof value === 'number')), 'SQL expected output must be a JSON array of rows containing numbers, strings or null', ['testCases', String(index), 'expected']);
+        }
+      }
       break;
   }
   // Wrong-answer notes: one per option, and only where there are options. A

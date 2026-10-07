@@ -220,6 +220,7 @@ export function buildRuntimes(config) {
 
   const runtimes = {
     javascript: { available: true, engine: 'node', label: 'Node sandbox' },
+    sql: { available: true, engine: 'browser', label: 'SQLite (WebAssembly)' },
     python: { available: true, engine: 'browser', label: 'CPython (WebAssembly)' }
   };
   for (const language of Object.keys(JUDGE0_LANGUAGE_IDS)) {

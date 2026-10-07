@@ -174,11 +174,18 @@ describe('normalizeChallengeInput - review follow-ups', () => {
   };
 
   it('refuses code questions in languages nothing can grade', () => {
-    for (const language of ['java', 'c', 'cpp', 'go', 'sql', 'bash', 'css', 'pseudocode']) {
+    for (const language of ['java', 'c', 'cpp', 'go', 'bash', 'css', 'pseudocode']) {
       expect(paths(run({ ...code, language }))).toContain('language');
     }
     expect(run({ ...code, language: 'typescript' }).issues).toEqual([]);
     expect(run({ ...code, language: 'python', starterCode: 'def add(a, b): pass', solutionCode: 'def add(a, b): return a + b' }).issues).toEqual([]);
+  });
+
+  it('accepts SQLite exercises with setup SQL and no function name', () => {
+    const result = run({ ...code, language: 'sql', entryFunction: '', starterCode: 'SELECT 1;', solutionCode: 'SELECT id FROM items ORDER BY id;', testCases: [{ input: 'CREATE TABLE items(id INTEGER); INSERT INTO items VALUES (2);', expected: '[[2]]' }] });
+    expect(result.issues).toEqual([]);
+    expect(result.candidate.entryFunction).toBeUndefined();
+    expect(result.candidate.language).toBe('sql');
   });
 
   it('checks dropdown choices the way the grader does (case only for single words)', () => {

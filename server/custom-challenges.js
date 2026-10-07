@@ -16,7 +16,7 @@ export const CHALLENGE_TYPES = ['quiz', 'multi_select', 'output_prediction', 'fi
 export const DIFFICULTIES = ['easy', 'medium', 'hard'];
 export const LANGUAGES = ['javascript', 'typescript', 'python', 'java', 'c', 'cpp', 'go', 'sql', 'html', 'css', 'bash', 'pseudocode'];
 /** Languages whose solutions the server can actually execute. */
-export const EXECUTABLE_LANGUAGES = ['javascript', 'typescript', 'python'];
+export const EXECUTABLE_LANGUAGES = ['javascript', 'typescript', 'python', 'sql'];
 
 export const MAX_OPTIONS = 8;
 export const MAX_TEST_CASES = 20;
@@ -255,14 +255,14 @@ export function normalizeChallengeInput(body, { stageIds, id, preserve }) {
       const entryFunction = trimmed(b.entryFunction);
       // A code question a learner can never get credit for is worse than none:
       // only the languages with a real engine (or the browser, for HTML) are allowed.
-      need(isUi || EXECUTABLE_LANGUAGES.includes(language), 'language', 'Code questions can only be graded in JavaScript, TypeScript or Python (or HTML for a frontend question) - pick one of those.');
+      need(isUi || EXECUTABLE_LANGUAGES.includes(language), 'language', 'Code questions can be graded in JavaScript, TypeScript, Python or SQL (or HTML for a frontend question).');
       need(starterCode.length <= MAX_CODE, 'starterCode', `Keep the starter code under ${MAX_CODE} characters.`);
       need(solutionCode.length <= MAX_CODE, 'solutionCode', `Keep the solution under ${MAX_CODE} characters.`);
       need(Boolean(starterCode.trim()), 'starterCode', type === 'debug' ? 'Paste the broken code the learner has to fix.' : 'Write the starter code the learner begins from (a function signature with a TODO is ideal).');
       need(Boolean(solutionCode.trim()), 'solutionCode', 'Paste a working solution - the server runs it against the test cases before saving.');
       if (isUi) {
         need(language === 'html', 'language', 'A frontend question must use the HTML language (it is written as one HTML document with <style> and <script>).');
-      } else {
+      } else if (language !== 'sql') {
         need(Boolean(entryFunction), 'entryFunction', 'Name the function the tests call, exactly as written in the code (e.g. fizzbuzz).');
         need(!entryFunction || /^[A-Za-z_$][\w$]*$/.test(entryFunction), 'entryFunction', 'The function name can only contain letters, digits and underscores.');
         need(!entryFunction || solutionCode.includes(entryFunction), 'entryFunction', `The solution does not define a function called "${entryFunction}".`);
@@ -284,7 +284,7 @@ export function normalizeChallengeInput(body, { stageIds, id, preserve }) {
       candidate.starterCode = starterCode;
       candidate.solutionCode = solutionCode;
       candidate.testCases = testCases;
-      if (entryFunction && !isUi) candidate.entryFunction = entryFunction;
+      if (entryFunction && !isUi && language !== 'sql') candidate.entryFunction = entryFunction;
       if (uiPreview) candidate.uiPreview = true;
       delete candidate.codeSnippet;
 

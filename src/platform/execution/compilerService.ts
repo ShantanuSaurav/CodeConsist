@@ -576,6 +576,7 @@ export const compilerService = {
 
     if (language === 'javascript' || language === 'typescript') return 'Node sandbox / browser worker';
     if (language === 'python') return `CPython ${PYODIDE_VERSION} (WebAssembly)`;
+    if (language === 'sql') return 'SQLite (WebAssembly)';
     if (language === 'html') return 'Browser DOM sandbox';
     if (!LANGUAGE_IDS[language]) return 'no runtime configured';
     if (remoteCompilerConfigured && remoteCompilerLanguages.includes(language)) return 'Judge0 remote compiler';
@@ -598,7 +599,7 @@ export const compilerService = {
 
   /** Languages that always work, with nothing to configure. */
   runsLocally(language: SupportedLanguage): boolean {
-    return language === 'javascript' || language === 'typescript' || language === 'python' || language === 'html';
+    return language === 'javascript' || language === 'typescript' || language === 'python' || language === 'html' || language === 'sql';
   },
 
   canRun(language: SupportedLanguage): boolean {
@@ -632,6 +633,11 @@ export const compilerService = {
 
     if (language === 'python') {
       return runPython(code, entryFunction, testCases, onProgress);
+    }
+
+    if (language === 'sql') {
+      const { runSql } = await import('./sql-client');
+      return runSql({ code, testCases }, onProgress);
     }
 
     if (language === 'javascript' || language === 'typescript') {

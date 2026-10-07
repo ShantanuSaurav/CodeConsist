@@ -120,6 +120,11 @@ function getTestCaseTitle(
 
   return (
     <div className="code-challenge">
+      {challenge.language === 'sql' && <details className="panel p-4 mb-3">
+        <summary className="cursor-pointer font-medium">SQL schema and sample data</summary>
+        <p className="text-sm text-fg-muted my-3">SQLite. Each test starts with its own fresh dataset. Return one result set with the requested columns and row order. Do not hard-code the sample rows.</p>
+        <CodeBlock code={challenge.testCases?.find(testCase => !testCase.hidden)?.input ?? ''} language="sql" />
+      </details>}
       <div className="code-challenge-toolbar">
         {isUi ? (
           <div className="ui-mode-tabs" role="tablist" aria-label="View mode">

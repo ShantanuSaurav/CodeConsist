@@ -43,7 +43,7 @@ const DECLARATION_KEYWORDS: Partial<Record<SupportedLanguage, Set<string>>> = {
   c: new Set('struct union enum typedef static const extern inline sizeof include define'.split(' ')),
   cpp: new Set('struct union enum typedef static const extern inline sizeof include define class public private protected template typename namespace using new delete auto friend virtual explicit override'.split(' ')),
   go: new Set('package import func var const type struct interface map chan make'.split(' ')),
-  sql: new Set('SELECT FROM WHERE JOIN INNER LEFT RIGHT FULL OUTER ON GROUP BY HAVING ORDER LIMIT OFFSET INSERT INTO VALUES UPDATE SET DELETE CREATE TABLE ALTER DROP INDEX PRIMARY KEY FOREIGN REFERENCES UNIQUE DISTINCT UNION ALL'.split(' ')),
+  sql: new Set('SELECT FROM WHERE JOIN INNER LEFT RIGHT FULL OUTER ON GROUP BY HAVING ORDER LIMIT OFFSET INSERT INTO VALUES UPDATE SET DELETE CREATE TABLE ALTER DROP INDEX PRIMARY KEY FOREIGN REFERENCES UNIQUE DISTINCT UNION ALL WITH RECURSIVE AS CASE WHEN THEN ELSE END OVER PARTITION ROWS BETWEEN UNBOUNDED PRECEDING CURRENT ROW ASC DESC IS NOT NULL AND OR IN EXISTS INTERSECT EXCEPT BEGIN COMMIT ROLLBACK SAVEPOINT RELEASE VIEW CHECK DEFAULT CONFLICT DO'.split(' ')),
   bash: new Set('git npm node cd ls echo export if then else fi for do done while function return sudo curl grep cat rm mv cp mkdir chmod docker'.split(' ')),
   pseudocode: new Set('SET TO FUNCTION PROCEDURE OUTPUT INPUT APPEND REMOVE SWAP'.split(' '))
 };

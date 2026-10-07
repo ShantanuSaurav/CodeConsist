@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import vm from 'node:vm';
+import { runSqlInChild } from '../server/sql.js';
 import { loadContent, bundleAndImport, formatIssuesFor } from '../src/platform/content-registry/loader.build.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -40,7 +41,7 @@ const TYPES = new Set([
   'code_runner'
 ]);
 const DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
-const EXECUTABLE = new Set(['javascript', 'python']);
+const EXECUTABLE = new Set(['javascript', 'python', 'sql']);
 
 /**
  * Mirrors server/runner/js-runner.mjs on the three things that decide a grade:
@@ -262,10 +263,10 @@ function validateChallenge(c, file, seenIds, grading) {
   if (c.type === 'code_runner' || c.type === 'debug') {
     const isUi = Boolean(c.uiPreview || c.language === 'html');
     if (!EXECUTABLE.has(c.language) && !isUi) {
-      err(where, `${c.type} must be javascript or python (got "${c.language}")`);
+      err(where, `${c.type} must be javascript, python or sql (got "${c.language}")`);
     }
     if (!c.starterCode) err(where, 'needs starterCode');
-    if (!c.entryFunction && !isUi) err(where, 'needs entryFunction');
+    if (!c.entryFunction && !isUi && c.language !== 'sql') err(where, 'needs entryFunction');
     if (!c.solutionCode) err(where, 'needs solutionCode');
     if (!Array.isArray(c.testCases) || c.testCases.length < 2) {
       err(where, 'needs at least 2 testCases');
@@ -375,6 +376,7 @@ async function main() {
 
   const seenIds = new Map();
   let total = 0;
+  let sqlExecuted = 0;
   const byType = {};
   const byDifficulty = {};
   const byStage = {};
@@ -387,6 +389,13 @@ async function main() {
     byDifficulty[c.difficulty] = (byDifficulty[c.difficulty] ?? 0) + 1;
     byStage[c.stageId] = (byStage[c.stageId] ?? 0) + 1;
     validateChallenge(c, file, seenIds, grading);
+    if (c.language === 'sql' && (c.type === 'code_runner' || c.type === 'debug')) {
+      const result = await runSqlInChild({ code: c.solutionCode, testCases: c.testCases });
+      sqlExecuted++;
+      if (result.status !== 'passed') err(c.id, `SQL solution failed: ${result.stderr || JSON.stringify(result.testResults?.filter(test => !test.passed))}`);
+      const starter = await runSqlInChild({ code: c.starterCode, testCases: c.testCases });
+      if (starter.status === 'passed') err(c.id, 'SQL starter already passes every test');
+    }
   }
 
   console.log(`\nChecked ${total} challenges across ${files.size} file(s) (schema-validated by the content registry).`);
@@ -397,6 +406,7 @@ async function main() {
   // Say what was actually executed. "All challenges valid" over a set that
   // silently skipped every Python solution is a claim the run cannot support.
   console.log(`  executed:      ${pythonStats.jsExecuted} JavaScript solution(s), ${pythonStats.executed} Python`);
+  console.log(`  SQL executed:  ${sqlExecuted} reference solutions and starters against every dataset`);
   if (pythonStats.skipped > 0) {
     console.log(
       `\n  NOTE: ${pythonStats.skipped} Python challenge(s) were NOT executed - no python3 on PATH.\n` +

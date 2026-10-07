@@ -35,6 +35,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.18.4",
+    "sql.js": "1.14.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -42,6 +43,7 @@
     "@types/canvas-confetti": "^1.9.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/sql.js": "^1.4.11",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.2.4",
     "tailwindcss": "^4.3.3",
@@ -49,7 +51,7 @@
     "vite": "^6.2.0",
     "vitest": "^3.2.7"
   },
-  "description": "CodeConsist - the developer training environment. 734 lessons and 12 stage tests across 3 tracks, guided Learn mode, articles, roadmaps, real code execution and an admin console. Runs end to end on localhost.",
+  "description": "CodeConsist - the developer training environment. 834 lessons and 12 stage tests across 3 tracks, guided Learn mode, articles, roadmaps, real code execution and an admin console. Runs end to end on localhost.",
   "engines": {
     "node": ">=22.9"
   }

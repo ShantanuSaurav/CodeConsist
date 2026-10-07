@@ -10,8 +10,11 @@ import { ENV } from '@/config/env';
 import { compilerService, RUNTIME_UNAVAILABLE_LABEL } from '@/platform/execution/compilerService';
 import { STORAGE_KEYS, readJson, writeJson } from '@/platform/storage/storage';
 import { WebPlayground } from './WebPlayground';
+import { SQL_EXAMPLES } from './sqlExamples';
+import { SqlResults } from '@/ui/primitives/SqlResults';
 
 const SNIPPETS: Record<string, Record<string, string>> = {
+  sql: SQL_EXAMPLES,
   javascript: {
     'Hello World': `console.log("Hello World");`,
     'Array pipeline': `// Everything here runs in a real sandbox.
@@ -119,7 +122,7 @@ int main() {
   }
 };
 
-const LANGUAGES: SupportedLanguage[] = ['javascript', 'python', 'java', 'c', 'cpp'];
+const LANGUAGES: SupportedLanguage[] = ['javascript', 'python', 'sql', 'java', 'c', 'cpp'];
 
 /**
  * What the selector offers. 'web' is deliberately NOT a `SupportedLanguage`:
@@ -137,6 +140,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   web: 'HTML / CSS / JS',
   javascript: 'JavaScript',
   python: 'Python',
+  sql: 'SQL (SQLite)',
   java: 'Java',
   c: 'C',
   cpp: 'C++'
@@ -145,13 +149,14 @@ const LANGUAGE_LABELS: Record<string, string> = {
 const FILE_NAMES: Partial<Record<SupportedLanguage, string>> = {
   javascript: 'playground.js',
   python: 'playground.py',
+  sql: 'playground.sql',
   java: 'Main.java',
   c: 'playground.c',
   cpp: 'playground.cpp'
 };
 
 /** Languages that always work: nothing to configure, ever. */
-const ALWAYS_AVAILABLE: SupportedLanguage[] = ['javascript', 'python'];
+const ALWAYS_AVAILABLE: SupportedLanguage[] = ['javascript', 'python', 'sql'];
 
 /**
  * How the language picker and the console status name a language with no
@@ -294,6 +299,7 @@ export const Playground: React.FC = () => {
   }, []);
 
   const run = useCallback(async () => {
+    if (isRunning) return;
     // The web mode has its own Run button and its own frame; Ctrl+Enter in
     // this editor never reaches here while it is showing.
     if (draft.language === 'web') return;
@@ -315,7 +321,7 @@ export const Playground: React.FC = () => {
       setRunning(false);
       setProgress('');
     }
-  }, [draft, executeCode]);
+  }, [draft, executeCode, isRunning]);
 
   const languageSelector = (
     <>
@@ -420,6 +426,7 @@ export const Playground: React.FC = () => {
         )}
 
         <div className="p-3 flex-1 min-h-0">
+          {language === 'sql' && <p className="text-sm text-fg-muted mb-3">SQLite · Each Run starts a fresh, private database. Include CREATE TABLE and INSERT statements before your queries. Your application data is never accessed.</p>}
           <CodeEditor
             value={draft.code}
             onChange={setCode}
@@ -481,7 +488,7 @@ export const Playground: React.FC = () => {
       {/* ------------------------------------------------------------ console */}
       <div className="ide-output flex flex-col min-w-0 border-t xl:border-t-0 border-border">
         <div className="flex items-center justify-between px-4 h-11 border-b border-border bg-surface-2">
-          <span className="text-sm font-medium text-fg">Console</span>
+          <span className="text-sm font-medium text-fg">{language === 'sql' ? 'Query results' : 'Console'}</span>
           <div className="flex items-center gap-3 text-xs font-mono">
             {result?.time && <span className="text-fg-muted">{result.time}</span>}
             <span className={`inline-flex items-center gap-1.5 ${statusClass}`}>
@@ -491,7 +498,7 @@ export const Playground: React.FC = () => {
           </div>
         </div>
 
-        <pre
+        {language === 'sql' && !isRunning && !errored && result?.sqlResults?.length ? <SqlResults results={result.sqlResults} /> : <pre
           role="log"
           aria-live="polite"
           aria-label="Execution output"
@@ -500,7 +507,7 @@ export const Playground: React.FC = () => {
           }`}
         >
           {consoleText}
-        </pre>
+        </pre>}
 
         {serverStatus === 'offline' && language === 'javascript' && (
           <p className="px-4 pb-3 text-xs text-fg-muted">

@@ -159,7 +159,8 @@ FIELDS EVERY KIND HAS
 - xpReward: a whole number - easy 30-40, medium 50-70, hard 80-120.
 - hints: 0-3 short nudges that point the way without giving the answer away.
 - tags: 0-6 lowercase keywords such as "loops", "arrays", "closures".
-- language: the language the question is about. The app can only RUN javascript, typescript and python, so code_runner and debug questions must use one of those; a frontend question is always html. Non-code kinds may also be about java, c, cpp, go, sql, css or bash.
+- language: the language the question is about. The app can RUN javascript, typescript, python and sql, so code_runner and debug questions must use one of those; a frontend question is always html. Non-code kinds may also be about java, c, cpp, go, css or bash.
+- SQL exception to the function conventions below: use real SQLite SQL, no entryFunction. Each test input is CREATE TABLE / INSERT setup SQL for a fresh in-memory database. The submission returns exactly one result set; expected is an ordered JSON array of rows, such as [[1,"Ada"],[2,null]]. Use explicit ORDER BY when ordering matters, at least two meaningfully different datasets, and only SQLite syntax. File attachment, extensions and PRAGMA are disabled. Do not emulate SQL in JavaScript.
 - Set every field that does not apply to the kind to null.
 
 WRONG-ANSWER NOTES (they teach; they must never hand over the answer)

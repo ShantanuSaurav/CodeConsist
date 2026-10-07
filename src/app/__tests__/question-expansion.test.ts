@@ -24,7 +24,7 @@ const contracts = [
 
 const newIds = new Set(contracts.flatMap(([stage, batch, count]) => Array.from({ length: count }, (_, index) => `${stage}-${batch}${String(index + 1).padStart(2, '0')}`)));
 const additions = ALL_CHALLENGES.filter(question => newIds.has(question.id));
-const original = ALL_CHALLENGES.filter(question => !newIds.has(question.id));
+const original = ALL_CHALLENGES.filter(question => !newIds.has(question.id) && !/^stage-7-d\d+$/.test(question.id));
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -37,7 +37,7 @@ function canonical(value: unknown): unknown {
 describe('500-question expansion integration', () => {
   it('adds exactly 500 unique lessons and preserves every field of all 246 old objects', async () => {
     expect(additions).toHaveLength(500);
-    expect(new Set(ALL_CHALLENGES.map(question => question.id)).size).toBe(746);
+    expect(new Set(ALL_CHALLENGES.map(question => question.id)).size).toBe(846);
     expect(additions.every(question => !question.isStageTest)).toBe(true);
     expect(original).toHaveLength(246);
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(canonical(original))));
@@ -102,7 +102,7 @@ describe('500-question expansion integration', () => {
   });
 
   it('preserves all original unit ids and membership while adding 100 five-question units', () => {
-    const expanded = buildStages();
+    const expanded = buildStages(ALL_CHALLENGES.filter(question => !/^stage-7-d\d+$/.test(question.id)));
     let newUnits = 0;
     for (const before of buildStages(original)) {
       const previous = defaultUnits(before.id, before.challenges);
