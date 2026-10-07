@@ -132,7 +132,7 @@ const LANGUAGES: { value: string; label: string }[] = [
 ];
 
 /** Languages the server can execute. Code questions are limited to these (HTML for frontend). */
-const EXECUTABLE = new Set(['javascript', 'typescript', 'python']);
+const EXECUTABLE = new Set(['javascript', 'typescript', 'python', 'sql']);
 const CODE_LANGUAGES = LANGUAGES.filter((l) => EXECUTABLE.has(l.value));
 
 /** The example shown in an empty code field, in the language the admin picked. */
@@ -1196,17 +1196,18 @@ const CodeEditorSection: React.FC<{ q: QuestionInput; patch: Patch; kind: Kind; 
           value={q.starterCode ?? ''}
           onChange={(v) => patch({ starterCode: v })}
           rows={frontend ? 10 : 6}
-          placeholder={STARTER_PLACEHOLDER[kind]}
+          placeholder={q.language === 'sql' ? 'SELECT 1;' : STARTER_PLACEHOLDER[kind]}
           hint={
             kind === 'debug'
               ? 'Must contain a real bug: before saving, the server checks that this version FAILS the tests.'
               : frontend
                 ? 'Give them the skeleton: the elements with their ids (like id="title") so the checks can find them, and a comment where the work goes.'
+                : q.language === 'sql' ? 'Write starter SQLite SQL. Each test provides its own schema and data; the learner returns one result set.'
                 : 'Usually the first line of the function (its name and inputs) with a comment where the answer goes. Keep the function name exactly as in the tests.'
           }
           error={errorAt('starterCode')}
         />
-        {!frontend && (
+        {!frontend && q.language !== 'sql' && (
           <TextField
             label="Function the tests call"
             required
@@ -1224,7 +1225,7 @@ const CodeEditorSection: React.FC<{ q: QuestionInput; patch: Patch; kind: Kind; 
           value={q.solutionCode ?? ''}
           onChange={(v) => patch({ solutionCode: v })}
           rows={frontend ? 10 : 6}
-          placeholder={SOLUTION_PLACEHOLDER[kind]}
+          placeholder={q.language === 'sql' ? 'SELECT id FROM items ORDER BY id;' : SOLUTION_PLACEHOLDER[kind]}
           hint={
             frontend
               ? 'A version that passes every test. Learners can reveal it after two attempts.'
@@ -1240,6 +1241,7 @@ const CodeEditorSection: React.FC<{ q: QuestionInput; patch: Patch; kind: Kind; 
         <p className="text-xs text-fg-muted mb-3">
           {frontend
             ? 'Each test is a small piece of JavaScript that looks at the finished page and produces true when it is right. Copy the shape of the example - wrap the checks in (() => { ... })() so they run and hand back true or false. Expected is then "true".'
+            : q.language === 'sql' ? 'Each test creates a fresh SQLite database from its setup SQL, runs the submission, and compares one result set to an ordered JSON array of rows, such as [[1,"Ada"],[2,"Lin"]].'
             : 'Each test calls the function with the arguments and compares what it returns with the expected value, written as a value: 3, "Fizz", [1, 2], true, null.'}
         </p>
         {errorAt('testCases') && <ErrorText>{errorAt('testCases')}</ErrorText>}
@@ -1271,6 +1273,8 @@ const CodeEditorSection: React.FC<{ q: QuestionInput; patch: Patch; kind: Kind; 
                     hint="JavaScript that looks at the finished page and produces true when it is correct - keep the (() => { ... })() wrapper."
                     error={errorAt(`testCases.${i}.input`)}
                   />
+                ) : q.language === 'sql' ? (
+                  <CodeArea label="Database setup SQL" required value={t.input} onChange={value => setTest(i, { input: value })} rows={5} placeholder="CREATE TABLE items (id INTEGER); INSERT INTO items VALUES (1);" hint="Only setup statements; this database is recreated for this test." error={errorAt(`testCases.${i}.input`)} />
                 ) : (
                   <TextField
                     label="Arguments"
@@ -1555,10 +1559,10 @@ function validateLocally(q: QuestionInput, { stageTest = false, authoredStageId 
       break;
     case 'code_runner':
     case 'debug':
-      need(frontend || EXECUTABLE.has(q.language), 'language', 'Code questions can only be graded in JavaScript, TypeScript or Python (or HTML for a frontend question) - pick one of those.');
+      need(frontend || EXECUTABLE.has(q.language), 'language', 'Code questions can be graded in JavaScript, TypeScript, Python or SQL (or HTML for a frontend question).');
       need(Boolean(q.starterCode?.trim()), 'starterCode', q.type === 'debug' ? 'Paste the broken code the learner has to fix.' : 'Write the starter code the learner begins from.');
       need(Boolean(q.solutionCode?.trim()), 'solutionCode', 'Paste a working solution - the server runs it against the test cases before saving.');
-      if (!frontend) {
+      if (!frontend && q.language !== 'sql') {
         need(Boolean(q.entryFunction?.trim()), 'entryFunction', 'Name the function the tests call, exactly as written in the code (e.g. fizzbuzz).');
         need(!q.entryFunction?.trim() || (q.solutionCode ?? '').includes(q.entryFunction.trim()), 'entryFunction', `The solution does not define a function called "${q.entryFunction?.trim()}".`);
       }

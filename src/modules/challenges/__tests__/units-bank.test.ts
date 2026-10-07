@@ -18,14 +18,14 @@ describe('the default units of the real bank', () => {
   it('gives the expanded core stages 12 or 14 units and the C/C++ stages 11', () => {
     for (const stage of stages) {
       const units = defaultUnits(stage.id, stage.challenges, cfg);
-      const expected = ['stage-1', 'stage-2'].includes(stage.id) ? 14 : /^stage-\d+$/.test(stage.id) ? 12 : 11;
+      const expected = stage.id === 'stage-7' ? 32 : ['stage-1', 'stage-2'].includes(stage.id) ? 14 : /^stage-\d+$/.test(stage.id) ? 12 : 11;
       expect(units.length, `${stage.id}: ${units.map((u) => u.challengeIds.length).join('/')}`).toBe(expected);
     }
   });
 
-  it('keeps every unit between 5 and 8 questions, 146 units in all', () => {
+  it('keeps every unit between 5 and 8 questions, 166 units in all', () => {
     const all = stages.flatMap((stage) => defaultUnits(stage.id, stage.challenges, cfg));
-    expect(all).toHaveLength(146);
+    expect(all).toHaveLength(166);
     for (const unit of all) {
       expect(unit.challengeIds.length, unit.id).toBeGreaterThanOrEqual(5);
       expect(unit.challengeIds.length, unit.id).toBeLessThanOrEqual(8);

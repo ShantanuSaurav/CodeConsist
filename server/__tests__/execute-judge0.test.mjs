@@ -470,7 +470,8 @@ describe('the runtimes block of /api/health', () => {
   it('reports every language, and never an endpoint', () => {
     const runtimes = buildRuntimes(resolveJudge0Config({ JUDGE0_API_URL: 'http://localhost:2358' }));
 
-    expect(Object.keys(runtimes)).toEqual(['javascript', 'python', 'java', 'c', 'cpp', 'go']);
+    expect(Object.keys(runtimes)).toEqual(['javascript', 'sql', 'python', 'java', 'c', 'cpp', 'go']);
+    expect(runtimes.sql).toEqual({ available: true, engine: 'browser', label: 'SQLite (WebAssembly)' });
     expect(runtimes.javascript).toEqual({ available: true, engine: 'node', label: 'Node sandbox' });
     expect(runtimes.python).toEqual({ available: true, engine: 'browser', label: 'CPython (WebAssembly)' });
     expect(runtimes.java).toEqual({ available: true, engine: 'judge0', label: 'Judge0 (self-hosted)' });

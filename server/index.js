@@ -36,6 +36,7 @@ import {
   setUnitFirstLessonResolver
 } from './content.js';
 import { compileTsModule } from './build.js';
+import { runSqlInChild, prepareSqlEngine } from './sql.js';
 import { createAdminRouter } from './admin.js';
 import { createGeminiClient } from './ai.js';
 import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken, learnerTokenIsCurrent } from './auth.js';
@@ -298,6 +299,7 @@ async function bootstrap() {
   adminDeps.ai = createGeminiClient();
 
   gradingPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'grading-engine', 'grading.ts'), 'grading.mjs');
+  await prepareSqlEngine();
   const levelingPath = await compileTsModule(path.join(ROOT, 'src', 'platform', 'xp-leveling', 'leveling.ts'), 'leveling.mjs');
   grading = await import(pathToFileURL(gradingPath).href);
   leveling = await import(pathToFileURL(levelingPath).href);
@@ -968,6 +970,11 @@ async function verifySubmission(challenge, body) {
     return { ok: result.passed, verified: true, reason: 'Tests run by the server (local CPython).' };
   }
 
+  if (challenge.language === 'sql') {
+    const result = await slots.run(() => runSqlInChild({ code, testCases: challenge.testCases ?? [] }));
+    return { ok: result.status === 'passed', verified: true, reason: 'SQL tests run by the server in isolated SQLite databases.' };
+  }
+
   return { ok: false, verified: true, reason: `No server engine for ${challenge.language}.` };
 }
 
@@ -992,6 +999,7 @@ function serverCanVerify(challenge) {
   if (challenge.type !== 'code_runner' && challenge.type !== 'debug') return true;
   if (challenge.language === 'html' || challenge.uiPreview) return false;
   if (challenge.language === 'javascript' || challenge.language === 'typescript') return true;
+  if (challenge.language === 'sql') return true;
   if (challenge.language === 'python') return Boolean(findPython());
   return false;
 }
@@ -1311,6 +1319,7 @@ function runPythonLocally(code, entryFunction, testCases) {
  */
 async function runSolutionAgainstTests(challenge, code) {
   const testCases = challenge.testCases ?? [];
+  if (challenge.language === 'sql') return runSqlInChild({ code, testCases });
   if (challenge.language === 'javascript' || challenge.language === 'typescript') {
     const result = await runJsInChild({ code, entryFunction: challenge.entryFunction, testCases });
     return { ...result, reason: 'Run by the server sandbox.' };
@@ -1416,6 +1425,15 @@ app.post(
     const stdin = typeof req.body?.stdin === 'string' ? req.body.stdin.slice(0, JUDGE0_STDIN_LIMIT) : '';
 
     if (code.length > 100_000) return res.status(413).json({ error: 'Submission is too large.' });
+
+    if (language === 'sql') {
+      try {
+        return res.json(await slots.run(() => runSqlInChild({ code, testCases })));
+      } catch (err) {
+        if (err instanceof BusyError) return sendBusy(res);
+        throw err;
+      }
+    }
 
     if (language === 'python') {
       // The browser runs Python itself (Pyodide) - there is nothing for the

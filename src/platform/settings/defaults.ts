@@ -268,7 +268,7 @@ export const DEFAULT_SETTINGS: Settings = {
     },
     playground: {
       description:
-        'HTML, CSS and JavaScript render in a sandboxed frame in this browser. JavaScript runs in a sandbox on the CodeConsist server, or in your browser when the server is unavailable. Python runs in your browser. Java, C and C++ compile on the server when it has a compiler for them.'
+        'Web previews run in a sandboxed frame. JavaScript runs on the server with a browser fallback. Python runs in your browser; SQL uses a fresh, isolated SQLite database. Java, C and C++ use the server when a compiler is available.'
     },
     landing: {
       heroFootnote: 'Free to start · {freeStages} free stages, {premiumStages} premium · Every stage ends in a coding test',

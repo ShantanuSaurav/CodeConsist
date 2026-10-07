@@ -7,7 +7,7 @@ import { Badge, Button, CodeArea, Drawer, ErrorText, SelectField, TextArea, Text
 /** Languages a card's examples may be in (the content schema's list). */
 const LANGUAGES = ['javascript', 'typescript', 'python', 'java', 'c', 'cpp', 'go', 'sql', 'html', 'css', 'bash', 'pseudocode'];
 /** Languages the browser runs by itself; the rest need the server's Judge0 for the try-it step. */
-const RUNS_IN_BROWSER = new Set(['javascript', 'typescript', 'python', 'html', 'css']);
+const RUNS_IN_BROWSER = new Set(['javascript', 'typescript', 'python', 'sql', 'html', 'css']);
 
 interface ExampleForm {
   code: string;

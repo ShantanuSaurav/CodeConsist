@@ -23,6 +23,13 @@ function reset(): void {
 }
 
 describe('compilerService runtimes', () => {
+  it('supports SQLite without Judge0 or a server', () => {
+    reset();
+    expect(compilerService.runsLocally('sql')).toBe(true);
+    expect(compilerService.canRun('sql')).toBe(true);
+    expect(compilerService.runtimeAvailable('sql')).toBe(true);
+    expect(compilerService.engineFor('sql')).toBe('SQLite (WebAssembly)');
+  });
   // The labels below are the development wording; production replaces the
   // unavailable ones (see "compilerService messages by build").
   beforeEach(() => {

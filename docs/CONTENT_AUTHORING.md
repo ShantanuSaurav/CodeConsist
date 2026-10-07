@@ -356,3 +356,29 @@ each under `src/modules/roadmaps/content/` exporting `roadmap`.
 The validator fails the build. The lint only warns — each warning needs a human
 to judge, and a false positive is a bug in the lint, not a reason to reword good
 content.
+
+## Executable SQL (SQLite)
+
+Use `language: 'sql'` and `type: 'code_runner'` or `debug`. SQL has no `entryFunction`.
+Each `testCases[].input` is CREATE TABLE / INSERT setup SQL, executed in a fresh
+in-memory database. The submission must produce exactly one result set; the
+expected value is an ordered JSON array of rows, for example `[[1,"Ada"],[2,null]]`.
+Column aliases are ignored, but column order, row order, types, duplicate rows
+and NULL are significant. Use an explicit ORDER BY when order matters.
+
+The browser worker and server child process use the same SQLite-Wasm evaluator.
+The server independently reruns authored tests before awarding a solve; a client
+pass report is not enough. Database writes never reach application accounts or
+progress. File attachment, configuration PRAGMAs and extension/file functions are
+disabled. Runs have a six-second query budget, a 32 MiB SQLite allocation limit,
+100-statement cap, 1,000-row/200,000-character output cap and 100,000-character
+SQL cap. These are teaching sandboxes, not persistent database hosting.
+
+The 100 exercises in `databases-sql/d.ts` use the reviewed specifications in
+`authoring/sql-exercises.ts` and two independent fixtures in `sql-fixtures.ts`.
+`sql-expected.json` contains frozen outputs generated once with CPython's SQLite;
+runtime grading never derives expected answers from the reference solution.
+Every solution and starter is executed by `content:validate`, and integration
+tests cover placement, unit preservation and alternate datasets. When editing
+one, independently review the task/solution agreement and update expected values
+deliberately; never automatically regenerate expectations to silence a failure.

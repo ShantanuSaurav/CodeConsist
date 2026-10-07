@@ -77,7 +77,7 @@ describe('challenge content (dev loader)', () => {
     }
   });
 
-  it('keeps all 734 lessons, including the 500-question expansion, and one test per stage', () => {
+  it('keeps all 834 lessons, including both expansions, and one test per stage', () => {
     const lessons = Object.fromEntries(buildStages().map((s) => [s.id, s.challenges.length]));
     expect(lessons).toEqual({
       'stage-1': 72,
@@ -86,7 +86,7 @@ describe('challenge content (dev loader)', () => {
       'stage-4': 60,
       'stage-5': 62,
       'stage-6': 60,
-      'stage-7': 60,
+      'stage-7': 160,
       'stage-8': 60,
       'stage-9': 60,
       'stage-10': 60,
@@ -94,7 +94,7 @@ describe('challenge content (dev loader)', () => {
       'stage-cpp1': 55
     });
     for (const stage of buildStages()) expect(stage.test?.isStageTest).toBe(true);
-    expect(ALL_CHALLENGES.length).toBe(746);
+    expect(ALL_CHALLENGES.length).toBe(846);
   });
 
   it('every stage belongs to exactly one track, and every track names real stages', () => {

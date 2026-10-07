@@ -95,7 +95,13 @@ export interface FeedbackNote {
   leaks: boolean;
 }
 
+export interface SqlResultSet {
+  columns: string[];
+  values: (string | number | null)[][];
+}
+
 export interface ExecutionResult {
+  sqlResults?: SqlResultSet[];
   status: 'passed' | 'failed' | 'error';
   stdout?: string;
   stderr?: string;
