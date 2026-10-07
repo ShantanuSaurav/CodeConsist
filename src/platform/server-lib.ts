@@ -53,3 +53,4 @@ export * from './progress/access';
 // The weekly league (Phase 6): weeks, ranking, groups and what a closed week
 // does - server/leagues.js runs them over the store.
 export * from './league/league';
+export * from './playground/model';
