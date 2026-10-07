@@ -1,5 +1,5 @@
 import { IdeWorkspace } from './IdeWorkspace';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Play, RotateCcw, Trash2 } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { useCopy } from '@/platform/settings';
@@ -12,6 +12,9 @@ import { STORAGE_KEYS, readJson, writeJson } from '@/platform/storage/storage';
 import { WebPlayground } from './WebPlayground';
 import { SQL_EXAMPLES } from './sqlExamples';
 import { SqlResults } from '@/ui/primitives/SqlResults';
+import { normalizePlaygroundProgram, successfulPlaygroundRun, type PlaygroundProgram } from '@/platform/playground/model';
+import { PlaygroundLibrary } from './PlaygroundLibrary';
+import { guestProgramToSave, recordPlaygroundRun, setGuestProgramToSave } from './runHistory';
 
 const SNIPPETS: Record<string, Record<string, string>> = {
   sql: SQL_EXAMPLES,
@@ -199,6 +202,21 @@ function starterFor(language: Mode): string {
 }
 
 export const Playground: React.FC = () => {
+  const { user } = useSession();
+  const owner = user ? `user:${user.id}` : 'guest';
+  return <OwnedPlayground key={owner} owner={owner} signedIn={Boolean(user)} />;
+};
+
+const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner, signedIn }) => {
+  const [guestProgram, setGuestProgram] = useState(() => signedIn ? guestProgramToSave() : null);
+  const guestTransferred = useRef(false);
+  useEffect(() => {
+    if (!guestProgram || guestTransferred.current) return;
+    guestTransferred.current = true;
+    recordPlaygroundRun(owner, { id: crypto.randomUUID(), program: guestProgram, ranAt: new Date().toISOString() });
+    setGuestProgramToSave(null);
+    setGuestProgram(null);
+  }, [guestProgram, owner]);
   const { executeCode, serverStatus, judge0Configured, runtimes, activeTrack } = useSession();
   const copy = useCopy();
   // No saved draft yet: open on the language of the track the learner is
@@ -206,7 +224,13 @@ export const Playground: React.FC = () => {
   const selectedLanguage = activeTrack.track.primaryLanguage;
 
   const [draft, setDraft] = useState<Draft>(() => {
-    const saved = readJson<Partial<Draft>>(STORAGE_KEYS.editor, {});
+    if (guestProgram) return {
+      language: guestProgram.language,
+      code: guestProgram.language === 'web' ? '' : guestProgram.code,
+      stdin: guestProgram.language === 'web' ? '' : guestProgram.stdin,
+      snippet: null
+    };
+    const saved = readJson<Partial<Draft>>(`${STORAGE_KEYS.editor}:${owner}`, owner === 'guest' ? readJson(STORAGE_KEYS.editor, {}) : {});
     // No saved draft yet: open on whatever language track the learner is
     // currently practising, so the Playground picks up where Learn left off.
     // A previously saved draft's language always wins over this default -
@@ -216,7 +240,7 @@ export const Playground: React.FC = () => {
       : LANGUAGES.includes(selectedLanguage)
         ? selectedLanguage
         : 'javascript';
-    const code = saved.code ?? starterFor(language);
+    const code = typeof saved.code === 'string' ? saved.code : starterFor(language);
     // Drafts saved before `snippet` and `stdin` existed work them out or
     // start empty; a draft written by an older build must still open.
     return {
@@ -229,13 +253,20 @@ export const Playground: React.FC = () => {
   const [isRunning, setRunning] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [progress, setProgress] = useState('');
+  const [successful, setSuccessful] = useState<PlaygroundProgram | null>(guestProgram);
+  const alive = useRef(true);
+  const runningRef = useRef(false);
+  const currentLanguage = useRef(draft.language);
+  currentLanguage.current = draft.language;
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   // Open only when there is something in it, so an empty box stays out of the
   // way of the four languages that never use it.
   const [stdinOpen, setStdinOpen] = useState(() => Boolean(draft.stdin));
 
   useEffect(() => {
-    writeJson(STORAGE_KEYS.editor, draft);
-  }, [draft]);
+    writeJson(`${STORAGE_KEYS.editor}:${owner}`, draft);
+    if (draft.language !== 'web') writeJson(`${STORAGE_KEYS.editor}:${owner}:${draft.language}`, draft);
+  }, [draft, owner]);
 
   /**
    * Does this language have an engine right now?
@@ -273,16 +304,16 @@ export const Playground: React.FC = () => {
   const switchMode = (mode: Mode) => {
     if (mode === draft.language) return;
     setResult(null);
+    setSuccessful(null);
     if (mode === 'web') {
       // The editor's code is kept rather than cleared: the web mode stores its
       // three files under its own key, so there is nothing here in its way.
       setDraft((d) => ({ ...d, language: 'web' }));
       return;
     }
-    // Any other switch loads that language's starter, the same as it always
-    // has - the code in the draft belongs to the language being left.
-    const text = starterFor(mode);
-    setDraft({ language: mode, code: text, snippet: matchingSnippet(mode, text), stdin: '' });
+    const saved = readJson<Partial<Draft>>(`${STORAGE_KEYS.editor}:${owner}:${mode}`, {});
+    const text = typeof saved.code === 'string' ? saved.code : starterFor(mode);
+    setDraft({ language: mode, code: text, snippet: matchingSnippet(mode, text), stdin: typeof saved.stdin === 'string' ? saved.stdin : '' });
   };
 
   const clearCode = useCallback(() => {
@@ -299,29 +330,37 @@ export const Playground: React.FC = () => {
   }, []);
 
   const run = useCallback(async () => {
-    if (isRunning) return;
+    if (runningRef.current) return;
     // The web mode has its own Run button and its own frame; Ctrl+Enter in
     // this editor never reaches here while it is showing.
     if (draft.language === 'web') return;
     const language = draft.language;
+    const program = normalizePlaygroundProgram({ language, code: draft.code, stdin: STDIN_LANGUAGES.includes(language) ? draft.stdin : '' });
+    runningRef.current = true;
+    setSuccessful(null);
     setRunning(true);
     setProgress('');
     setResult(null);
     try {
       const res = await executeCode(draft.code, language, undefined, [], {
-        onProgress: setProgress,
+        onProgress: (message) => { if (alive.current) setProgress(message); },
         // Sent only where a program can read it; elsewhere it would be a field
         // the engine silently drops.
         stdin: STDIN_LANGUAGES.includes(language) ? draft.stdin : undefined
       });
-      setResult(res);
+      if (!alive.current) return;
+      if (currentLanguage.current === language) setResult(res);
+      if (program && successfulPlaygroundRun(res)) {
+        recordPlaygroundRun(owner, { id: crypto.randomUUID(), program, ranAt: new Date().toISOString() });
+        if (currentLanguage.current === language) setSuccessful(program);
+      }
     } catch (err: any) {
-      setResult({ status: 'error', stderr: err?.message ?? String(err), testResults: [] });
+      if (alive.current && currentLanguage.current === language) setResult({ status: 'error', stderr: err?.message ?? String(err), testResults: [] });
     } finally {
-      setRunning(false);
-      setProgress('');
+      runningRef.current = false;
+      if (alive.current) { setRunning(false); setProgress(''); }
     }
-  }, [draft, executeCode, isRunning]);
+  }, [draft, executeCode, owner]);
 
   const languageSelector = (
     <>
@@ -355,7 +394,7 @@ export const Playground: React.FC = () => {
           <span className="text-xs text-fg-muted truncate pl-1">A web page, rendered as you type. Nothing to set up.</span>
           <div className="flex items-center gap-1.5 flex-wrap">{languageSelector}</div>
         </div>
-        <WebPlayground />
+        <WebPlayground owner={owner} signedIn={signedIn} initialFiles={guestProgram?.language === 'web' ? guestProgram.files : undefined} />
       </div>
     );
   }
@@ -379,6 +418,14 @@ export const Playground: React.FC = () => {
       : 'Press Run to execute this code.';
 
   return (
+    <div className="flex flex-col gap-3">
+      <PlaygroundLibrary key={`${owner}:${language}`} owner={owner} signedIn={signedIn} label={LANGUAGE_LABELS[language]}
+        current={{ language: language as Exclude<PlaygroundProgram['language'], 'web'>, code: draft.code, stdin: usesStdin ? draft.stdin : '' }}
+        successful={successful} running={isRunning} onOpen={(program) => {
+          if (program.language === 'web' || program.language !== language) return;
+          setDraft({ language, code: program.code, stdin: program.stdin, snippet: matchingSnippet(language, program.code) });
+          setStdinOpen(Boolean(program.stdin)); setResult(null); setSuccessful(null);
+        }} />
     <IdeWorkspace explorer={<><h2>EXPLORER</h2><span className="ide-file">{FILE_NAMES[language]}</span><h2>EXAMPLES</h2>{Object.keys(SNIPPETS[language] ?? {}).map((name) => <button key={name} type="button" aria-pressed={draft.snippet === name} onClick={() => loadSnippet(name)}>{name}</button>)}</>}>
       {/* ------------------------------------------------------------- editor */}
       <div className="ide-editor flex flex-col min-w-0 xl:border-r border-border">
@@ -537,5 +584,6 @@ export const Playground: React.FC = () => {
         </div>
       </div>
     </IdeWorkspace>
+    </div>
   );
 };

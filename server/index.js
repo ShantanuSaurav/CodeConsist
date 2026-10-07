@@ -54,6 +54,7 @@ import { createBillingRouter, createWebhookRouter } from './billing-routes.js';
 import { createOAuthProviders, PROVIDER_IDS } from './oauth.js';
 import { createOAuthRouter } from './oauth-routes.js';
 import { clearDraftForSolve, createDraftsRouter } from './drafts-routes.js';
+import { createPlaygroundRouter } from './playground-routes.js';
 import { createSettingsService } from './settings.js';
 import { createSettingsRouter } from './settings-routes.js';
 import { createActivityService } from './activity.js';
@@ -897,6 +898,7 @@ app.use('/api/admin', createAdminRouter(adminDeps));
 // same lookup /api/progress/solve does below. `getProgress` goes with it so a
 // save for an already-solved lesson is a no-op there too.
 app.use('/api', createDraftsRouter({ requireAuth, getChallengeMerged, getProgress: store.getProgress }));
+app.use('/api', createPlaygroundRouter({ requireAuth, writeLimit: limitBy('write.account', byAccount), learningDeps }));
 
 /* ------------------------------------------------------------ verification */
 

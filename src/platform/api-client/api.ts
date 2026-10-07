@@ -28,6 +28,7 @@ import {
   UserStats
 } from '@/types';
 import { STORAGE_KEYS, readString, remove, writeString } from '../storage/storage';
+import type { PlaygroundLanguage, PlaygroundProgram, PlaygroundSave } from '../playground/model';
 import { browserTimeZone } from '../time/days';
 import type { ActivityView } from '../activity/log';
 import type { PublicSettings } from '../settings/types';
@@ -833,6 +834,22 @@ export const api = {
 
   async billingCatalog(): Promise<BillingCatalogResponse> {
     return request('/billing/catalog');
+  },
+
+  async playgroundSaves(language: PlaygroundLanguage): Promise<{ snippets: PlaygroundSave[] }> {
+    return request(`/playground/snippets?language=${encodeURIComponent(language)}`);
+  },
+
+  async savePlayground(id: string, title: string, program: PlaygroundProgram): Promise<{ snippet: PlaygroundSave }> {
+    return request(`/playground/snippets/${encodeURIComponent(id)}`, { method: 'PUT', body: { title, program } });
+  },
+
+  async renamePlayground(id: string, title: string): Promise<{ snippet: PlaygroundSave }> {
+    return request(`/playground/snippets/${encodeURIComponent(id)}`, { method: 'PATCH', body: { title } });
+  },
+
+  async deletePlayground(id: string): Promise<{ ok: true }> {
+    return request(`/playground/snippets/${encodeURIComponent(id)}`, { method: 'DELETE' });
   },
 
   /** Start a purchase. The server picks the price; `certificateName` only matters for certificate products. */

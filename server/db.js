@@ -50,7 +50,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
  *       joins, groups, baselines, exclusions and results), plus - lazily,
  *       on first read - progress `everSolved`.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 const EMPTY = {
   version: SCHEMA_VERSION,
@@ -119,6 +119,7 @@ const EMPTY = {
    * without limit, and dropped entirely when the account is deleted.
    */
   drafts: {},
+  playgroundSnippets: {},
   /**
    * The administrator's changes to the learning rules - XP, levels, streak
    * and time zones, data limits - as SPARSE overrides nested by section
@@ -306,6 +307,7 @@ function migrate(loaded) {
   next.certificates = plainObject(loaded.certificates);
   next.pricing = plainObject(loaded.pricing);
   next.drafts = plainObject(loaded.drafts);
+  next.playgroundSnippets = plainObject(loaded.playgroundSnippets);
   next.passwordResets = plainObject(loaded.passwordResets);
   next.conceptCards = plainObject(loaded.conceptCards);
   next.reviewSessions = plainObject(loaded.reviewSessions);
@@ -395,19 +397,18 @@ export async function load() {
   return state;
 }
 
-async function flush() {
+async function flush(strict = false) {
   if (!state) return;
   const tmp = `${DB_FILE}.tmp`;
   const payload = JSON.stringify(state, null, 2);
-  writing = writing
-    .then(async () => {
-      await writeFile(tmp, payload, 'utf8');
-      await rename(tmp, DB_FILE);
-    })
-    .catch((err) => {
-      console.error('[db] failed to persist:', err.message);
-    });
-  return writing;
+  const pending = writing.then(async () => {
+    await writeFile(tmp, payload, 'utf8');
+    await rename(tmp, DB_FILE);
+  });
+  writing = pending.catch((err) => {
+    console.error('[db] failed to persist:', err.message);
+  });
+  return strict ? pending : writing;
 }
 
 /** Schedule a write. Several mutations in the same tick cost one disk write. */
@@ -420,12 +421,12 @@ export function persist() {
 }
 
 /** Force a write and wait for it - used on shutdown. */
-export async function persistNow() {
+export async function persistNow({ strict = false } = {}) {
   if (writeTimer) {
     clearTimeout(writeTimer);
     writeTimer = null;
   }
-  await flush();
+  await flush(strict);
   await writing;
 }
 
@@ -480,6 +481,7 @@ export function deleteUser(id) {
   // Their unsolved work in progress goes too - it is their code, and nothing
   // else in the database refers to it.
   deleteDraftsForUser(id);
+  delete db().playgroundSnippets[id];
   // So do their days and wrong answers (typed blanks are their words).
   deleteActivity(id);
   // And any reset link issued for them - it names the account.

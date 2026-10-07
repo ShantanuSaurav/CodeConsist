@@ -4,6 +4,9 @@ import { Eraser, Play, RotateCcw, Trash2 } from 'lucide-react';
 import { SupportedLanguage } from '@/types';
 import { Button, CodeEditor, Dropdown, Segmented, Switch } from '@/ui';
 import { STORAGE_KEYS, readJson, writeJson } from '@/platform/storage/storage';
+import { normalizePlaygroundProgram, type PlaygroundProgram } from '@/platform/playground/model';
+import { PlaygroundLibrary } from './PlaygroundLibrary';
+import { forgetPlaygroundRun, recordPlaygroundRun } from './runHistory';
 import {
   WEB_EXAMPLES,
   WebExample,
@@ -479,14 +482,19 @@ function nextRunId(): string {
  * key rather than threading state back through a parent that has none of the
  * same shape.
  */
-export const WebPlayground: React.FC = () => {
-  const [draft, setDraft] = useState<WebDraft>(() => readWebDraft());
+export const WebPlayground: React.FC<{ owner?: string; signedIn?: boolean; initialFiles?: WebFiles }> = ({ owner = 'guest', signedIn = false, initialFiles }) => {
+  const [draft, setDraft] = useState<WebDraft>(() => normalizeWebDraft(initialFiles ? { files: initialFiles } : readJson(`${STORAGE_KEYS.webPlayground}:${owner}`, owner === 'guest' ? readWebDraft() : null)));
   const [view, setView] = useState<'preview' | 'console'>('preview');
   const [entries, setEntries] = useState<ConsoleEntry[]>([]);
   const [unseen, setUnseen] = useState(0);
   const [runId, setRunId] = useState('');
   const [doc, setDoc] = useState('');
   const [stalled, setStalled] = useState(false);
+  const [successful, setSuccessful] = useState<PlaygroundProgram | null>(null);
+  const [running, setRunning] = useState(false);
+  const submitted = useRef<PlaygroundProgram | null>(null);
+  const failed = useRef(false);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const filesRef = useRef(draft.files);
@@ -500,12 +508,17 @@ export const WebPlayground: React.FC = () => {
   viewRef.current = view;
 
   useEffect(() => {
-    writeWebDraft(draft);
-  }, [draft]);
+    writeJson(`${STORAGE_KEYS.webPlayground}:${owner}`, draft);
+  }, [draft, owner]);
 
   /** A run is a brand new frame: a wedged one is then always one click away from gone. */
   const run = useCallback(() => {
     const id = nextRunId();
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    failed.current = false;
+    submitted.current = normalizePlaygroundProgram({ language: 'web', files: filesRef.current });
+    setSuccessful(null);
+    setRunning(true);
     runIdRef.current = id;
     readyRef.current = false;
     setStalled(false);
@@ -523,7 +536,23 @@ export const WebPlayground: React.FC = () => {
       if (message.kind === 'ready') {
         readyRef.current = true;
         setStalled(false);
+        const completedId = runIdRef.current;
+        if (settleTimer.current) clearTimeout(settleTimer.current);
+        settleTimer.current = setTimeout(() => {
+          if (completedId !== runIdRef.current) return;
+          setRunning(false);
+          if (!failed.current && submitted.current) {
+            setSuccessful(submitted.current);
+            recordPlaygroundRun(owner, { id: completedId, program: submitted.current, ranAt: new Date().toISOString() });
+          }
+        }, 300);
         return;
+      }
+
+      if (message.level === 'error') {
+        failed.current = true;
+        setSuccessful(null);
+        forgetPlaygroundRun(owner, runIdRef.current);
       }
 
       entryId.current += 1;
@@ -533,8 +562,11 @@ export const WebPlayground: React.FC = () => {
     };
 
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+    };
+  }, [owner]);
 
   // First paint runs straight away so the pane is never blank; after that the
   // debounce applies, and only when auto-run is on.
@@ -552,7 +584,7 @@ export const WebPlayground: React.FC = () => {
   useEffect(() => {
     if (!runId) return;
     const timer = window.setTimeout(() => {
-      if (!readyRef.current) setStalled(true);
+      if (!readyRef.current) { setStalled(true); setRunning(false); }
     }, STALL_MS);
     return () => window.clearTimeout(timer);
   }, [runId]);
@@ -597,6 +629,14 @@ export const WebPlayground: React.FC = () => {
   const current = exampleById(draft.example);
 
   return (
+    <div className="flex flex-col gap-3">
+      <PlaygroundLibrary key={owner} owner={owner} signedIn={signedIn} label="HTML / CSS / JS"
+        current={{ language: 'web', files: draft.files }} successful={successful} running={running}
+        onOpen={(program) => {
+          if (program.language !== 'web') return;
+          setDraft((previous) => ({ ...previous, files: program.files, example: matchingExample(program.files) }));
+          setSuccessful(null);
+        }} />
     <IdeWorkspace explorer={<><h2>EXPLORER</h2>{TABS.map((file) => <button key={file.value} type="button" aria-pressed={draft.tab === file.value} onClick={() => setDraft((previous) => ({ ...previous, tab: file.value }))}>{file.label}</button>)}<h2>EXAMPLES</h2>{WEB_EXAMPLES.map((example) => <button key={example.id} type="button" aria-pressed={draft.example === example.id} onClick={() => loadExample(example.id)}>{example.name}</button>)}</>}>
       {/* ------------------------------------------------------------- editor */}
       <div className="ide-editor flex flex-col min-w-0 xl:border-r border-border">
@@ -730,7 +770,8 @@ export const WebPlayground: React.FC = () => {
         )}
 
         <div className="flex-1 min-h-[16rem] bg-surface">
-          {view === 'preview' ? (
+          <div hidden={view !== 'preview'} className="h-full">
+          {(
             doc ? (
               // key={runId} is load-bearing: React tears the old element out and
               // mounts a new one, which is the only reliable way to abandon a
@@ -746,7 +787,9 @@ export const WebPlayground: React.FC = () => {
             ) : (
               <p className="p-4 text-sm text-fg-muted">Press Run to render the page.</p>
             )
-          ) : (
+          )}
+          </div>
+          {view === 'console' && (
             <div
               className="h-full max-h-[32rem] overflow-auto p-4 font-mono text-[0.8125rem] leading-relaxed"
               role="log"
@@ -777,5 +820,6 @@ export const WebPlayground: React.FC = () => {
         </div>
       </div>
     </IdeWorkspace>
+    </div>
   );
 };

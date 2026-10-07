@@ -81,7 +81,7 @@ describe('migrateState', () => {
   it('adds settings and activity, and leaves progress exactly as it was', () => {
     const next = store.migrateState(clone(OLD_DB));
     expect(next.version).toBe(store.SCHEMA_VERSION);
-    expect(store.SCHEMA_VERSION).toBe(7);
+    expect(store.SCHEMA_VERSION).toBe(8);
     expect(next.settings).toEqual({ overrides: {}, revision: 0, updatedAt: null, updatedBy: null });
     expect(next.activity).toEqual({});
     expect(next.progress).toEqual(OLD_DB.progress);
@@ -123,7 +123,7 @@ describe('migrateState', () => {
 
   it('never lets a newer version number go backwards', () => {
     expect(store.migrateState({ version: 8 }).version).toBe(8);
-    expect(store.migrateState({}).version).toBe(7);
+    expect(store.migrateState({}).version).toBe(8);
   });
 
   it('adds password resets and token versions (version 3), leaving orders, overrides and progress alone', () => {
@@ -164,8 +164,8 @@ describe('load() of a version 1 file', () => {
 
   it('keeps a byte-for-byte copy of the old file before migrating', () => {
     // Named after the version it migrates TO (a file from before version 7).
-    const copy = files.written.find((w) => /db\.json\.pre-v7-\d+$/.test(w.file));
-    expect(copy, 'db.json.pre-v7-<ts>').toBeTruthy();
+    const copy = files.written.find((w) => /db\.json\.pre-v8-\d+$/.test(w.file));
+    expect(copy, 'db.json.pre-v8-<ts>').toBeTruthy();
     expect(copy.text).toBe(JSON.stringify(OLD_DB));
     // Not treated as corrupt.
     expect(files.renamed.filter((r) => r.to.includes('.corrupt-'))).toEqual([]);
@@ -174,13 +174,13 @@ describe('load() of a version 1 file', () => {
   it('writes the migrated file at once, so the copy is made only once', () => {
     const saved = files.written.find((w) => /db\.json\.tmp$/.test(w.file));
     expect(saved, 'db.json.tmp written during load').toBeTruthy();
-    expect(JSON.parse(saved.text).version).toBe(7);
+    expect(JSON.parse(saved.text).version).toBe(8);
     expect(JSON.parse(saved.text).progress).toEqual(OLD_DB.progress);
     expect(files.renamed.some((r) => /db\.json\.tmp$/.test(r.from) && /db\.json$/.test(r.to))).toBe(true);
   });
 
   it('loads the migrated state with progress untouched', () => {
-    expect(store.db().version).toBe(7);
+    expect(store.db().version).toBe(8);
     expect(store.db().progress).toEqual(OLD_DB.progress);
     expect(store.getSettingsRecord().revision).toBe(0);
     expect(store.allActivity()).toEqual({});
@@ -411,7 +411,7 @@ describe('version 7: the weekly league', () => {
   it('adds leagues, leaving progress exactly as it was', () => {
     const v6 = { ...clone(OLD_DB), version: 6, conceptCards: {}, reviewSessions: {}, assessments: {} };
     const next = store.migrateState(clone(v6));
-    expect(next.version).toBe(7);
+    expect(next.version).toBe(8);
     expect(next.leagues).toEqual({ members: {}, weeks: {} });
     // No progress row is rewritten: `everSolved` appears only on read.
     expect(JSON.stringify(next.progress)).toBe(JSON.stringify(OLD_DB.progress));
