@@ -17,7 +17,7 @@ Updated: 8 October 2026 (Asia/Kolkata). Worktree: `Devlingo-redesign`. The owner
 - [x] Initial full checks: 99 files / 2,705 tests, build, shell 180.71 kB gzip (195 kB budget).
 - [x] Browser checks: success/error, edits, refresh, account sync, language filtering, rename/open, web late errors, guest sign-in handoff, 375px mobile.
 - [x] Final recheck after guest-handoff refinement: 99 files / 2,705 tests, build, no source maps, shell **180.69 kB gzip**.
-- [ ] Publish `adi`, deploy backend and verify live data preservation.
+- [x] Published `adi`, deployed the live backend, verified public API and complete preservation of existing database sections.
 
 ## Decisions
 - Existing challenge drafts remain separate from the playground library.
@@ -27,7 +27,7 @@ Updated: 8 October 2026 (Asia/Kolkata). Worktree: `Devlingo-redesign`. The owner
 - No dependencies or heavy animation libraries added. Use limited test concurrency after the user's RAM-related interruption.
 
 ## Continuation prompt
-Continue from this log in `C:/Users/KIIT0001/Desktop/Devlingo-redesign`. Inspect status and finish only unchecked phases. The user explicitly authorizes a push to `adi` and backend deployment. Never push/merge `main`. After final checks, commit the scoped feature, push normally, fast-forward the clean live `adi` checkout, build, restart only the verified API child, then verify health, schema 8, endpoint authentication and data preservation. Never copy test fixtures or an old backup over live data. Record actual commit/CI/deployment results here. Vercel production frontend promotion from `adi` to `main` requires separate authorization.
+Playground saves are implemented, tested, pushed to `adi` and deployed to the live backend. Read this log, inspect Git status and live health before any further work. Source commit is `039a16aea7487120c965451aa55528679a23e0ed`; a documentation follow-up records deployment. Never push/merge `main` without a new request. Preserve schema-8 account libraries and all existing user data. Successful-run history is memory-only and per language; named immutable snapshots sync through authenticated API routes. For subsequent features, work in `Devlingo-redesign`, record checks/handoff in Markdown, and obtain relevant live-deployment authorization rather than reusing permission for this completed feature. New UI promotion to the Vercel production domain requires a separate `adi` → `main` decision; the backend is already ready.
 
 ## Implementation inventory
 - `src/platform/playground/model.ts`: shared seven-mode model and validation, exported through `src/platform/server-lib.ts`. Code limit 100,000 characters, input 10,000, title 1–80. Only Java/C/C++ accept stdin. Web stores all three files together.
@@ -58,3 +58,15 @@ Continue from this log in `C:/Users/KIIT0001/Desktop/Devlingo-redesign`. Inspect
 - Fresh valid schema-7 backup: `C:/Users/KIIT0001/Desktop/Devlingo-merged/ops/backups/db-pre-playground-saves-20261007-191624.json` (UTC filename), 3 users, 3 progress records, 2 orders, 0 certificates. SHA-256 **`DEBBD3BD05DFA25996FD4E1E7D21CC892782D2D9F571D35EA496E1D6A2C33B37`**. Local-only; never commit it.
 - Confirmed port 4000 API child **40664**, parent supervisor **35836**, live checkout. Only restart the verified child after integration/build; leave supervisor, tunnel, Judge0 and other services alone.
 - Live checkout has existing untracked design/deployment Markdown; preserve it. No new dependencies to install.
+
+## Completed publication and deployment
+- Source commit **`039a16aea7487120c965451aa55528679a23e0ed`** pushed normally to `origin/adi` at `https://github.com/ShantanuSaurav/CodeConsist`. No force push or `main` merge/push.
+- GitHub CI for that exact source commit: **success**, `https://github.com/ShantanuSaurav/CodeConsist/actions/runs/37674413961`.
+- Vercel reports successful Preview deployment for that commit: `https://devlingo-d54qwnxr6-shantanu-sauravs-projects.vercel.app/dashboard/practice`. Its deployment status was verified through GitHub; authenticated preview browsing is not claimed tested. Vercel sign-in may be required.
+- Fast-forwarded live `Devlingo-merged` on `adi`, built successfully, and passed distribution guard: **180.70 kB gzip**, no source maps. All pre-existing untracked Markdown preserved; no dependency changes or secret edits.
+- Restarted only API child **40664**; its existing supervisor **35836** started replacement **26972** on 4000. Tunnel/Judge0 were not restarted.
+- Both local and public `https://devlingo-sand.vercel.app/api/health` confirm **846 questions, 3 users**, SQLite available. Both local and public `/api/playground/snippets?language=…` return the expected **401 Sign in to continue**, proving the new account-protected endpoint is deployed, not a missing-route 404.
+- Automatic migration backup: `server/data/db.json.pre-v8-1791401322145`. Compared every existing top-level section against the post-migration database: **no changes**, excluding only schema version. Schema 8 adds the initially empty account-library collection; 3 users, 3 progress records, 2 orders and 0 certificates preserved exactly. No production test accounts/snippets were inserted.
+- Remote `main` remains **`d9cca1c39f3d4fb37dc417036167d9919f6990f5`**. The production domain's backend is updated; this new frontend stays on the `adi` preview until a separately authorized main promotion. Local production UI is at `http://localhost:4000/dashboard/practice`.
+- Temporary QA API (4200) and Vite (3202) stopped after verification to reduce RAM use. Their isolated test database remains under `%TEMP%` for reproducibility; it is not published. The browser is handed off to the existing production service on 4000 instead.
+- Deployment evidence is saved in this Markdown-only follow-up, pushed to `adi` and fast-forwarded into the live checkout. No second API restart is needed for documentation alone.
