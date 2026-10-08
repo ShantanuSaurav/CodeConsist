@@ -2,7 +2,7 @@
 
 ## Status — 8 October 2026
 
-Implementation and full regression checks complete; production build and deployment verification in progress. User authorized pushing to `adi` and updating the live backend. Leave `main` unchanged. Work in `Devlingo-redesign`; integrate into `Devlingo-merged` only after validation. No database migration is needed.
+Complete: implemented, checked, pushed to `adi`, integrated and verified on the live backend. Source commit `8d77c9dd3ddc7e6d4fea57591bcde5af79226c8e`. `main` was not changed. No database migration or dependency change was needed. The publication/deployment evidence below supersedes the historical plan and checkpoint wording.
 
 ## Findings
 
@@ -59,7 +59,7 @@ Unlimited memory, infinite loops, OS access, arbitrary packages and unbounded ou
 
 ### Continuation / next-agent prompt
 
-Read this Markdown and check actual Git/service state. Larger-program support is implemented in `Devlingo-redesign`; finish production build/distribution guard and record their outcome. User explicitly authorized pushing this feature to `adi` and updating the live backend, not merging `main`. Preserve all existing learner/account/progress data and untracked design logs. Before any deployment, validate/back up the live schema-8 database, confirm tracked live checkout is clean and fast-forwardable, verify port4000 child/parent identity, then build and restart only that API child under its existing supervisor. Leave Judge0, tunnel and unrelated processes alone. Verify local/public API health and a bounded large run; preserve successful-run-only history/saves. Record commit, CI/preview, restart, data integrity and any limitations here. Close only this task's preview processes/tabs to release RAM. Do not claim unlimited programs, server-side Python, unrestricted SQL or authenticated production saves were tested.
+Read this Markdown and check actual Git/service state. Larger-program support is complete and deployed (evidence below). Do not repeat implementation or restart services without a new reason. User authorized this completed feature on `adi` and the live backend, not merging `main` or unlimited future deployments. Preserve fixed limits, grading budgets, worker/process isolation, low-memory/concurrency admission and successful-run-only saves. Work on future requests in `Devlingo-redesign` and record changes/evidence/handoff in Markdown. Before any newly authorized deployment, validate/back up the live schema-8 database, confirm tracked live checkout is clean and fast-forwardable, and verify current port4000 child/parent identity. Leave Judge0, tunnel, existing saved code and unrelated processes alone. Do not claim unlimited programs, server-side Python, unrestricted SQL or authenticated production saves were tested. A future request to promote the frontend to the production Vercel domain requires explicit `adi` → `main` authorization.
 
 References: [Judge0 submission limits](https://ce.judge0.com/#submissions-submission), [SQLite hard heap limit](https://www.sqlite.org/pragma.html#pragma_hard_heap_limit).
 
@@ -69,3 +69,18 @@ References: [Judge0 submission limits](https://ce.judge0.com/#submissions-submis
 - Real isolated API: large JavaScript allocated/fill-read 26,214,400 array elements (about 200 MiB backing storage) successfully. A simultaneous second large request received HTTP 503/busy; the first completed and a subsequent request succeeded. No silent browser rerun or success-on-refusal.
 - Remote main baseline immediately before publication: `d2c327aef540f8ccfeac63ea1124414354f97319`. Existing live port4000 child is 26972 under supervisor35836. Tracked live checkout is clean on `adi`; pre-existing untracked Markdown will be preserved.
 - Deployment results will be appended after the actual push, integration, restart and verification; this checkpoint is not a deployment claim.
+
+## Completed deployment — 8 October 2026
+
+- Pushed source commit **`8d77c9dd3ddc7e6d4fea57591bcde5af79226c8e`** to `origin/adi`, normally (no force push). GitHub CI for that commit succeeded: [CI run](https://github.com/ShantanuSaurav/CodeConsist/actions/runs/37745222350).
+- Vercel reports successful **Preview** deployment: [adi playground](https://devlingo-3fv3pr5ku-shantanu-sauravs-projects.vercel.app/dashboard/practice). Status verified through GitHub deployments; browser authentication to a protected Vercel preview is not claimed tested.
+- Live checkout `Devlingo-merged` fast-forwarded from `811d1df` to the source commit; existing untracked audit/prompt files preserved. Live build and distribution guard passed: **181.60 kB gzip**, no source maps.
+- Fresh local-only backup: `C:/Users/KIIT0001/Desktop/Devlingo-merged/ops/backups/db-pre-large-programs-20261008-074426.json`; SHA-256 **`712E4345990558CDC9C199DCD86C45CDBE55AE86D3B452D3ED391CC3F504B13C`**. Never commit the database or backups.
+- Restarted only verified API child26972. Existing supervisor35836 started replacement **19484** on port4000. Judge0 and the tunnel were not restarted; global compiler configuration and credentials were not edited.
+- Parsed database comparison before/after restart: **identical**, no changed sections. Schema8, 3 users, 3 progress records, 2 orders and 1 existing account-library owner preserved. No production test accounts or snippets created.
+- Through the deployed local API, a C program allocated and initialized **352 MiB**, returning success in **604ms** with `profile: large`.
+- Public `https://devlingo-sand.vercel.app/api/health` returned healthy, 846 challenges, 3 users and SQL available. Its `/api/execute` rejects an unknown profile with HTTP400 and runs a large-mode JavaScript request successfully (HTTP200, output42). This verifies the actual public backend, not only a local build.
+- Existing live browser tab was refreshed and the new Run budget dropdown was verified. Selected Large program without editing/executing the existing draft. Screenshot: `C:/Users/KIIT0001/.codex/visualizations/2026/10/04/01a10852-76c8-7531-baf9-c25d20bf42e7/playground-large-live.png`.
+- Temporary QA services3202/4200 and the QA tab were closed to reduce RAM use. The live4000 playground remains open. Temporary viewport override reset.
+- Remote `main` remains **`d2c327aef540f8ccfeac63ea1124414354f97319`**. The new selector is in the local production UI and adi preview; the public production-domain frontend has not been promoted to this feature. Its backend is already updated.
+- A Markdown-only follow-up records these outcomes, pushed to `adi` and fast-forwarded into live without another API restart.
