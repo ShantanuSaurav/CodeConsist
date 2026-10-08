@@ -84,3 +84,16 @@ References: [Judge0 submission limits](https://ce.judge0.com/#submissions-submis
 - Temporary QA services3202/4200 and the QA tab were closed to reduce RAM use. The live4000 playground remains open. Temporary viewport override reset.
 - Remote `main` remains **`d2c327aef540f8ccfeac63ea1124414354f97319`**. The new selector is in the local production UI and adi preview; the public production-domain frontend has not been promoted to this feature. Its backend is already updated.
 - A Markdown-only follow-up records these outcomes, pushed to `adi` and fast-forwarded into live without another API restart.
+
+## Execution-warning correction — 8 October 2026
+
+The owner identified that the generic large-program warning incorrectly advised C/C++/Java visitors to close browser tabs, even though those programs use the server. The owner authorized correcting the wording and publishing to `adi` and the live app, with `main` unchanged.
+
+- Added the UI-only `largeProgramNotice` helper in the playground module and replaced the shared warning paragraph with it.
+- C/C++/Java (and the existing Go type): explicitly state server execution and server-resource contention; no advice to close browser tabs.
+- Python/SQL: explicitly state execution in the visitor's browser and use of their device resources; retain relevant tab-closing advice without mentioning server contention.
+- JavaScript/TypeScript: distinguish normal server execution from offline browser execution and qualify tab-closing advice as browser-only.
+- Eight regression cases cover those language distinctions. The component still displays this paragraph only in Large program mode.
+- No changes to budgets, execution routing, APIs, authentication, database, saved-code behavior or background services. This frontend-only correction does not require an API restart or a database migration.
+- Fresh fetch shows the owner independently merged the previous feature into `main` in PR #19 (`8232ef2`). The production screenshot therefore legitimately contains Large program mode. This correction is still scoped to `adi`; do not promote it to `main` without authorization.
+- Validation passed: `npm run check` (TypeScript, boundaries, content checks and **101 files / 2,731 tests**, including the eight new cases), production build, and distribution guard (**181.60 kB gzip**, no source maps). Publication outcome follows below.

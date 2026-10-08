@@ -1,4 +1,5 @@
 import { IdeWorkspace } from './IdeWorkspace';
+import { largeProgramNotice } from './executionNotice';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Play, RotateCcw, Trash2 } from 'lucide-react';
 import { useSession } from '@/platform/session';
@@ -533,7 +534,7 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
               size="sm" ariaLabel="Run budget" />
           </div>
           <p className="mt-2 mb-0 text-xs text-fg-secondary">{executionBudgetLabel(language, profile)}</p>
-          {profile === 'large' && <p className="mt-1 mb-0 text-xs text-fg-muted">More time and memory, not unlimited. Close unused tabs on low-memory devices. Server runs may be refused while resources are busy.</p>}
+          {profile === 'large' && <p className="mt-1 mb-0 text-xs text-fg-muted">{largeProgramNotice(language)}</p>}
         </div>
         <div className="px-3 h-11 border-t border-border bg-surface-2 flex items-center justify-between gap-3">
           <span className="font-mono text-xs text-fg-muted truncate pl-1">{compilerService.engineFor(language)}</span>
