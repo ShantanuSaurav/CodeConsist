@@ -27,3 +27,17 @@ Real isolated HTTP checks on port 4200 used a separate temporary database. With 
 Full `npm run check` passed, including TypeScript, boundaries, content checks and 102 test files / 2,742 tests. Production build and distribution guard passed: first-paint shell 181.67 kB gzipped against a 195 kB budget; no source maps shipped.
 
 Before deployment, the live tracked checkout/index were clean. A private database backup was created at `ops/backups/db-pre-execution-queue-20261009.json`, SHA256 `022F7B3B84C9903A3EAE10787F3C15072B94CDA6D5E543A080D0FEF6121783E1`. It is not committed. Publication and live restart follow these passing gates; deployment results will be appended below.
+
+## Published and deployed
+
+- Source commit: `7817b809e9709ee2d2d590fbb8a3813d608ce70a`, pushed to `origin/adi`. The live `Devlingo-merged` checkout was fast-forwarded and rebuilt successfully; live shell 181.65 kB gzipped. No changes were pushed or merged into `main`.
+- Restarted only the verified live API child under its existing supervisor; left Judge0, the tunnel and unrelated processes alone. Local and public `/api/health` both expose the new queue policy: maximum two running, eight waiting, 30-second wait. Both report 846 challenges and three accounts.
+- Compared every top-level database section against the private predeployment backup after restart: no differences. No schema migration or learner-data edits were required.
+- Standard live JavaScript smoke run returned HTTP 200, passed, output `42`. A large live JavaScript request was observed queued, automatically resumed when capacity became available and returned HTTP 200, passed, output `42`: approximately 7.8 seconds end-to-end, 173ms actual sandbox run. This verifies real waiting/resumption, not just immediate admission.
+- A second isolated low-memory batch also demonstrated automatic resumption: two of three requests completed successfully after waiting; the third hit its bounded deadline. Queue counts returned to zero. The temporary isolated API was stopped afterward.
+- Parallel dispatch is covered deterministically in unit tests with sufficient simulated memory; no claim is made that this low-memory laptop ran two large jobs simultaneously during HTTP smoke checks.
+- GitHub Actions for the source commit was still running at the last check: https://github.com/ShantanuSaurav/CodeConsist/actions/runs/37826762020. Local full validation passed independently. The new frontend progress copy is built locally and published on `adi`; production frontend promotion remains controlled by `main`.
+
+## Continuation notes
+
+Implementation and authorized backend deployment are complete. Keep finite execution limits, per-account/IP rate limits and successful-run-only saves intact. If users still time out while waiting, inspect actual free server RAM and competing workloads; do not remove safety reservations or claim unlimited capacity. More sustained parallelism needs more server resources, and multiple API replicas need shared scheduling rather than duplicating this process-local queue.
