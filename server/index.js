@@ -38,7 +38,7 @@ import {
 import { compileTsModule } from './build.js';
 import { runSqlInChild, prepareSqlEngine } from './sql.js';
 import { executionLimits, executionProfile } from '../src/platform/execution/limits.mjs';
-import { createLargeRunAdmission } from './execution-admission.js';
+import { createLargeRunAdmission, largeRunBusyMessage } from './execution-admission.js';
 import { createAdminRouter } from './admin.js';
 import { createGeminiClient } from './ai.js';
 import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken, learnerTokenIsCurrent } from './auth.js';
@@ -561,6 +561,7 @@ app.get('/api/health', (_req, res) => {
     stages: snapshot?.stages.length ?? 0,
     users: store.db().users.length,
     uptimeSeconds: Math.round(process.uptime()),
+    executionQueue: admitLargeRun.stats(),
     // Never the credentials themselves - just whether Judge0 is wired up, and
     // which languages that unlocks, so the client can label the Playground
     // honestly without ever seeing the key.
@@ -1409,12 +1410,13 @@ function runJsInChild(payload) {
  * out): say so in the shape a run result has, so the Playground and the
  * practice modal show it like any other failed run. Nothing ran.
  */
-function sendBusy(res) {
+function sendBusy(res, error) {
+  if (res.destroyed || res.writableEnded) return res;
   return res.status(503).json({
     status: 'error',
     engine: 'none',
     reason: 'busy',
-    stderr: copyText('limits.busy', {}, 'The code runner is busy - try again in a moment.'),
+    stderr: largeRunBusyMessage(error) ?? copyText('limits.busy', {}, 'The code runner is busy - try again in a moment.'),
     testResults: []
   });
 }
@@ -1441,11 +1443,21 @@ app.post(
 
     if (code.length > 100_000) return res.status(413).json({ error: 'Submission is too large.' });
 
+    const controller = new AbortController();
+    const onClose = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', onClose);
+    res.once('finish', () => res.removeListener('close', onClose));
+    const admissionOptions = { signal: controller.signal };
+    const runIfConnected = task => {
+      if (controller.signal.aborted) throw new BusyError('client-disconnected');
+      return task();
+    };
+
     if (language === 'sql') {
       try {
-        return res.json(await admitLargeRun(profile, () => slots.run(() => runSqlInChild({ code, testCases, profile }))));
+        return res.json(await admitLargeRun(profile, () => slots.run(() => runIfConnected(() => runSqlInChild({ code, testCases, profile }))), admissionOptions));
       } catch (err) {
-        if (err instanceof BusyError) return sendBusy(res);
+        if (err instanceof BusyError) return sendBusy(res, err);
         throw err;
       }
     }
@@ -1488,10 +1500,10 @@ app.post(
         });
       }
       try {
-        const result = await admitLargeRun(profile, () => slots.run(() => runJudge0Submission(judge0Config, { language, code, stdin, profile })));
+        const result = await admitLargeRun(profile, () => slots.run(() => runIfConnected(() => runJudge0Submission(judge0Config, { language, code, stdin, profile }))), admissionOptions);
         return res.json(result);
       } catch (err) {
-        if (err instanceof BusyError) return sendBusy(res);
+        if (err instanceof BusyError) return sendBusy(res, err);
         throw err;
       }
     }
@@ -1499,14 +1511,15 @@ app.post(
     try {
       // Timed inside the slot: the wait for one is not the program's time.
       const { result, elapsed } = await admitLargeRun(profile, () => slots.run(async () => {
+        runIfConnected(() => undefined);
         const started = process.hrtime.bigint();
         const out = await runJsInChild({ code, entryFunction, testCases, profile });
         return { result: out, elapsed: Number(process.hrtime.bigint() - started) / 1e6 };
-      }));
+      }), admissionOptions);
 
       res.json({ ...result, engine: 'node-vm', time: `${elapsed.toFixed(0)}ms (Node sandbox)` });
     } catch (err) {
-      if (err instanceof BusyError) return sendBusy(res);
+      if (err instanceof BusyError) return sendBusy(res, err);
       throw err;
     }
   })

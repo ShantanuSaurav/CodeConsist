@@ -656,6 +656,7 @@ export const compilerService = {
       // only thing left, so we should try it harder, not skip it.
       if (!preferLocal || workerUnavailable) {
         try {
+          if (profile === 'large') onProgress?.('Waiting for server resources or running your program… Queue wait is limited to 30 seconds.');
           const result = await api.execute({ language, code, entryFunction, testCases, ...(profile === 'large' ? { profile } : {}) });
           if (result && result.engine !== 'none') return result;
         } catch (error) {
@@ -679,6 +680,7 @@ export const compilerService = {
     try {
       // stdin only goes on this path: it is the Judge0 languages that read it,
       // and sending it to a Node-VM run that has no stdin would be noise.
+      if (profile === 'large') onProgress?.('Waiting for server resources or running your program… Queue wait is limited to 30 seconds.');
       return withDevHint(await api.execute({ language, code, entryFunction, testCases, stdin, ...(profile === 'large' ? { profile } : {}) }));
     } catch (e: unknown) {
       // Refused without running - too many runs (429) or no free slot (503

@@ -932,7 +932,7 @@ export const api = {
     // With the session when there is one: a signed-in learner's runs are
     // limited per account, a guest's per address (a 429 or a 503 "busy"
     // comes back as an ApiError with its `reason`).
-    return request('/execute', { method: 'POST', body: payload, timeoutMs: payload.profile === 'large' ? 65000 : 30000 });
+    return request('/execute', { method: 'POST', body: payload, timeoutMs: payload.profile === 'large' ? 100000 : 30000 });
   },
 
   /* Password reset links. An administrator issues one from Users; the token
