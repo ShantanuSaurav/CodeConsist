@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { compileTsModule } from './build.js';
+import { executionLimits } from '../src/platform/execution/limits.mjs';
 
 let enginePath;
 
@@ -9,10 +10,10 @@ export function prepareSqlEngine() {
   return enginePath;
 }
 
-export async function runSqlInChild(payload, timeoutMs = 6000) {
+export async function runSqlInChild(payload, timeoutMs = executionLimits(payload).sqlMs) {
   const modulePath = await prepareSqlEngine();
   return new Promise(resolve => {
-    const child = spawn(process.execPath, ['--max-old-space-size=96', fileURLToPath(new URL('./runner/sql-runner.mjs', import.meta.url))], { stdio: ['pipe', 'pipe', 'pipe', 'ipc'], windowsHide: true, env: { SystemRoot: process.env.SystemRoot ?? '', PATH: process.env.PATH ?? '' } });
+    const child = spawn(process.execPath, [`--max-old-space-size=${executionLimits(payload).sqlProcessHeapMb}`, fileURLToPath(new URL('./runner/sql-runner.mjs', import.meta.url))], { stdio: ['pipe', 'pipe', 'pipe', 'ipc'], windowsHide: true, env: { SystemRoot: process.env.SystemRoot ?? '', PATH: process.env.PATH ?? '' } });
     let output = '';
     let settled = false;
     const finish = result => {

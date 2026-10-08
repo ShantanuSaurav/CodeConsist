@@ -188,7 +188,7 @@ describe('a submission, as the stub receives it', () => {
     expect(received).toHaveLength(1);
     const [call] = received;
     expect(call.method).toBe('POST');
-    expect(call.url).toBe('/submissions?base64_encoded=true&wait=true');
+    expect(call.url).toBe('/submissions?base64_encoded=true&wait=true&fields=stdout,stderr,compile_output,status,time,exit_code,exit_signal,memory');
     expect(call.body.language_id).toBe(50);
     expect(Buffer.from(call.body.source_code, 'base64').toString('utf8')).toBe('int main(){}');
     expect(call.headers['x-rapidapi-key']).toBeUndefined();
@@ -294,7 +294,7 @@ describe('what comes back', () => {
     reply = { stdout: null, stderr: null, compile_output: null, time: '5.001', status: { id: 5, description: 'Time Limit Exceeded' } };
     const result = await runJudge0Submission(config(), { language: 'c', code: 'int main(){for(;;);}' });
     expect(result.status).toBe('error');
-    expect(result.stderr).toBe('Time Limit Exceeded');
+    expect(result.stderr).toBe('Time Limit Exceeded\nFor a memory-intensive or long-running program, try Large program mode. Limits still apply.');
   });
 
   it('treats compiler warnings on a successful build as a pass, and keeps the output', async () => {
@@ -510,5 +510,30 @@ describe('the runtimes block of /api/health', () => {
   it('gives each language its own object, so a client cannot mutate the rest', () => {
     const runtimes = buildRuntimes(resolveJudge0Config({ JUDGE0_API_URL: 'http://localhost:2358' }));
     expect(runtimes.java).not.toBe(runtimes.c);
+  });
+});
+
+describe('large-program diagnostics', () => {
+  it('shows exit details without claiming NZEC always means insufficient memory', async () => {
+    reply = { ...ACCEPTED, stdout: null, exit_code: 7, status: { id: 11, description: 'Runtime Error (NZEC)' } };
+    const result = await runJudge0Submission(resolveJudge0Config({ JUDGE0_API_URL: stubUrl }), { language: 'c', code: 'int main(){return 7;}', profile: 'large' });
+    expect(result.status).toBe('error');
+    expect(result.stderr).toContain('Exit code: 7.');
+    expect(result.stderr).toContain('NZEC does not identify the cause by itself.');
+    expect(result.stderr).toContain('524288 KB');
+  });
+
+  it('does not mark queued or missing compiler statuses as successful', async () => {
+    for (const status of [undefined, { id: 1, description: 'In Queue' }, { id: 2, description: 'Processing' }]) {
+      reply = { ...ACCEPTED, status };
+      expect((await runJudge0Submission(resolveJudge0Config({ JUDGE0_API_URL: stubUrl }), { language: 'c', code: '' })).status).toBe('error');
+    }
+  });
+
+  it('explains a compiler installation rejecting the larger allowance', async () => {
+    reply = { status: 422 };
+    const result = await runJudge0Submission(resolveJudge0Config({ JUDGE0_API_URL: stubUrl }), { language: 'c', code: '', profile: 'large' });
+    expect(result.status).toBe('error');
+    expect(result.stderr).toContain('does not support the requested large-program budget');
   });
 });

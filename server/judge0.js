@@ -25,6 +25,7 @@
  */
 
 import zlib from 'node:zlib';
+import { executionLimits, executionProfile } from '../src/platform/execution/limits.mjs';
 
 /**
  * Judge0 CE language ids. Fixed by the service, not by us:
@@ -46,7 +47,6 @@ export const JUDGE0_STDIN_LIMIT = 10_000;
 const AUTHN_HEADER = 'X-Auth-Token';
 
 /** Judge0 answers a `wait=true` submission only once the program has run. */
-const SUBMISSION_TIMEOUT_MS = 20_000;
 
 /** Judge0 CE's "Multi-file program": we ship our own `compile` and `run` scripts in a zip. */
 const MULTI_FILE_LANGUAGE_ID = 89;
@@ -382,22 +382,31 @@ const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
  * The submission body for one run. Everything except self-hosted Java is a
  * plain single-file submission; see JAVA_MEMORY_LIMIT_KB for why that one is not.
  */
-export function buildSubmissionBody(config, { language, code, stdin = '' }) {
+export function buildSubmissionBody(config, { language, code, stdin = '', profile }) {
+  const limits = executionLimits({ profile });
   const encode = (str) => Buffer.from(str, 'utf8').toString('base64');
   let body;
 
   if (language === 'java' && config?.mode === 'self-hosted') {
     const { fileName, className } = javaEntryPoint(code);
+    const runtimeFlags = JVM_FLAGS.map(flag => flag.startsWith('-Xmx') ? `-Xmx${limits.javaHeapMb}m` : flag);
     const javacFlags = JVM_FLAGS.map((flag) => `-J${flag}`).join(' ');
     const zip = storedZip({
       [fileName]: code,
       compile: `${JAVA_HOME}/bin/javac ${javacFlags} -encoding UTF-8 -nowarn -d . ${shellQuote(fileName)}\n`,
-      run: `${JAVA_HOME}/bin/java ${JVM_FLAGS.join(' ')} -Dfile.encoding=UTF-8 -cp . ${shellQuote(className)}\n`
+      run: `${JAVA_HOME}/bin/java ${runtimeFlags.join(' ')} -Dfile.encoding=UTF-8 -cp . ${shellQuote(className)}\n`
     });
     body = { language_id: MULTI_FILE_LANGUAGE_ID, additional_files: zip.toString('base64'), memory_limit: JAVA_MEMORY_LIMIT_KB };
   } else {
     body = { source_code: encode(code), language_id: JUDGE0_LANGUAGE_IDS[language] };
     if (COMPILER_OPTIONS[language]) body.compiler_options = COMPILER_OPTIONS[language];
+  }
+
+  if (executionProfile({ profile }) === 'large') {
+    body.cpu_time_limit = limits.judgeCpuSeconds;
+    body.wall_time_limit = limits.judgeWallSeconds;
+    body.memory_limit = language === 'java' ? JAVA_MEMORY_LIMIT_KB : limits.judgeMemoryKb;
+    if (language === 'c' || language === 'cpp') body.compiler_options = [COMPILER_OPTIONS[language], '-O2'].filter(Boolean).join(' ');
   }
 
   const input = typeof stdin === 'string' ? stdin.slice(0, JUDGE0_STDIN_LIMIT) : '';
@@ -419,7 +428,8 @@ function failure(stderr, extra = {}) {
  * EOF. It is base64 like the source, because the request already asks for
  * base64_encoded=true.
  */
-export async function runJudge0Submission(config, { language, code, stdin = '' } = {}) {
+export async function runJudge0Submission(config, { language, code, stdin = '', profile } = {}) {
+  const limits = executionLimits({ profile });
   const languageId = JUDGE0_LANGUAGE_IDS[language];
   if (!languageId) {
     return { status: 'error', engine: 'none', stderr: `${language} is not supported by the configured compiler.`, testResults: [] };
@@ -430,15 +440,15 @@ export async function runJudge0Submission(config, { language, code, stdin = '' }
 
   const decode = (b64) => (b64 ? Buffer.from(b64, 'base64').toString('utf8') : '');
 
-  const body = buildSubmissionBody(config, { language, code, stdin });
+  const body = buildSubmissionBody(config, { language, code, stdin, profile });
 
   const started = process.hrtime.bigint();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SUBMISSION_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), limits.judgeRequestMs);
 
   let response;
   try {
-    response = await fetch(`${config.url}/submissions?base64_encoded=true&wait=true`, {
+    response = await fetch(`${config.url}/submissions?base64_encoded=true&wait=true&fields=stdout,stderr,compile_output,status,time,exit_code,exit_signal,memory`, {
       method: 'POST',
       headers: judge0Headers(config),
       body: JSON.stringify(body),
@@ -450,7 +460,7 @@ export async function runJudge0Submission(config, { language, code, stdin = '' }
     // userinfo, and the key must never appear in something a learner sees.
     if (e?.name === 'AbortError') {
       return failure(
-        `Judge0 at ${config.host} did not answer within ${SUBMISSION_TIMEOUT_MS / 1000}s. The submission may ` +
+        `Judge0 at ${config.host} did not answer within ${limits.judgeRequestMs / 1000}s. The submission may ` +
           'still be queued - try again, and check the judge is not overloaded.'
       );
     }
@@ -484,6 +494,7 @@ export async function runJudge0Submission(config, { language, code, stdin = '' }
     );
   }
   if (!response.ok) {
+    if (response.status === 422 && profile === 'large') return failure('This compiler does not support the requested large-program budget. Try Standard mode or ask the administrator to check Judge0 CPU, wall-time and memory limits.');
     return failure(`Judge0 at ${config.host} replied ${response.status}.`);
   }
 
@@ -511,10 +522,17 @@ export async function runJudge0Submission(config, { language, code, stdin = '' }
   }
 
   if (stderrText || (data.status?.id && data.status.id > 3)) {
-    return failure(stderrText || data.status?.description || 'Runtime error', {
+    const details = [];
+    if (Number.isInteger(data.exit_code)) details.push(`Exit code: ${data.exit_code}.`);
+    if (Number.isInteger(data.exit_signal) && data.exit_signal) details.push(`Signal: ${data.exit_signal}.`);
+    if (data.status?.id === 11) details.push('The program exited unsuccessfully. Check allocation failures, missing input and explicit nonzero returns. NZEC does not identify the cause by itself.');
+    if (profile === 'large') details.push(`Budget: ${limits.judgeCpuSeconds}s CPU / ${limits.judgeWallSeconds}s wall, ${body.memory_limit} KB address space.`);
+    else if ([5, 7, 8, 9, 10, 11, 12].includes(data.status?.id)) details.push('For a memory-intensive or long-running program, try Large program mode. Limits still apply.');
+    return failure([stderrText || data.status?.description || 'Runtime error', ...details].join('\n'), {
       stdout: stdout || undefined,
       time
     });
   }
+  if (data.status?.id !== 3) return failure('The compiler has not returned a completed run. Try again later; this run was not saved as successful.', { time });
   return { status: 'passed', engine: 'judge0', stdout: stdout || 'Program finished with no output.', time, testResults: [] };
 }

@@ -37,6 +37,8 @@ import {
 } from './content.js';
 import { compileTsModule } from './build.js';
 import { runSqlInChild, prepareSqlEngine } from './sql.js';
+import { executionLimits, executionProfile } from '../src/platform/execution/limits.mjs';
+import { createLargeRunAdmission } from './execution-admission.js';
 import { createAdminRouter } from './admin.js';
 import { createGeminiClient } from './ai.js';
 import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken, learnerTokenIsCurrent } from './auth.js';
@@ -1339,13 +1341,14 @@ async function runSolutionAgainstTests(challenge, code) {
 
 /* ---------------------------------------------------------------- execution */
 
-const EXECUTION_TIMEOUT_MS = 8000;
+const admitLargeRun = createLargeRunAdmission();
 
 function runJsInChild(payload) {
+  const limits = executionLimits(payload);
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      ['--max-old-space-size=128', path.join(HERE, 'runner', 'js-runner.mjs')],
+      [`--max-old-space-size=${limits.jsHeapMb}`, path.join(HERE, 'runner', 'js-runner.mjs')],
       { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
     );
 
@@ -1359,13 +1362,21 @@ function runJsInChild(payload) {
       child.kill('SIGKILL');
       resolve({
         status: 'error',
-        stderr: `Execution timed out after ${EXECUTION_TIMEOUT_MS}ms. Check for an infinite loop.`,
+        stderr: `Execution timed out after ${limits.jsProcessMs / 1000}s. Reduce the workload or check for an infinite loop.`,
         testResults: []
       });
-    }, EXECUTION_TIMEOUT_MS);
+    }, limits.jsProcessMs);
 
-    child.stdout.on('data', (d) => (out += d));
-    child.stderr.on('data', (d) => (errOut += d));
+    child.stdout.on('data', (data) => {
+      out += data;
+      if (out.length > 2_000_000) {
+        out = '';
+        errOut = 'Sandbox output exceeded its limit. Print a smaller summary.';
+        child.kill('SIGKILL');
+      }
+    });
+    child.stderr.on('data', (data) => { if (errOut.length < 16000) errOut += String(data).slice(0, 16000 - errOut.length); });
+    child.stdin.on('error', () => {});
 
     child.on('error', (e) => {
       if (settled) return;
@@ -1383,7 +1394,7 @@ function runJsInChild(payload) {
       } catch {
         resolve({
           status: 'error',
-          stderr: errOut.trim() || 'The sandbox produced no readable output.',
+          stderr: /heap out of memory|allocation failed/i.test(errOut) ? `JavaScript exceeded its ${limits.jsHeapMb} MiB heap budget. Use Large program or reduce allocations.` : errOut.trim() || 'The sandbox stopped without a result. Check memory usage and reduce the workload.',
           testResults: []
         });
       }
@@ -1419,6 +1430,8 @@ app.post(
     const code = String(req.body?.code ?? '');
     const entryFunction = req.body?.entryFunction ? String(req.body.entryFunction) : undefined;
     const testCases = Array.isArray(req.body?.testCases) ? req.body.testCases.slice(0, 25) : [];
+    if (req.body?.profile !== undefined && !['standard', 'large'].includes(req.body.profile)) return res.status(400).json({ error: 'Unknown execution profile.' });
+    const profile = executionProfile({ profile: req.body?.profile, entryFunction, testCases });
     // Optional, and only Judge0 languages can use it: the JavaScript sandbox
     // calls a function with arguments and Python runs in the browser, so
     // neither has a stdin to feed. Capped rather than rejected - a beginner's
@@ -1430,7 +1443,7 @@ app.post(
 
     if (language === 'sql') {
       try {
-        return res.json(await slots.run(() => runSqlInChild({ code, testCases })));
+        return res.json(await admitLargeRun(profile, () => slots.run(() => runSqlInChild({ code, testCases, profile }))));
       } catch (err) {
         if (err instanceof BusyError) return sendBusy(res);
         throw err;
@@ -1475,7 +1488,7 @@ app.post(
         });
       }
       try {
-        const result = await slots.run(() => runJudge0Submission(judge0Config, { language, code, stdin }));
+        const result = await admitLargeRun(profile, () => slots.run(() => runJudge0Submission(judge0Config, { language, code, stdin, profile })));
         return res.json(result);
       } catch (err) {
         if (err instanceof BusyError) return sendBusy(res);
@@ -1485,11 +1498,11 @@ app.post(
 
     try {
       // Timed inside the slot: the wait for one is not the program's time.
-      const { result, elapsed } = await slots.run(async () => {
+      const { result, elapsed } = await admitLargeRun(profile, () => slots.run(async () => {
         const started = process.hrtime.bigint();
-        const out = await runJsInChild({ code, entryFunction, testCases });
+        const out = await runJsInChild({ code, entryFunction, testCases, profile });
         return { result: out, elapsed: Number(process.hrtime.bigint() - started) / 1e6 };
-      });
+      }));
 
       res.json({ ...result, engine: 'node-vm', time: `${elapsed.toFixed(0)}ms (Node sandbox)` });
     } catch (err) {

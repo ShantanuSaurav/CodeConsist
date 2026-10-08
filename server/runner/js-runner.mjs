@@ -8,9 +8,9 @@
  *   out { status, stdout, stderr, testResults }
  */
 import vm from 'node:vm';
+import { executionLimits } from '../../src/platform/execution/limits.mjs';
 
 const CASE_TIMEOUT_MS = 2000;
-const SETUP_TIMEOUT_MS = 3000;
 const MAX_LOG_CHARS = 8000;
 
 function readStdin() {
@@ -106,6 +106,7 @@ async function main() {
   }
 
   const { code, entryFunction, testCases = [], gradingPath } = payload;
+  const limits = executionLimits(payload);
   const grading = await import(gradingPath);
 
   const context = makeContext();
@@ -117,7 +118,7 @@ async function main() {
     // Strict mode, for parity with the browser worker and the validator: the
     // same submission must grade the same way on every engine.
     new vm.Script('"use strict";\n' + String(code), { filename: 'submission.js' }).runInContext(context, {
-      timeout: SETUP_TIMEOUT_MS
+      timeout: limits.jsSetupMs
     });
     if (entryFunction) {
       hasEntry = new vm.Script(
@@ -133,7 +134,7 @@ async function main() {
         status: 'error',
         stdout: logs.text,
         stderr: timedOut
-          ? `Your code ran for over ${SETUP_TIMEOUT_MS}ms without finishing. That usually means a loop whose condition never becomes false.`
+          ? `Your code ran for over ${limits.jsSetupMs}ms without finishing. Reduce the workload or check for an infinite loop.`
           : `${e.name ?? 'Error'}: ${e.message}`,
         testResults: []
       })
