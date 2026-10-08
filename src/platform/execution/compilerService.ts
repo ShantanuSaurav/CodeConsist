@@ -30,6 +30,7 @@ import { ENV } from '@/config/env';
 import { api, ApiError, OfflineError, RuntimeInfo } from '../api-client/api';
 import { displayValue, matchesExpected } from '../grading-engine/grading';
 import { getCopy } from '../settings/store';
+import { executionLimits, executionProfile, type ExecutionProfile } from './limits.mjs';
 
 /** Names for the languages the server compiles, for the sentences a learner reads. */
 const SERVER_LANGUAGE_NAMES: Partial<Record<SupportedLanguage, string>> = {
@@ -158,7 +159,6 @@ const LANGUAGE_IDS: Partial<Record<SupportedLanguage, number>> = {
   go: 60
 };
 
-const WORKER_TIMEOUT_MS = 6000;
 const PYODIDE_VERSION = '0.26.4';
 
 /* -------------------------------------------------------- browser JS worker */
@@ -168,8 +168,10 @@ let workerUnavailable = false;
 function runInWorker(
   code: string,
   entryFunction: string | undefined,
-  testCases: TestCase[]
+  testCases: TestCase[],
+  profile: ExecutionProfile = 'standard'
 ): Promise<ExecutionResult> {
+  const timeoutMs = executionLimits({ profile, entryFunction, testCases }).workerMs;
   return new Promise((resolve) => {
     let worker: Worker;
     try {
@@ -204,10 +206,10 @@ function runInWorker(
     const timer = setTimeout(() => {
       finish({
         status: 'error',
-        stderr: `Execution timed out after ${WORKER_TIMEOUT_MS}ms. Check for a loop that never ends.`,
+        stderr: `Execution timed out after ${timeoutMs / 1000}s. Reduce the workload or check for a loop that never ends.`,
         testResults: []
       });
-    }, WORKER_TIMEOUT_MS);
+    }, timeoutMs);
 
     worker.onmessage = (event: MessageEvent<ExecutionResult>) => finish(event.data);
     worker.onerror = (event) => {
@@ -238,11 +240,11 @@ function runInWorker(
  * once. It is only thrown away when a run has to be killed.
  */
 const PYTHON_LOAD_TIMEOUT_MS = 120_000;
-const PYTHON_RUN_TIMEOUT_MS = 8_000;
 
 let pythonWorker: Worker | null = null;
 let pythonJobId = 0;
 let pythonRuntimeReady = false;
+let pythonBusy = false;
 
 function getPythonWorker(): Worker {
   if (!pythonWorker) {
@@ -267,10 +269,14 @@ function runPython(
   code: string,
   entryFunction: string | undefined,
   testCases: TestCase[],
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  profile: ExecutionProfile = 'standard'
 ): Promise<ExecutionResult> {
+  const timeoutMs = executionLimits({ profile, entryFunction, testCases }).pythonMs;
+  if (pythonBusy) return Promise.resolve({ status: 'error', engine: 'none', reason: 'busy', stderr: 'A Python program is already running. Wait for it to finish before starting another.', testResults: [] });
   return new Promise((resolve) => {
     const worker = getPythonWorker();
+    pythonBusy = true;
     const id = ++pythonJobId;
     const started = performance.now();
     let settled = false;
@@ -284,7 +290,8 @@ function runPython(
       if (timer) clearTimeout(timer);
       worker.removeEventListener('message', onMessage);
       worker.removeEventListener('error', onError);
-      if (kill) killPythonWorker();
+      pythonBusy = false;
+      if (kill || profile === 'large') killPythonWorker();
       resolve({ engine: 'pyodide', time: elapsed(), ...result });
     };
 
@@ -305,8 +312,8 @@ function runPython(
         pythonRuntimeReady = true;
         // The runtime is up; from here on a hang is the submission's fault.
         arm(
-          PYTHON_RUN_TIMEOUT_MS,
-          `Your code ran for over ${PYTHON_RUN_TIMEOUT_MS / 1000}s without finishing. That usually means a loop whose condition never becomes false.`
+          timeoutMs,
+          `Your code ran for over ${timeoutMs / 1000}s without finishing. Reduce the workload or check for a loop that never ends.`
         );
         return;
       }
@@ -362,9 +369,9 @@ function runPython(
     // Until the runtime reports ready, the only thing that can be slow is the
     // download, so the budget is generous.
     arm(
-      pythonRuntimeReady ? PYTHON_RUN_TIMEOUT_MS : PYTHON_LOAD_TIMEOUT_MS,
+      pythonRuntimeReady ? timeoutMs : PYTHON_LOAD_TIMEOUT_MS,
       pythonRuntimeReady
-        ? `Your code ran for over ${PYTHON_RUN_TIMEOUT_MS / 1000}s without finishing.`
+        ? `Your code ran for over ${timeoutMs / 1000}s without finishing.`
         : 'The Python runtime took too long to download. Check your connection and try again.'
     );
 
@@ -539,6 +546,7 @@ function runHtmlInBrowser(
 /* -------------------------------------------------------------------- entry */
 
 export interface ExecuteOptions {
+  profile?: ExecutionProfile;
   entryFunction?: string;
   testCases?: TestCase[];
   onProgress?: (message: string) => void;
@@ -622,6 +630,7 @@ export const compilerService = {
     options: ExecuteOptions = {}
   ): Promise<ExecutionResult> {
     const { entryFunction, testCases = [], onProgress, preferLocal = false, stdin } = options;
+    const profile = executionProfile(options);
 
     if (!code.trim()) {
       return { status: 'error', stderr: 'There is no code to run yet.', engine: 'none', testResults: [] };
@@ -632,12 +641,12 @@ export const compilerService = {
     }
 
     if (language === 'python') {
-      return runPython(code, entryFunction, testCases, onProgress);
+      return runPython(code, entryFunction, testCases, onProgress, profile);
     }
 
     if (language === 'sql') {
       const { runSql } = await import('./sql-client');
-      return runSql({ code, testCases }, onProgress);
+      return runSql({ code, testCases, profile }, onProgress);
     }
 
     if (language === 'javascript' || language === 'typescript') {
@@ -647,15 +656,16 @@ export const compilerService = {
       // only thing left, so we should try it harder, not skip it.
       if (!preferLocal || workerUnavailable) {
         try {
-          const result = await api.execute({ language, code, entryFunction, testCases });
+          const result = await api.execute({ language, code, entryFunction, testCases, ...(profile === 'large' ? { profile } : {}) });
           if (result && result.engine !== 'none') return result;
-        } catch {
+        } catch (error) {
+          if (profile === 'large') return refusedRun(error) ?? { status: 'error', engine: 'none', stderr: error instanceof Error ? error.message : 'The server could not complete this run. No automatic retry was made.', testResults: [] };
           // Server down - or it refused the run (a 429, or every slot busy):
           // JavaScript has an engine right here, so the browser sandbox runs
           // it instead of showing an error.
         }
       }
-      return runInWorker(code, entryFunction, testCases);
+      return runInWorker(code, entryFunction, testCases, profile);
     }
 
     if (!LANGUAGE_IDS[language]) {
@@ -669,7 +679,7 @@ export const compilerService = {
     try {
       // stdin only goes on this path: it is the Judge0 languages that read it,
       // and sending it to a Node-VM run that has no stdin would be noise.
-      return withDevHint(await api.execute({ language, code, entryFunction, testCases, stdin }));
+      return withDevHint(await api.execute({ language, code, entryFunction, testCases, stdin, ...(profile === 'large' ? { profile } : {}) }));
     } catch (e: unknown) {
       // Refused without running - too many runs (429) or no free slot (503
       // busy): a failed run with the server's own sentence.

@@ -1,7 +1,9 @@
 import type { ExecutionResult } from '@/types';
 import type { SqlPayload } from './sql-engine';
+import { executionLimits } from './limits.mjs';
 
 export function runSql(payload: SqlPayload, onProgress?: (message: string) => void): Promise<ExecutionResult> {
+  const timeoutMs = executionLimits(payload).sqlMs;
   return new Promise(resolve => {
     let worker: Worker;
     try {
@@ -26,7 +28,7 @@ export function runSql(payload: SqlPayload, onProgress?: (message: string) => vo
     worker.onmessage = event => {
       if (event.data?.type === 'ready') {
         onProgress?.('Running SQL in an isolated database…');
-        arm(6000, 'SQL execution timed out after 6 seconds. Reduce the query or dataset.');
+        arm(timeoutMs, `SQL execution timed out after ${timeoutMs / 1000} seconds. Reduce the query or dataset.`);
       } else if (event.data?.type === 'result') finish(event.data.result);
     };
     worker.onerror = () => finish({ status: 'error', engine: 'none', stderr: 'The SQLite worker stopped unexpectedly.', testResults: [] });

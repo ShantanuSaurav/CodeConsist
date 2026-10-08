@@ -90,6 +90,42 @@ describe('compilerService runtimes', () => {
   });
 });
 
+describe('Python run budgets and disposal', () => {
+  it('allows 20 seconds, refuses overlapping work, releases the large worker and preserves the standard deadline', async () => {
+    vi.useFakeTimers();
+    const workers: FakeWorker[] = [];
+    class FakeWorker {
+      listeners = new Map<string, (event: MessageEvent) => void>();
+      job = { id: 0 };
+      terminate = vi.fn();
+      constructor() { workers.push(this); }
+      addEventListener(name: string, listener: (event: MessageEvent) => void) { this.listeners.set(name, listener); }
+      removeEventListener(name: string) { this.listeners.delete(name); }
+      postMessage(job: { id: number }) { this.job = job; }
+      emit(data: object) { this.listeners.get('message')?.({ data: { id: this.job.id, ...data } } as MessageEvent); }
+    }
+    vi.stubGlobal('Worker', FakeWorker);
+    try {
+      const running = compilerService.executeCode('print(42)', 'python', { profile: 'large' });
+      expect(await compilerService.executeCode('print(1)', 'python')).toMatchObject({ reason: 'busy', status: 'error' });
+      workers[0].emit({ type: 'ready' });
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(workers[0].terminate).not.toHaveBeenCalled();
+      workers[0].emit({ type: 'result', status: 'passed', stdout: '42' });
+      expect(await running).toMatchObject({ status: 'passed', stdout: '42' });
+      expect(workers[0].terminate).toHaveBeenCalledOnce();
+      const standard = compilerService.executeCode('while True: pass', 'python');
+      workers[1].emit({ type: 'ready' });
+      await vi.advanceTimersByTimeAsync(8001);
+      expect(await standard).toMatchObject({ status: 'error', stderr: expect.stringContaining('8s') });
+      expect(workers[1].terminate).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 /**
  * A visitor must never be told to run `npm run dev:api` or edit a `.env`
  * file: they cannot, and it reads as a broken site. Those instructions are for
@@ -193,6 +229,26 @@ describe('compilerService when the server refuses a run', () => {
 
   const respond = (status: number, body: unknown) =>
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })));
+
+  it('does not silently rerun a refused large JavaScript job in a browser worker', async () => {
+    const worker = vi.fn();
+    vi.stubGlobal('Worker', worker);
+    respond(503, { status: 'error', engine: 'none', reason: 'busy', stderr: 'The runner is busy.', testResults: [] });
+    expect(await compilerService.executeCode('console.log(42)', 'javascript', { profile: 'large' })).toMatchObject({ status: 'error', reason: 'busy' });
+    expect(worker).not.toHaveBeenCalled();
+  });
+
+  it('forwards large mode only for free-form runs, not challenge tests', async () => {
+    const payloads: Array<{ profile?: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init: RequestInit) => {
+      payloads.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify({ status: 'passed', engine: 'node-vm', testResults: [] }));
+    }));
+    await compilerService.executeCode('console.log(42)', 'javascript', { profile: 'large' });
+    await compilerService.executeCode('function solve(){return 42}', 'javascript', { profile: 'large', entryFunction: 'solve', testCases: [{ input: '', expected: '42' }] });
+    expect(payloads[0].profile).toBe('large');
+    expect(payloads[1].profile).toBeUndefined();
+  });
 
   it('turns a 429 into a failed run carrying the friendly sentence', async () => {
     respond(429, { error: 'Too many attempts - try again in 2 minutes.', reason: 'rate-limited', retryAfterSeconds: 90 });

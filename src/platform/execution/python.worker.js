@@ -84,12 +84,28 @@ var CALL_HELPER =
 function run(pyodide, job, post) {
   var stdout = [];
   var stderr = [];
-  pyodide.setStdout({ batched: function (m) { stdout.push(m); } });
-  pyodide.setStderr({ batched: function (m) { stderr.push(m); } });
+  var outputSize = 0;
+  function append(target, message) {
+    var room = 8000 - outputSize;
+    if (room <= 0) return;
+    var text = String(message);
+    target.push(text.slice(0, room));
+    outputSize += Math.min(text.length, room) + 1;
+    if (outputSize >= 8000) target.push('… [output truncated]');
+  }
+  pyodide.setStdout({ batched: function (message) { append(stdout, message); } });
+  pyodide.setStderr({ batched: function (message) { append(stderr, message); } });
 
   // A brand-new globals dict for THIS submission only.
   var ns = pyodide.globals.get('dict')();
+  try {
+    return runInNamespace(pyodide, job, ns, stdout, stderr);
+  } finally {
+    ns.destroy();
+  }
+}
 
+function runInNamespace(pyodide, job, ns, stdout, stderr) {
   try {
     pyodide.runPython(job.code, { globals: ns });
   } catch (e) {
@@ -150,7 +166,6 @@ function run(pyodide, job, post) {
 
   try { call.destroy(); } catch (e) {}
   try { fn.destroy(); } catch (e) {}
-  try { ns.destroy(); } catch (e) {}
 
   return {
     // The main thread decides pass/fail with the shared grader.

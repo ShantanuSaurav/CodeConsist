@@ -387,7 +387,7 @@ export interface SessionContextType {
     language?: SupportedLanguage,
     entryFunction?: string,
     testCases?: TestCase[],
-    options?: Pick<ExecuteOptions, 'onProgress' | 'stdin'>
+    options?: Pick<ExecuteOptions, 'onProgress' | 'stdin' | 'profile'>
   ) => Promise<ExecutionResult>;
 
   /* saved coding sessions - see "drafts" below. Nobody has to start a
@@ -2305,13 +2305,14 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       language: SupportedLanguage = 'javascript',
       entryFunction?: string,
       testCases: TestCase[] = [],
-      options: Pick<ExecuteOptions, 'onProgress' | 'stdin'> = {}
+      options: Pick<ExecuteOptions, 'onProgress' | 'stdin' | 'profile'> = {}
     ) =>
       compilerService.executeCode(code, language, {
         entryFunction,
         testCases,
         onProgress: options.onProgress,
         stdin: options.stdin,
+        profile: options.profile,
         preferLocal: serverStatus !== 'online'
       }),
     [serverStatus]

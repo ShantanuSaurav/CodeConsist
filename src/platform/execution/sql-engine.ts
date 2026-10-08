@@ -1,7 +1,9 @@
 import type { Database, SqlJsStatic } from 'sql.js';
 import type { ExecutionResult, SqlResultSet, TestCase, TestResult } from '@/types';
+import { executionLimits, type ExecutionProfile } from './limits.mjs';
 
 export interface SqlPayload {
+  profile?: ExecutionProfile;
   code: string;
   testCases?: TestCase[];
 }
@@ -45,10 +47,11 @@ function query(database: Database, sql: string): SqlResultSet[] {
   return results;
 }
 
-function withDatabase<Value>(runtime: SqlJsStatic, action: (database: Database) => Value): Value {
+function withDatabase<Value>(runtime: SqlJsStatic, action: (database: Database) => Value, payload: SqlPayload): Value {
   const database = new runtime.Database();
+  const limits = executionLimits(payload);
   try {
-    database.run('PRAGMA hard_heap_limit=33554432; PRAGMA max_page_count=4096; PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF;');
+    database.run(`PRAGMA hard_heap_limit=${limits.sqlHeapBytes}; PRAGMA max_page_count=${limits.sqlPages}; PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF;`);
     return action(database);
   } finally {
     database.close();
@@ -72,7 +75,7 @@ export function executeSql(runtime: SqlJsStatic, payload: SqlPayload): Execution
           const result = withDatabase(runtime, database => {
             query(database, testCase.input);
             return query(database, payload.code);
-          });
+          }, payload);
           if (result.length !== 1) throw new Error('Return exactly one result set for each exercise.');
           actual = JSON.stringify(result[0].values);
           passed = actual === JSON.stringify(expected);
@@ -83,7 +86,7 @@ export function executeSql(runtime: SqlJsStatic, payload: SqlPayload): Execution
       }
       return { status: testResults.every(result => result.passed) ? 'passed' : 'failed', engine: 'sqlite-wasm', testResults, time: `${Math.round(performance.now() - started)}ms (SQLite)` };
     }
-    const sqlResults = withDatabase(runtime, database => query(database, payload.code));
+    const sqlResults = withDatabase(runtime, database => query(database, payload.code), payload);
     return {
       status: 'passed', engine: 'sqlite-wasm', sqlResults, testResults,
       stdout: sqlResults.length ? sqlResults.map(result => JSON.stringify(result.values)).join('\n') : 'SQL completed. No rows returned.',

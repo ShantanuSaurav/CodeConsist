@@ -8,6 +8,7 @@ import { ExecutionResult, SupportedLanguage } from '@/types';
 import { Button, CodeEditor, DevHint, Dropdown } from '@/ui';
 import { ENV } from '@/config/env';
 import { compilerService, RUNTIME_UNAVAILABLE_LABEL } from '@/platform/execution/compilerService';
+import { executionBudgetLabel, type ExecutionProfile } from '@/platform/execution/limits.mjs';
 import { STORAGE_KEYS, readJson, writeJson } from '@/platform/storage/storage';
 import { WebPlayground } from './WebPlayground';
 import { SQL_EXAMPLES } from './sqlExamples';
@@ -251,6 +252,7 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
     };
   });
   const [isRunning, setRunning] = useState(false);
+  const [profile, setProfile] = useState<ExecutionProfile>('standard');
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [progress, setProgress] = useState('');
   const [successful, setSuccessful] = useState<PlaygroundProgram | null>(guestProgram);
@@ -343,6 +345,7 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
     setResult(null);
     try {
       const res = await executeCode(draft.code, language, undefined, [], {
+        profile,
         onProgress: (message) => { if (alive.current) setProgress(message); },
         // Sent only where a program can read it; elsewhere it would be a field
         // the engine silently drops.
@@ -360,7 +363,7 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
       runningRef.current = false;
       if (alive.current) { setRunning(false); setProgress(''); }
     }
-  }, [draft, executeCode, owner]);
+  }, [draft, executeCode, owner, profile]);
 
   const languageSelector = (
     <>
@@ -522,6 +525,16 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
           </details>
         )}
 
+        <div className="p-3 border-t border-border bg-surface-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-medium">Run budget</span>
+            <Dropdown value={profile} onChange={(value) => setProfile(value as ExecutionProfile)} disabled={isRunning}
+              options={[{ value: 'standard', label: 'Standard' }, { value: 'large', label: 'Large program' }]}
+              size="sm" ariaLabel="Run budget" />
+          </div>
+          <p className="mt-2 mb-0 text-xs text-fg-secondary">{executionBudgetLabel(language, profile)}</p>
+          {profile === 'large' && <p className="mt-1 mb-0 text-xs text-fg-muted">More time and memory, not unlimited. Close unused tabs on low-memory devices. Server runs may be refused while resources are busy.</p>}
+        </div>
         <div className="px-3 h-11 border-t border-border bg-surface-2 flex items-center justify-between gap-3">
           <span className="font-mono text-xs text-fg-muted truncate pl-1">{compilerService.engineFor(language)}</span>
           <Button variant="primary" size="sm" disabled={isRunning} onClick={run}>
