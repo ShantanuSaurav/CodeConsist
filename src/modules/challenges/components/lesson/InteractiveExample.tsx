@@ -30,7 +30,7 @@ export const InteractiveExample: React.FC<InteractiveExampleProps> = ({ tryIt })
     setRunning(true);
     setResult(null);
     try {
-      const res = await executeCode(code, tryIt.language);
+      const res = await executeCode(code, tryIt.language, undefined, [], { workflow: 'examples' });
       setResult(res);
     } catch (err: any) {
       setResult({ status: 'error', stderr: err?.message ?? String(err), testResults: [] });
@@ -70,7 +70,7 @@ export const InteractiveExample: React.FC<InteractiveExampleProps> = ({ tryIt })
 
       {isUi && (
         <div className="try-it-ui-preview">
-          <UiPreview html={code} minHeight={260} badgeText="Interactive Preview" />
+          <UiPreview html={code} workflow="examples" minHeight={260} badgeText="Interactive Preview" />
         </div>
       )}
 

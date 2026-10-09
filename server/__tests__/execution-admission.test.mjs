@@ -141,4 +141,56 @@ describe('memory-aware large-run scheduler', () => {
     expect(largeRunBusyMessage({ reason: 'large-queue-timeout' })).toContain('waited 30 seconds');
     expect(largeRunBusyMessage({ reason: 'timeout' })).toBeNull();
   });
+
+  it('scales beyond two after an admin edit without restarting', async () => {
+    let config = { maxConcurrent: 2, runnerCapacity: 8 };
+    const admit = createLargeRunAdmission(() => 32 * gib, { config: () => config, cpuCapacity: () => 8 });
+    const gate = deferred();
+    const task = vi.fn(() => gate.promise);
+    const runs = Array.from({ length: 5 }, () => admit('large', task));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(task).toHaveBeenCalledTimes(2);
+    config = { maxConcurrent: 5, runnerCapacity: 8 };
+    await vi.advanceTimersByTimeAsync(250);
+    expect(task).toHaveBeenCalledTimes(5);
+    expect(admit.stats()).toMatchObject({ running: 5, effectiveCapacity: 5 });
+    gate.resolve();
+    await Promise.all(runs);
+  });
+
+  it('never exceeds CPU or actual global runner ceilings', () => {
+    let config = { maxConcurrent: 16, runnerCapacity: 3 };
+    const admit = createLargeRunAdmission(() => 64 * gib, { config: () => config, cpuCapacity: () => 6 });
+    expect(admit.stats().effectiveCapacity).toBe(3);
+    config = { maxConcurrent: 16, runnerCapacity: 16 };
+    expect(admit.stats().effectiveCapacity).toBe(6);
+  });
+
+  it('drains instead of killing admitted work after the admin lowers capacity', async () => {
+    let config = { maxConcurrent: 3 };
+    const admit = createLargeRunAdmission(() => 32 * gib, { config: () => config, cpuCapacity: () => 8 });
+    const gate = deferred();
+    const running = Array.from({ length: 3 }, () => admit('large', () => gate.promise));
+    await vi.advanceTimersByTimeAsync(0);
+    config = { maxConcurrent: 1 };
+    const task = vi.fn(() => 42);
+    const waiting = admit('large', task);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(task).not.toHaveBeenCalled();
+    expect(admit.stats().running).toBe(3);
+    gate.resolve();
+    await Promise.all(running);
+    expect(await waiting).toBe(42);
+  });
+
+  it('uses configured deadlines and reports the wait actually assigned', async () => {
+    let config = { queueWaitMs: 1200, maxQueued: 1 };
+    const admit = createLargeRunAdmission(() => 0, { config: () => config });
+    const result = admit('large', vi.fn()).catch(error => error);
+    const full = await admit('large', vi.fn()).catch(error => error);
+    expect(largeRunBusyMessage(full)).toContain('1 waiting');
+    config = { queueWaitMs: 3000, maxQueued: 2 };
+    await vi.advanceTimersByTimeAsync(1201);
+    expect(largeRunBusyMessage(await result)).toContain('1.2 seconds');
+  });
 });

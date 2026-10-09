@@ -159,6 +159,13 @@ const LiveStatus: React.FC = () => {
         </section>
       )}
 
+      {status.largeQueue && <section aria-label="Dynamic large-program capacity" className="border border-border rounded-lg p-4">
+        <h4 className="font-medium text-fg mb-2">Dynamic large-program capacity</h4>
+        <p className="text-fg-secondary">{status.largeQueue.running} admitted · {status.largeQueue.queued} waiting · admin ceiling {status.largeQueue.maxConcurrent} · effective capacity now {status.largeQueue.effectiveCapacity}</p>
+        <p className="text-xs text-fg-muted mt-2">CPU capacity {status.largeQueue.cpuCapacity} · global runner ceiling {status.largeQueue.runnerCapacity} · free RAM {(status.largeQueue.freeBytes / 1024 ** 3).toFixed(2)} GiB · reserved per run {status.largeQueue.jobBytes / 1024 ** 2} MiB · host headroom {status.largeQueue.reserveBytes / 1024 ** 2} MiB.</p>
+        <p className="text-xs text-fg-muted mt-2">Effective capacity changes with free RAM. Existing runs finish when capacity falls; new runs wait. Reservations are estimates, not process RSS limits. Remote Judge0 capacity is not auto-detected. Refresh for a new snapshot; edit the large-run and global ceilings below.</p>
+      </section>}
+
       {status.cors && (
         <section aria-label="Cross-site requests">
           <h4 className="font-medium text-fg mb-1">

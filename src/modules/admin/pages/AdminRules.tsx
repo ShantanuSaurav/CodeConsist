@@ -18,6 +18,7 @@ function hasOwn(map: object, key: string): boolean {
 
 /** Sections reached from their own navigation item, with their own page heading. */
 const OWN_PAGES: Partial<Record<string, { title: string; description: string }>> = {
+  coding: { title: 'Coding & workflows', description: 'Control language availability and execution workflows without deleting learner work.' },
   copy: {
     title: 'Site copy',
     description: 'What learners and visitors read: offline and error messages, the landing page, limits and premium messages. Changes apply without a redeploy.'

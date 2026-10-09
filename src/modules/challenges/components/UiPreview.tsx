@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { RotateCw, Globe, Sparkles } from 'lucide-react';
+import { useCodingPolicy } from '@/platform/execution/useCodingPolicy';
+import type { CodingWorkflow } from '@/platform/execution/policy';
 
 interface UiPreviewProps {
+  workflow?: CodingWorkflow;
   html: string;
   title?: string;
   minHeight?: number | string;
@@ -11,11 +14,13 @@ interface UiPreviewProps {
 
 export const UiPreview: React.FC<UiPreviewProps> = ({
   html,
+  workflow = 'challenges',
   title = 'Interactive UI Preview',
   minHeight = 320,
   className = '',
   badgeText = 'Live Component'
 }) => {
+  const disabled = useCodingPolicy('web', workflow);
   const [reloadKey, setReloadKey] = useState(0);
   const [debouncedHtml, setDebouncedHtml] = useState(html);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -132,13 +137,13 @@ export const UiPreview: React.FC<UiPreviewProps> = ({
       </div>
 
       <div className="ui-preview-viewport" style={minHeight ? { minHeight } : undefined}>
-        <iframe
+        {disabled ? <p role="status" className="p-4 text-fg-muted">{disabled}</p> : <iframe
           key={reloadKey}
           srcDoc={documentSrc}
           title={title}
           sandbox="allow-scripts allow-same-origin allow-modals allow-forms"
           className="ui-preview-iframe"
-        />
+        />}
       </div>
     </div>
   );

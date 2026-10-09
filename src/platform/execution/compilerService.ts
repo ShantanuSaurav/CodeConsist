@@ -29,7 +29,8 @@ import { ExecutionResult, SupportedLanguage, TestCase, TestResult } from '@/type
 import { ENV } from '@/config/env';
 import { api, ApiError, OfflineError, RuntimeInfo } from '../api-client/api';
 import { displayValue, matchesExpected } from '../grading-engine/grading';
-import { getCopy } from '../settings/store';
+import { getCopy, getSettingsSnapshot } from '../settings/store';
+import { executionDisabledReason, type CodingWorkflow } from './policy';
 import { executionLimits, executionProfile, type ExecutionProfile } from './limits.mjs';
 
 /** Names for the languages the server compiles, for the sentences a learner reads. */
@@ -80,13 +81,13 @@ function refusedRun(error: unknown): ExecutionResult | null {
       testResults: []
     };
   }
-  if (error.reason === 'busy') {
+  if (error.reason === 'busy' || error.reason === 'admin-disabled') {
     // The server's sentence is already its (admin-edited) copy.
     const said = (error.payload as { stderr?: unknown } | undefined)?.stderr;
     return {
       status: 'error',
       engine: 'none',
-      reason: 'busy',
+      reason: error.reason,
       stderr: (typeof said === 'string' && said) || getCopy('copy.limits.busy') || error.message,
       testResults: []
     };
@@ -102,7 +103,7 @@ function refusedRun(error: unknown): ExecutionResult | null {
  * is not a refusal - that is how this server is set up, not a moment's load.
  */
 export function isRefusedRun(result: Pick<ExecutionResult, 'engine' | 'reason'> | null | undefined): boolean {
-  return result?.engine === 'none' && (result.reason === 'rate-limited' || result.reason === 'busy');
+  return result?.engine === 'none' && (result.reason === 'rate-limited' || result.reason === 'busy' || result.reason === 'admin-disabled');
 }
 
 /**
@@ -546,6 +547,7 @@ function runHtmlInBrowser(
 /* -------------------------------------------------------------------- entry */
 
 export interface ExecuteOptions {
+  workflow?: CodingWorkflow;
   profile?: ExecutionProfile;
   entryFunction?: string;
   testCases?: TestCase[];
@@ -600,6 +602,7 @@ export const compilerService = {
    * never gets *less* accurate than `remoteCompilerReady` was on its own.
    */
   runtimeAvailable(language: SupportedLanguage): boolean {
+    if (executionDisabledReason(getSettingsSnapshot().coding, language, null)) return false;
     const reported = serverRuntimes[language];
     if (reported) return reported.available;
     return this.runsLocally(language) || this.remoteCompilerReady(language);
@@ -611,6 +614,7 @@ export const compilerService = {
   },
 
   canRun(language: SupportedLanguage): boolean {
+    if (executionDisabledReason(getSettingsSnapshot().coding, language, null)) return false;
     if (this.runsLocally(language)) return true;
     // We can always ASK the server to run it - it answers honestly (a plain
     // 501 with a clear message) when it has no Judge0 endpoint configured.
@@ -631,6 +635,9 @@ export const compilerService = {
   ): Promise<ExecutionResult> {
     const { entryFunction, testCases = [], onProgress, preferLocal = false, stdin } = options;
     const profile = executionProfile(options);
+    const workflow = entryFunction || testCases.length ? 'challenges' : options.workflow ?? 'playground';
+    const disabled = executionDisabledReason(getSettingsSnapshot().coding, language, workflow);
+    if (disabled) return { status: 'error', engine: 'none', reason: 'admin-disabled', stderr: disabled, testResults: [] };
 
     if (!code.trim()) {
       return { status: 'error', stderr: 'There is no code to run yet.', engine: 'none', testResults: [] };
@@ -657,9 +664,11 @@ export const compilerService = {
       if (!preferLocal || workerUnavailable) {
         try {
           if (profile === 'large') onProgress?.('Waiting for server resources or running your program… Queue wait is limited to 30 seconds.');
-          const result = await api.execute({ language, code, entryFunction, testCases, ...(profile === 'large' ? { profile } : {}) });
+          const result = await api.execute({ language, code, entryFunction, testCases, ...(options.workflow ? { workflow } : {}), ...(profile === 'large' ? { profile } : {}) });
+          if (result?.reason === 'admin-disabled') return result;
           if (result && result.engine !== 'none') return result;
         } catch (error) {
+          if (error instanceof ApiError && error.reason === 'admin-disabled') return refusedRun(error)!;
           if (profile === 'large') return refusedRun(error) ?? { status: 'error', engine: 'none', stderr: error instanceof Error ? error.message : 'The server could not complete this run. No automatic retry was made.', testResults: [] };
           // Server down - or it refused the run (a 429, or every slot busy):
           // JavaScript has an engine right here, so the browser sandbox runs
@@ -681,7 +690,7 @@ export const compilerService = {
       // stdin only goes on this path: it is the Judge0 languages that read it,
       // and sending it to a Node-VM run that has no stdin would be noise.
       if (profile === 'large') onProgress?.('Waiting for server resources or running your program… Queue wait is limited to 30 seconds.');
-      return withDevHint(await api.execute({ language, code, entryFunction, testCases, stdin, ...(profile === 'large' ? { profile } : {}) }));
+      return withDevHint(await api.execute({ language, code, entryFunction, testCases, stdin, ...(options.workflow ? { workflow } : {}), ...(profile === 'large' ? { profile } : {}) }));
     } catch (e: unknown) {
       // Refused without running - too many runs (429) or no free slot (503
       // busy): a failed run with the server's own sentence.

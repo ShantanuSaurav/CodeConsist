@@ -12,6 +12,7 @@ import type { SectionProps } from './GenericSection';
 import { LevelsSection } from './LevelsSection';
 import { CopySection } from './CopySection';
 import { AccessSection } from './AccessSection';
+import { CodingSection } from './CodingSection';
 import { UnitsSection } from './UnitsSection';
 import { GoalsSection } from './GoalsSection';
 import { StreakSection } from './StreakSection';
@@ -26,6 +27,7 @@ export interface SectionEntry extends Pick<SectionMeta, 'id' | 'title' | 'descri
 }
 
 const CUSTOM: Partial<Record<string, React.FC<SectionProps>>> = {
+  coding: CodingSection,
   levels: LevelsSection,
   // Streak, freezes & repair, with a worked example that follows the values being edited.
   streak: StreakSection,

@@ -86,6 +86,7 @@ const GROUPS: Array<{ label: string; items: NavItem[] }> = [
       { icon: <CreditCard size={ICON} />, label: 'Billing', path: '/admin/billing' },
       { icon: <FileSpreadsheet size={ICON} />, label: 'Excel sync', path: '/admin/excel' },
       { icon: <Gauge size={ICON} />, label: 'Limits & access', path: '/admin/rules/access' },
+      { icon: <Gauge size={ICON} />, label: 'Coding & workflows', path: '/admin/rules/coding' },
       // The admin's own sign-in credentials - a different thing from Limits & access.
       { icon: <ShieldCheck size={ICON} />, label: 'Security', path: '/admin/settings/security' }
     ]

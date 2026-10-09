@@ -902,6 +902,7 @@ export interface RateLimitBucketStatus {
 
 /** GET /api/admin/access/status: what the Limits & access page shows live. */
 export interface AccessStatus {
+  largeQueue?: { running: number; queued: number; maxConcurrent: number; maxQueued: number; queueWaitMs: number; cpuCapacity: number; freeBytes: number; memoryCapacity: number; effectiveCapacity: number; runnerCapacity: number; reserveBytes: number; jobBytes: number } | null;
   /** The server's view of the admin's own request, to check the trusted hop count against. */
   ip: {
     socket: string | null;

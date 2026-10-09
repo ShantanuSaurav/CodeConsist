@@ -1,4 +1,7 @@
 import { IdeWorkspace } from './IdeWorkspace';
+import { useCodingPolicy } from '@/platform/execution/useCodingPolicy';
+import { executionDisabledReason } from '@/platform/execution/policy';
+import { getSettingsSnapshot } from '@/platform/settings/store';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Eraser, Play, RotateCcw, Trash2 } from 'lucide-react';
 import { SupportedLanguage } from '@/types';
@@ -483,6 +486,7 @@ function nextRunId(): string {
  * same shape.
  */
 export const WebPlayground: React.FC<{ owner?: string; signedIn?: boolean; initialFiles?: WebFiles }> = ({ owner = 'guest', signedIn = false, initialFiles }) => {
+  const disabledReason = useCodingPolicy('web');
   const [draft, setDraft] = useState<WebDraft>(() => normalizeWebDraft(initialFiles ? { files: initialFiles } : readJson(`${STORAGE_KEYS.webPlayground}:${owner}`, owner === 'guest' ? readWebDraft() : null)));
   const [view, setView] = useState<'preview' | 'console'>('preview');
   const [entries, setEntries] = useState<ConsoleEntry[]>([]);
@@ -513,6 +517,7 @@ export const WebPlayground: React.FC<{ owner?: string; signedIn?: boolean; initi
 
   /** A run is a brand new frame: a wedged one is then always one click away from gone. */
   const run = useCallback(() => {
+    if (executionDisabledReason(getSettingsSnapshot().coding, 'web')) return;
     const id = nextRunId();
     if (settleTimer.current) clearTimeout(settleTimer.current);
     failed.current = false;
@@ -527,6 +532,15 @@ export const WebPlayground: React.FC<{ owner?: string; signedIn?: boolean; initi
     setRunId(id);
     setDoc(composeDocument(filesRef.current, id));
   }, []);
+
+  useEffect(() => {
+    if (!disabledReason) return;
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    runIdRef.current = '';
+    setDoc('');
+    setRunning(false);
+    setSuccessful(null);
+  }, [disabledReason]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -579,7 +593,7 @@ export const WebPlayground: React.FC<{ owner?: string; signedIn?: boolean; initi
     if (!draft.autoRun) return;
     const timer = window.setTimeout(run, AUTO_RUN_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [draft.files, draft.autoRun, run]);
+  }, [draft.files, draft.autoRun, run, disabledReason]);
 
   useEffect(() => {
     if (!runId) return;
@@ -624,8 +638,8 @@ export const WebPlayground: React.FC<{ owner?: string; signedIn?: boolean; initi
   };
 
   const errorCount = entries.filter((entry) => entry.level === 'error').length;
-  const statusLabel = stalled ? 'not responding' : errorCount ? `${errorCount} error${errorCount > 1 ? 's' : ''}` : 'ready';
-  const statusClass = stalled ? 'text-warning' : errorCount ? 'text-error' : 'text-success';
+  const statusLabel = disabledReason ? 'paused by admin' : stalled ? 'not responding' : errorCount ? `${errorCount} error${errorCount > 1 ? 's' : ''}` : 'ready';
+  const statusClass = disabledReason || stalled ? 'text-warning' : errorCount ? 'text-error' : 'text-success';
   const current = exampleById(draft.example);
 
   return (
@@ -710,7 +724,7 @@ export const WebPlayground: React.FC<{ owner?: string; signedIn?: boolean; initi
             </label>
           </div>
 
-          <Button variant="primary" size="sm" onClick={run}>
+          <Button variant="primary" size="sm" disabled={Boolean(disabledReason)} onClick={run}>
             <Play size={13} />
             <span>Run</span>
             <kbd className="hidden sm:inline-block ml-1 !border-current/30 !bg-transparent !text-current opacity-70">
@@ -772,7 +786,7 @@ export const WebPlayground: React.FC<{ owner?: string; signedIn?: boolean; initi
         <div className="flex-1 min-h-[16rem] bg-surface">
           <div hidden={view !== 'preview'} className="h-full">
           {(
-            doc ? (
+            disabledReason ? <p role="status" className="p-4 text-warning">{disabledReason}</p> : doc ? (
               // key={runId} is load-bearing: React tears the old element out and
               // mounts a new one, which is the only reliable way to abandon a
               // frame whose script is still spinning.

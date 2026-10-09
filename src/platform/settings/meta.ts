@@ -92,6 +92,7 @@ export interface SectionMeta {
 
 /** In admin display order. */
 export const SECTION_META: SectionMeta[] = [
+  { id: 'coding', title: 'Coding & workflows', description: 'Pause execution without deleting code, lessons or progress. Browser clients apply changes on their next settings refresh; server runs are checked on dispatch.', audience: 'public', phase: 'P1' },
   {
     id: 'xp',
     title: 'XP & scoring',
@@ -1408,6 +1409,11 @@ export const RATE_LIMIT_BUCKETS: Array<{ key: string; label: string; help: strin
 const RATE_WINDOW = { min: 60, max: 86_400 };
 
 const ACCESS_META: Record<string, SettingMeta> = {
+  'access.largeExecution.maxConcurrent': { label: 'Large runs: admin ceiling', help: 'Maximum large runs allowed. Actual capacity is the lower of this ceiling, CPU capacity, free-memory capacity and the global code-run ceiling. Raise both ceilings after provisioning runner capacity.', kind: 'int', min: 1, max: 64 },
+  'access.largeExecution.maxQueued': { label: 'Large runs: waiting capacity', help: 'Maximum waiting large requests. Existing waiters keep their place when this is reduced.', kind: 'int', min: 0, max: 200 },
+  'access.largeExecution.queueWaitMs': { label: 'Large runs: admission wait', help: 'Deadline for newly queued requests. Existing requests retain their original deadline. Kept bounded for HTTP proxy timeouts.', kind: 'int', min: 0, max: 30000, unit: 'ms' },
+  'access.largeExecution.reserveMb': { label: 'Host memory headroom', help: 'MiB kept free for the operating system and other services. Not an enforced process memory limit.', kind: 'int', min: 512, max: 65536, unit: 'MiB' },
+  'access.largeExecution.jobMb': { label: 'Memory reserved per large run', help: 'Conservative estimated MiB per admitted run, including compiler overhead. Runner time and memory limits remain separate. Increasing this reduces simultaneous admissions.', kind: 'int', min: 1024, max: 65536, unit: 'MiB' },
   'access.rateLimit.mode': {
     label: 'Rate limits',
     help: 'Enforce answers "too many attempts" (429). Log only counts and logs what would have been refused. Off skips every check.',
@@ -1431,7 +1437,7 @@ const ACCESS_META: Record<string, SettingMeta> = {
     help: 'How many submissions the server runs at the same time (the JavaScript sandbox, local Python, Judge0).',
     kind: 'int',
     min: 1,
-    max: 16
+    max: 64
   },
   'access.execution.maxQueued': {
     label: 'Code runs waiting',
@@ -1507,6 +1513,9 @@ const ACCESS_META: Record<string, SettingMeta> = {
 };
 
 export const SETTING_META: Record<string, SettingMeta> = {
+  'coding.enabled': { label: 'Allow code execution', help: 'Master switch for learner runs and reference-solution execution. Reading, editing and saved code remain available.', kind: 'bool' },
+  ...Object.fromEntries(Object.entries({ javascript: 'JavaScript', typescript: 'TypeScript', python: 'Python', java: 'Java', c: 'C', cpp: 'C++', go: 'Go', sql: 'SQL', html: 'HTML', css: 'CSS' }).map(([language, label]) => [`coding.languages.${language}`, { label: `${label} execution`, help: ['html', 'css', 'javascript'].includes(language) ? 'Also required for web previews. Pausing keeps saved code and content intact.' : 'Allow this language where a runtime is available. Pausing keeps saved code and content intact.', kind: 'bool' } as SettingMeta])),
+  ...Object.fromEntries(Object.entries({ playground: 'Playground runs', challenges: 'Challenge code execution', examples: 'Interactive lesson examples', webPreview: 'Web previews', aiAuthoring: 'AI question authoring' }).map(([key, label]) => [`coding.workflows.${key}`, { label, help: key === 'aiAuthoring' ? 'Allow admin AI drafts, suggestions, duplicate checks and generated feedback. Does not configure API credentials.' : 'Pause this workflow without removing routes, content, saved work or earned progress.', kind: 'bool' } as SettingMeta])),
   /* ---------------------------------------------------------------- xp */
   'xp.retryPenalty': {
     label: 'Retry penalty',
