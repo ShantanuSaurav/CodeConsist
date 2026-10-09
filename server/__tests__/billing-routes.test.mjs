@@ -7,7 +7,7 @@
  */
 import crypto from 'node:crypto';
 import express from 'express';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../db.js', () => {
   const EMPTY = () => ({ users: [], progress: {}, contentOverrides: { stages: {}, challenges: {}, languages: {} }, customChallenges: {}, conceptCards: {}, orders: {}, certificates: {}, pricing: {} });
@@ -184,6 +184,9 @@ beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
+
+// A fresh console spy per test: Vitest 4 reuses an existing spy and its calls.
+afterEach(() => vi.restoreAllMocks());
 
 /* -------------------------------------------------------------- catalog */
 

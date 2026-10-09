@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowRight } from 'lucide-react';
-import { useContentStats } from '@/platform/session';
+import { useContentStats, useSession } from '@/platform/session';
+import { ROUTES } from '@/config/routes';
 import { useCopy } from '@/platform/settings';
 import { ButtonLink, Reveal } from '@/ui';
 
@@ -8,6 +9,8 @@ export const FinalCTA: React.FC = () => {
   // The heading is admin-editable (`copy.landing.finalCta`).
   const copy = useCopy();
   const stats = useContentStats();
+  const { needsOnboarding, settings, stats: learnerStats } = useSession();
+  const startRoute = needsOnboarding && settings.onboarding.enabled && settings.onboarding.showAfterEnter ? ROUTES.onboarding : ROUTES.learn;
   return (
     <section className="border-t border-border bg-surface">
       <div className="max-w-6xl mx-auto px-6 py-20 sm:py-28">
@@ -23,8 +26,8 @@ export const FinalCTA: React.FC = () => {
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 shrink-0">
-              <ButtonLink to="/dashboard/learn" variant="primary" size="lg" className="cta-arrow">
-                Start Stage 01 <ArrowRight size={15} />
+              <ButtonLink to={startRoute} variant="primary" size="lg" className="cta-arrow">
+                {learnerStats.completedChallenges.length ? 'Continue learning' : 'Start learning'} <ArrowRight size={15} />
               </ButtonLink>
               <ButtonLink to="/dashboard/practice" variant="secondary" size="lg">
                 Open the playground

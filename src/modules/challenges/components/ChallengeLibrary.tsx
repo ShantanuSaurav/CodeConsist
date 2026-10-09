@@ -296,7 +296,7 @@ export const ChallengeLibrary: React.FC<ChallengeLibraryProps> = ({ readingFor }
                           : needsUnlock
                             ? 'Unlock'
                             : solved
-                              ? 'Practise again'
+                              ? 'Practice again'
                               : c.isStageTest
                                 ? 'Take the test'
                                 : 'Solve'}

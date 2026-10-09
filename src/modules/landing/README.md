@@ -8,6 +8,12 @@
 
 **Listens:** nothing.
 
+The home page opens directly, with no welcome-screen gate. The primary learning
+actions honor first-run onboarding and returning learners' progress. The hero's
+layered brand artwork animates with transforms; pointer tracking uses time-based
+animation frames outside React, stops when settled or off-screen, and is disabled
+for touch input and reduced motion. `cinematic.css` owns this treatment in both themes.
+
 **Does not own:** the app shell inside the dashboard (`app/layout`).
 
 Same layout as every module: `content/` (data + `spec.ts` + glob `index.ts`),

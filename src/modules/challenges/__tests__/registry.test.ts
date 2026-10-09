@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Challenge, ChallengeType } from '@/types';
 import { CHALLENGE_TYPES, checkAnswer, definitionFor, emptyAnswer, feedbackNotes, isAnswerComplete, isCodeChallenge, typeLabel } from '../challenge-types';
 import { ALL_CHALLENGES, CHALLENGES_VERIFIED, CHALLENGE_BY_ID, STAGE_META, buildStages, LANGUAGE_TRACKS } from '../content';
@@ -7,6 +7,15 @@ import { ChallengeSchema } from '../schema';
 const base = { id: 'x', stageId: 'stage-1', title: 't', difficulty: 'easy', language: 'javascript', prompt: 'p', explanation: 'because', xpReward: 10 } as const;
 
 describe('challenge type registry', () => {
+  it('can initialize from either renderer without a registry import cycle', async () => {
+    vi.resetModules();
+    const { FillBlankChallenge } = await import('../challenge-types/FillBlankChallenge');
+    const { PseudocodeOrderChallenge } = await import('../challenge-types/PseudocodeOrderChallenge');
+    const { CHALLENGE_TYPES: fresh } = await import('../challenge-types/registry');
+    expect(fresh.fill_blank.Renderer).toBe(FillBlankChallenge);
+    expect(fresh.pseudocode_order.Renderer).toBe(PseudocodeOrderChallenge);
+  });
+
   it('has a definition for every ChallengeType and each knows its own type', () => {
     const types: ChallengeType[] = ['quiz', 'multi_select', 'output_prediction', 'fill_blank', 'pseudocode_order', 'debug', 'code_runner'];
     for (const t of types) expect(CHALLENGE_TYPES[t].type).toBe(t);

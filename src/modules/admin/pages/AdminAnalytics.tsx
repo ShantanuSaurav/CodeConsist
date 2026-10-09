@@ -283,7 +283,7 @@ export const AdminAnalytics: React.FC = () => {
             <div className="flex flex-wrap gap-8">
               <div>
                 <div className="text-2xl font-semibold text-fg tabular-nums">{data.practice.learners7d}</div>
-                <div className="text-xs text-fg-muted">learners practised</div>
+                <div className="text-xs text-fg-muted">learners practiced</div>
               </div>
               <div>
                 <div className="text-2xl font-semibold text-fg tabular-nums">{data.practice.xp7d.toLocaleString()}</div>

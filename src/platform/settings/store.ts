@@ -6,7 +6,7 @@
    service, a toast built outside a render - read it from here instead of
    threading the settings through every call.
    ========================================================================== */
-import { fillCopy } from './copy';
+import { fillCopy, refreshProductCopy } from './copy';
 import { DEFAULT_PUBLIC_SETTINGS, getPath } from './merge';
 import type { PublicSettings } from './types';
 
@@ -52,5 +52,5 @@ export function subscribe(listener: () => void): () => void {
 export function getCopy(key: string, vars: Record<string, string | number | null | undefined> = {}): string {
   let template = getPath(snapshot, key);
   if (typeof template !== 'string' && !key.startsWith('copy.')) template = getPath(snapshot, `copy.${key}`);
-  return typeof template === 'string' ? fillCopy(template, vars) : '';
+  return typeof template === 'string' ? fillCopy(refreshProductCopy(key, template), vars) : '';
 }

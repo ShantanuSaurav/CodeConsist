@@ -151,7 +151,7 @@ const DailyGoalCard: React.FC = () => {
 };
 
 /**
- * Practice (review): what the next session holds - "6 to practise: 2
+ * Practice (review): what the next session holds - "6 to practice: 2
  * mistakes, 4 due" - or "All caught up" and when the next question is due.
  * Reads the session's summary, so the dashboard never needs the challenges
  * module; the button asks for a session through `intents.openReview`.
@@ -170,19 +170,19 @@ const PracticeCard: React.FC = () => {
           </h2>
           <h3 className="text-xl font-semibold text-fg tracking-tight flex items-center gap-2">
             <Dumbbell size={18} className="text-accent shrink-0" aria-hidden="true" />
-            {line ?? (next ? 'All caught up' : 'Nothing to practise yet')}
+            {line ?? (next ? 'All caught up' : 'Nothing to practice yet')}
           </h3>
           <p className="text-fg-secondary mt-1 max-w-2xl">
             {line
               ? 'A short session over the questions you missed and the ones due for another look.'
               : next
-                ? `Nothing to practise right now. Your next review is ${next}.`
+                ? `Nothing to practice right now. Your next review is ${next}.`
                 : 'Solve a few lessons first - the ones worth another look will show up here.'}
           </p>
         </div>
         {line && (
           <Button variant="secondary" onClick={() => intents.openReview()}>
-            Practise now <ArrowRight size={15} />
+            Practice now <ArrowRight size={15} />
           </Button>
         )}
       </div>

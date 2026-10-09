@@ -64,7 +64,7 @@ type StatusFilter = RoadmapNodeStatus | 'all';
 
 /**
  * One topic as a full-width row on the rail: status marker, title, the
- * "practised in CodeConsist" mark, status pill and a chevron into the drawer.
+ * "practiced in CodeConsist" mark, status pill and a chevron into the drawer.
  */
 const TopicRow: React.FC<{
   node: RoadmapNode;
@@ -87,7 +87,7 @@ const TopicRow: React.FC<{
         {node.optional && <span className="rm-topic-optional">optional</span>}
       </span>
       {node.stageId && (
-        <span className="rm-topic-devlingo" title="Practised in CodeConsist" aria-label="Practised in CodeConsist">
+        <span className="rm-topic-devlingo" title="Practiced in CodeConsist" aria-label="Practiced in CodeConsist">
           <Swords size={12} />
         </span>
       )}
@@ -218,7 +218,7 @@ const NodeDrawer: React.FC<{
 
           {stage && (
             <div className="border-t border-b border-border-subtle py-4">
-              <div className="eyebrow">Practise this on CodeConsist</div>
+              <div className="eyebrow">Practice this on CodeConsist</div>
               <div className="text-sm font-medium text-fg">
                 Stage {String(stage.index).padStart(2, '0')} · {stage.name}
               </div>
@@ -352,7 +352,7 @@ export const RoadmapDetailPage: React.FC<RoadmapDetailPageProps> = ({ readingFor
           </button>
         ))}
         <span className="rm-filter-hint">
-          <Swords size={12} className="text-accent" /> practised in CodeConsist
+          <Swords size={12} className="text-accent" /> practiced in CodeConsist
         </span>
       </div>
 

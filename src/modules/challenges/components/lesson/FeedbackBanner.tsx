@@ -125,7 +125,7 @@ export const FeedbackBanner: React.FC<FeedbackBannerProps> = ({
               {practice.pending ? null : practice.xp > 0 ? (
                 <span className="feedback-xp-pill">+{practice.xp} XP</span>
               ) : (
-                <span className="feedback-score-pill is-subtle">{practice.capped ? 'Daily Practice XP limit reached' : 'Practised today already'}</span>
+                <span className="feedback-score-pill is-subtle">{practice.capped ? 'Daily Practice XP limit reached' : 'Practiced today already'}</span>
               )}
             </div>
           )}

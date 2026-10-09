@@ -303,6 +303,18 @@ describe('mergeSettings', () => {
     expect(coerceSettings({ xp: { hintPenalty: 20 } }).xp.hintPenalty).toBe(20);
     expect(coerceSettings({ xp: { hintPenalty: 20 } }).retention).toEqual(DEFAULT_SETTINGS.retention);
   });
+
+  it('refreshes legacy labels without mutating cached settings or option IDs', () => {
+    const raw = clone(DEFAULT_SETTINGS);
+    raw.onboarding.motivation.options[0].id = 'practise';
+    raw.onboarding.motivation.options[0].description = 'Practise every day.';
+    raw.reminders.atRisk.cta = 'Practise now';
+    const result = coerceSettings(raw);
+    expect(result.onboarding.motivation.options[0].description).toBe('Practice every day.');
+    expect(result.onboarding.motivation.options[0].id).toBe('practise');
+    expect(result.reminders.atRisk.cta).toBe('Practice now');
+    expect(raw.reminders.atRisk.cta).toBe('Practise now');
+  });
 });
 
 describe('applySettingsPatch', () => {
@@ -485,7 +497,7 @@ describe('site copy defaults', () => {
 
   it('can be read through getCopy, with or without the section prefix', () => {
     setSettingsSnapshot(publicSettings(DEFAULT_SETTINGS), null);
-    expect(getCopy('copy.landing.pathLine', { stages: 12 })).toBe('12 stages, in order, each ending in a coding test.');
+    expect(getCopy('copy.landing.pathLine', { stages: 12 })).toBe('12 stages, in order, each ending in a skill test.');
     expect(getCopy('limits.tooMany', { minutes: 3 })).toBe('Too many attempts - wait 3 min and try again.');
     expect(getCopy('copy.nothing.here')).toBe('');
   });

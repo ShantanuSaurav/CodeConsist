@@ -26,7 +26,7 @@ const STEPS: Step[] = [
     step: '02',
     title: 'Practice',
     icon: Code2,
-    desc: 'Write real functions and fix planted bugs in a proper editor. Every submission runs against test cases; nothing is simulated.'
+    desc: 'Write real functions and fix bugs in the editor. Run your code against test cases and use the feedback to improve.'
   },
   {
     step: '03',
@@ -58,7 +58,7 @@ export const HowItWorks: React.FC = () => {
   const pathLine =
     contentReady && stats.stages > 0
       ? copy(canSkip ? 'copy.landing.pathLineWithSkip' : 'copy.landing.pathLine', { stages: stats.stages })
-      : 'Stages in order, each ending in a coding test.';
+      : 'Stages in order, each ending in a skill test.';
   const copyKeyOf = (step: Step) => (step.copyKey === 'copy.landing.buildStep' && canSkip ? 'copy.landing.buildStepWithSkip' : step.copyKey);
 
   return (

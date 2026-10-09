@@ -142,7 +142,7 @@ export interface PracticeSessionType {
   openStageTest: (stageId: string) => void;
   /**
    * Start a Practice session (mistakes, due questions, weak solves) over the
-   * whole path or one stage. Nothing to practise: a toast says when to come
+   * whole path or one stage. Nothing to practice: a toast says when to come
    * back. Resolves once it is open (or refused).
    */
   openReview: (scope?: { stageId?: string }) => Promise<void>;
@@ -500,7 +500,7 @@ export const PracticeSessionProvider: React.FC<{ children: React.ReactNode }> = 
         });
         if (!started.sessionId || items.length === 0) {
           const when = describeNextReview(started.nextDueDay, todayKey);
-          notify(when ? `Nothing to practise right now. Your next review is ${when}.` : 'Nothing to practise right now. Solve a few lessons first, then come back.', 'info');
+          notify(when ? `Nothing to practice right now. Your next review is ${when}.` : 'Nothing to practice right now. Solve a few lessons first, then come back.', 'info');
           return;
         }
         setActiveReview({ sessionId: started.sessionId, items, local: started.local, stageId: scope.stageId ?? null, remainingToday: started.remainingToday });

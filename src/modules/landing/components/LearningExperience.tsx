@@ -1,7 +1,8 @@
 import React from 'react';
 import { Play } from 'lucide-react';
 import { intents } from '@/platform/events';
-import { Button, CodeBlock, Reveal } from '@/ui';
+import { Button, ButtonLink, CodeBlock, Reveal } from '@/ui';
+import { ROUTES } from '@/config/routes';
 import type { Challenge } from '@/types';
 import { useNextChallenge } from './useNextChallenge';
 
@@ -29,7 +30,7 @@ export const LearningExperience: React.FC = () => {
             <div className="eyebrow">02 / PRACTICE</div>
             <h2 className="landing-story-title">Turn the idea<br />into instinct.</h2>
             <p className="mt-4 text-fg-secondary text-lg leading-relaxed">
-              No long videos. Seven interactive lesson formats that get straight to the point, and a coding test at the end of
+              Seven interactive lesson formats that help you understand, experiment, and improve, with a skill test at the end of
               every stage.
             </p>
           </Reveal>
@@ -47,7 +48,7 @@ export const LearningExperience: React.FC = () => {
           </ol>
         </div>
 
-        {sample && (
+        {sample ? (
           <Reveal delay={150} className="min-w-0">
             <div className="panel practice-panel overflow-hidden">
               <div className="panel-head !py-2.5">
@@ -74,6 +75,13 @@ export const LearningExperience: React.FC = () => {
                 </Button>
               </div>
             </div>
+          </Reveal>
+        ) : (
+          <Reveal className="panel workspace-empty">
+            <div className="eyebrow">A SPACE TO EXPERIMENT</div>
+            <h3>Put your ideas to the test.</h3>
+            <p>Explore the lessons in your track, or open the playground to try something of your own.</p>
+            <ButtonLink to={ROUTES.playground} variant="primary">Open the playground</ButtonLink>
           </Reveal>
         )}
       </div>

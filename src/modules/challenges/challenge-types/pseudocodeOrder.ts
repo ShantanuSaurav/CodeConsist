@@ -1,3 +1,4 @@
+import { wrongOrderPositions } from './answerPositions';
 import { shuffleLines } from '@/platform/grading-engine/answers';
 import { PseudocodeOrderChallenge } from './PseudocodeOrderChallenge';
 import type { AnswerTypeDefinition } from './types';
@@ -18,11 +19,7 @@ export const pseudocodeOrder: AnswerTypeDefinition = {
     const given = (answer as string[]) ?? [];
     return given.length === correct.length && given.every((line, i) => line === correct[i]);
   },
-  wrongPositions: (c, answer) => {
-    const correct = c.pseudocodeLines ?? [];
-    const given = (answer as string[]) ?? [];
-    return given.map((line, i) => (line === correct[i] ? -1 : i)).filter((i) => i >= 0);
-  },
+  wrongPositions: wrongOrderPositions,
   // The rows marked right or wrong are the feedback; there are no notes to write.
   feedback: () => []
 };

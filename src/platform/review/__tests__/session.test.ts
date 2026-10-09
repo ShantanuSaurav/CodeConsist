@@ -120,7 +120,7 @@ describe('buildReviewSession', () => {
     });
     expect(plan.items.map((i) => i.challengeId).sort()).toEqual(['q1', 'q3']);
 
-    // Missed today and nothing else: tomorrow it is an open mistake to practise.
+    // Missed today and nothing else: tomorrow it is an open mistake to practice.
     const onlyToday = buildReviewSession({ progress: progressOf(['q2'], { review: { q2: later } }), misses: { q2: miss(TODAY, 1) }, bank, settings, today: TODAY, seed: 5 });
     expect(onlyToday).toMatchObject({ items: [], nextDueDay: '2026-09-21' });
 
@@ -128,7 +128,7 @@ describe('buildReviewSession', () => {
     expect(withCode.items.map((i) => i.challengeId)).toEqual(['code']);
   });
 
-  it('leaves out a question already practised today - an open mistake answered with help comes back tomorrow', () => {
+  it('leaves out a question already practiced today - an open mistake answered with help comes back tomorrow', () => {
     // q1: an open mistake from yesterday, answered today with a hint (the
     // mistake stays open; the schedule entry was answered today). q2: paid
     // today by a merged offline answer. q3: due, not seen today.
@@ -201,7 +201,7 @@ describe('the summary', () => {
       today: TODAY
     });
     expect(summary).toMatchObject({ enabled: true, total: 3, mistakes: 1, due: 2, weak: 0 });
-    expect(describeReviewSummary(summary)).toBe('3 to practise: 1 mistake, 2 due');
+    expect(describeReviewSummary(summary)).toBe('3 to practice: 1 mistake, 2 due');
     expect(describeReviewSummary({ total: 0, mistakes: 0, due: 0, weak: 0 })).toBeNull();
   });
 

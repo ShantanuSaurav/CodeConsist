@@ -14,10 +14,9 @@ export interface NextChallenge {
 /**
  * The challenge a landing panel should show for THIS visitor: the first one
  * they have not solved, from the stage they are currently on, matching the
- * given filter. Reads the same session the dashboard does, so as they solve
- * things the panel moves on to the next one. Falls back to any unsolved
- * match, then to the first match at all (a visitor who has cleared
- * everything still sees a real challenge).
+ * given filter. Only unlocked stages in the active track are candidates.
+ * A completed track offers a previous lesson; it never advertises a locked
+ * lesson or silently switches the preview to another language track.
  */
 export function useNextChallenge(match: (c: Challenge) => boolean): NextChallenge | null {
   const { learnerStages, learnerChallenges, allChallenges, stats } = useSession();
@@ -26,7 +25,8 @@ export function useNextChallenge(match: (c: Challenge) => boolean): NextChalleng
     const solved = new Set(stats.completedChallenges);
     // A locked stub (a premium stage this visitor has not unlocked) has no
     // prompt or answers to show.
-    const lessons = (c: Challenge) => !c.isStageTest && !c.locked;
+    const accessible = new Set(learnerStages.filter((stage) => stage.state !== 'Locked').map((stage) => stage.id));
+    const lessons = (c: Challenge) => !c.isStageTest && !c.locked && accessible.has(c.stageId);
     const unsolved = (c: Challenge) => lessons(c) && !solved.has(c.id) && match(c);
 
     const current = learnerStages.find((s) => s.state === 'In progress' || s.state === 'Test pending') ?? learnerStages[0];
@@ -35,8 +35,7 @@ export function useNextChallenge(match: (c: Challenge) => boolean): NextChalleng
     const challenge =
       inCurrent.find(unsolved) ??
       learnerChallenges.find(unsolved) ??
-      allChallenges.find(unsolved) ??
-      allChallenges.find((c) => lessons(c) && match(c)) ??
+      learnerChallenges.find((c) => lessons(c) && match(c)) ??
       null;
     if (!challenge) return null;
 

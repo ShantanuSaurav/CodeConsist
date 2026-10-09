@@ -13,6 +13,7 @@
      - keys the defaults do not have (and `__proto__`) are skipped.
    ========================================================================== */
 import { DEFAULT_SETTINGS } from './defaults';
+import { refreshProductCopy } from './copy';
 import { ADMIN_ONLY_SECTIONS, isNullableSetting, isSettingLeaf, isSettingsGroup } from './leaves';
 import type { PublicSettings, Settings, SettingsOverrides } from './types';
 
@@ -70,7 +71,15 @@ export function mergeSettings<T>(defaults: T, overrides: unknown): T {
 
 /** A settings object from anywhere (a cache, a server response), made safe: missing or wrong-typed keys become defaults. */
 export function coerceSettings(raw: unknown): Settings {
-  return mergeSettings(DEFAULT_SETTINGS, raw);
+  const settings = mergeSettings(DEFAULT_SETTINGS, raw);
+  // These labels are rendered directly, outside getCopy. Refresh presentation
+  // text from older servers without changing identifiers or learning rules.
+  settings.onboarding.motivation.options = settings.onboarding.motivation.options.map((option) => option && typeof option === 'object' ? ({
+    ...option,
+    description: typeof option.description === 'string' ? refreshProductCopy('', option.description) : option.description
+  }) : option);
+  settings.reminders.atRisk.cta = refreshProductCopy('', settings.reminders.atRisk.cta);
+  return settings;
 }
 
 /** The learner-facing subset: every section except the admin-only ones. */

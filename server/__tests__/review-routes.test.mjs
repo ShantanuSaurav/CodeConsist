@@ -97,7 +97,7 @@ describe('POST /api/review/session', () => {
     expect(reasons['q-order']).toBeUndefined();
   });
 
-  it('says when to come back when there is nothing to practise', async () => {
+  it('says when to come back when there is nothing to practice', async () => {
     // Solved today, first try: box 1, due in 3 days.
     const solved = await app.call('POST', '/progress/solve', { user: 'u1', zone: 'UTC', body: { challengeId: 'q-quiz', answer: 1 } });
     expect(solved.status).toBe(200);
