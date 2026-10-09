@@ -360,6 +360,7 @@ export function createAssessmentRouter({
         verdict = await verifySubmission(challenge, body);
       } catch (err) {
         if (!(err instanceof BusyError)) throw err;
+        if (err.reason === 'admin-disabled') return res.status(403).json({ error: err.policyMessage, reason: 'admin-disabled' });
         return res.status(503).json({ error: 'The code runner is busy - try again in a moment.', reason: 'busy' });
       }
       if (!verdict.ok) return res.status(422).json({ error: 'That is not right yet.', reason: 'wrong' });

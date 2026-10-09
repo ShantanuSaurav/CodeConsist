@@ -38,21 +38,24 @@ describe('bounded large-program policy', () => {
     expect(body.memory_limit).toBe(1024000);
   });
 
-  it('refuses large jobs on a low-memory host but preserves standard admission', async () => {
-    const admit = createLargeRunAdmission(() => 500 * 1024 * 1024);
+  it('times out waiting for memory without starting code and preserves standard admission', async () => {
+    const admit = createLargeRunAdmission(() => 500 * 1024 * 1024, { queueWaitMs: 10 });
     const task = vi.fn(async () => 42);
     await expect(admit('large', task)).rejects.toThrow();
     expect(task).not.toHaveBeenCalled();
     await expect(admit('standard', task)).resolves.toBe(42);
   });
 
-  it('allows only one large job and releases its reservation after success or failure', async () => {
-    const admit = createLargeRunAdmission(() => 2 ** 30);
+  it('queues behind a single configured slot and releases reservations after success or failure', async () => {
+    const admit = createLargeRunAdmission(() => 4 * 2 ** 30, { maxConcurrent: 1 });
     let release;
     const first = admit('large', () => new Promise(resolve => { release = resolve; }));
-    await expect(admit('large', async () => 2)).rejects.toThrow();
+    const second = admit('large', async () => 2);
+    await Promise.resolve();
+    expect(admit.stats().queued).toBe(1);
     release(1);
     await expect(first).resolves.toBe(1);
+    await expect(second).resolves.toBe(2);
     await expect(admit('large', async () => { throw new Error('failed'); })).rejects.toThrow('failed');
     await expect(admit('large', async () => 3)).resolves.toBe(3);
   });

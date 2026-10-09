@@ -596,6 +596,13 @@ export interface AccessSettings {
     maxQueued: number;
     queueWaitMs: number;
   };
+  largeExecution: {
+    maxConcurrent: number;
+    maxQueued: number;
+    queueWaitMs: number;
+    reserveMb: number;
+    jobMb: number;
+  };
   network: {
     /** How many proxies in front of the server to trust for the client's address. */
     trustProxyHops: number;
@@ -620,6 +627,7 @@ export interface AccessSettings {
 }
 
 export interface Settings {
+  coding: CodingSettings;
   xp: XpSettings;
   levels: LevelSettings;
   streak: StreakSettings;
@@ -637,6 +645,12 @@ export interface Settings {
   copy: CopySettings;
   retention: RetentionSettings;
   access: AccessSettings;
+}
+
+export interface CodingSettings {
+  enabled: boolean;
+  languages: Record<'javascript' | 'typescript' | 'python' | 'java' | 'c' | 'cpp' | 'go' | 'sql' | 'html' | 'css', boolean>;
+  workflows: Record<'playground' | 'challenges' | 'examples' | 'webPreview' | 'aiAuthoring', boolean>;
 }
 
 export type SettingsSectionId = keyof Settings;

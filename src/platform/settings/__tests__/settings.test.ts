@@ -428,7 +428,10 @@ describe('validateSettings refinements', () => {
     expect(paths({ access: { rateLimit: { loginAccount: { limit: 0 } } } })).toEqual(['access.rateLimit.loginAccount.limit']);
     expect(paths({ access: { rateLimit: { loginIp: { windowSeconds: 30 } } } })).toEqual(['access.rateLimit.loginIp.windowSeconds']);
     expect(paths({ access: { rateLimit: { mode: 'sometimes' } } })).toEqual(['access.rateLimit.mode']);
-    expect(paths({ access: { execution: { maxConcurrent: 17 } } })).toEqual(['access.execution.maxConcurrent']);
+    expect(paths({ access: { execution: { maxConcurrent: 65 } } })).toEqual(['access.execution.maxConcurrent']);
+    expect(paths({ access: { execution: { maxConcurrent: 32 }, largeExecution: { maxConcurrent: 32 } } })).toEqual([]);
+    expect(paths({ access: { largeExecution: { jobMb: 0 } } })).toEqual(['access.largeExecution.jobMb']);
+    expect(patchIssues({ coding: { enabled: 'yes' } }, { coding: { enabled: 'yes' } }, DEFAULT_SETTINGS).map(issue => issue.path)).toContain('coding.enabled');
     expect(paths({ access: { network: { trustProxyHops: 6 } } })).toEqual(['access.network.trustProxyHops']);
     expect(paths({ access: { premiumGate: 'off' } })).toEqual(['access.premiumGate']);
     expect(paths({ access: { passwordResetTtlMinutes: 5 } })).toEqual(['access.passwordResetTtlMinutes']);

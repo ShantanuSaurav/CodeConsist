@@ -252,15 +252,19 @@ describe('rate limits', () => {
 
   it('runs every code execution in a slot and answers busy with 503', () => {
     const execute = handlerSource('/api/execute');
-    expect(execute).toContain('slots.run(() => runJudge0Submission(');
+    expect(execute).toContain('slots.run(() => runIfConnected(() => runJudge0Submission(');
+    expect(execute).toContain("res.once('close', onClose)");
+    expect(execute).toContain('controller.signal.aborted');
+    expect(execute).toContain('admissionOptions');
     expect(execute).toMatch(/slots\.run\(async \(\) => \{[\s\S]*?runJsInChild\(/);
     expect(execute).toContain('err instanceof BusyError');
     const verify = source.slice(source.indexOf('async function verifySubmission('), source.indexOf('function completedStagesFor('));
-    expect(verify).toMatch(/slots\.run\(\(\) =>\s*runJsInChild\(/);
-    expect(verify).toContain('slots.run(() => runPythonLocally(');
+    expect(verify).toMatch(/slots\.run\(\(\) => \{\s*assertExecutionEnabled\(challenge.language, 'challenges'\);\s*return runJsInChild\(/);
+    expect(verify).toMatch(/slots\.run\(\(\) => \{\s*assertExecutionEnabled\(challenge.language, 'challenges'\);\s*return runPythonLocally\(/);
     const busy = source.slice(source.indexOf('function sendBusy('), source.indexOf("app.post(\n  '/api/execute'"));
-    expect(busy).toContain('status(503)');
-    expect(busy).toContain("reason: 'busy'");
+    expect(busy).toContain("status(error?.reason === 'admin-disabled' ? 403 : 503)");
+    expect(busy).toContain("reason: error?.reason === 'admin-disabled' ? 'admin-disabled' : 'busy'");
+    expect(execute).toContain('assertExecutionEnabled(language, workflow)');
   });
 });
 

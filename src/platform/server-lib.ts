@@ -8,6 +8,7 @@
  * this includes the zod schema: the server validates every admin edit.
  */
 export * from './settings/types';
+export * from './execution/policy';
 export * from './settings/defaults';
 export * from './settings/meta';
 export * from './settings/merge';

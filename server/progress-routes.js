@@ -230,6 +230,7 @@ export function createProgressRouter({
         verdict = await verifySubmission(challenge, req.body ?? {});
       } catch (err) {
         if (!(err instanceof BusyError)) throw err;
+        if (err.reason === 'admin-disabled') return res.status(403).json({ error: err.policyMessage, reason: 'admin-disabled' });
         // Every code-runner slot is taken. Nothing was recorded; the learner
         // can submit again in a moment.
         return res.status(503).json({ error: copyOr(learningDeps, 'limits.busy', {}, 'The code runner is busy - try again in a moment.'), reason: 'busy' });

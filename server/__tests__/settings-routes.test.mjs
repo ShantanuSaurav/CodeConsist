@@ -78,6 +78,32 @@ async function call(method, path, { body, admin = false } = {}) {
 
 const put = (revision, patch) => call('PUT', '/admin/settings', { admin: true, body: { revision, patch } });
 
+describe('runtime administration', () => {
+  it('saves public language policy but keeps resource tuning admin-only', async () => {
+    const result = await put(0, { coding: { languages: { python: false } }, access: { largeExecution: { maxConcurrent: 8, maxQueued: 50 } } });
+    expect(result.status).toBe(200);
+    expect(result.json.settings.access.largeExecution.maxConcurrent).toBe(8);
+    const publicView = await call('GET', '/settings');
+    expect(publicView.json.settings.coding.languages.python).toBe(false);
+    expect(publicView.json.settings.coding.languages.javascript).toBe(true);
+    expect(publicView.json.settings.access).toBeUndefined();
+    expect((await put(0, { coding: { enabled: false } })).status).toBe(409);
+  });
+
+  it('rejects unsafe values and non-boolean switches without changing the revision', async () => {
+    for (const patch of [{ access: { largeExecution: { maxConcurrent: 65 } } }, { access: { largeExecution: { jobMb: 1 } } }, { coding: { enabled: 'yes' } }]) {
+      expect((await put(0, patch)).status).toBe(422);
+    }
+    expect((await call('GET', '/settings')).json.revision).toBe(0);
+  });
+
+  it('requires admin authentication and pauses AI before using the provider', async () => {
+    expect((await call('PUT', '/admin/settings', { body: { revision: 0, patch: { coding: { enabled: false } } } })).status).toBe(401);
+    await put(0, { coding: { workflows: { aiAuthoring: false } } });
+    expect((await call('POST', '/admin/ai/draft', { admin: true, body: {} })).status).toBe(403);
+  });
+});
+
 describe('GET /api/settings (public)', () => {
   it('needs no sign-in and never sends the admin-only sections', async () => {
     const res = await call('GET', '/settings');

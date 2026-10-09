@@ -103,6 +103,11 @@ export const DEFAULT_ONBOARDING_SETTINGS: OnboardingSettings = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
+  coding: {
+    enabled: true,
+    languages: { javascript: true, typescript: true, python: true, java: true, c: true, cpp: true, go: true, sql: true, html: true, css: true },
+    workflows: { playground: true, challenges: true, examples: true, webPreview: true, aiAuthoring: true }
+  },
   xp: {
     ...DEFAULT_XP_RULES,
     // server/index.js clamped a solve's tries to 1..50 and hints to 0..10.
@@ -313,6 +318,7 @@ export const DEFAULT_SETTINGS: Settings = {
     leagueWeeksKept: 26
   },
   access: {
+    largeExecution: { maxConcurrent: 2, maxQueued: 8, queueWaitMs: 30000, reserveMb: 768, jobMb: 1024 },
     rateLimit: {
       mode: 'enforce',
       // Per-IP limits are generous on purpose: students on one campus

@@ -520,6 +520,7 @@ export function createAdminRouter(deps = {}) {
       ip: ipDiagnostics(req, hops),
       limiter: { mode: setting('access.rateLimit.mode', 'enforce'), trackedKeys: limiterStats.trackedKeys, buckets },
       slots: access.slots?.stats() ?? null,
+      largeQueue: access.largeQueue?.stats() ?? null,
       cors: access.cors?.status() ?? null,
       premium: { mode: setting('access.premiumGate', 'enforce'), ...premiumGateStats() },
       // The stage-order gates (Phase 5): what they refused, or - in log mode -
@@ -1666,6 +1667,7 @@ export function createAdminRouter(deps = {}) {
    */
   const aiRoute = (fn) =>
     asyncRoute(async (req, res) => {
+      if (!setting('coding.workflows.aiAuthoring', true)) return res.status(403).json({ error: 'AI authoring is paused by the administrator.', reason: 'admin-disabled' });
       try {
         await fn(req, res);
       } catch (err) {

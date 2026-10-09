@@ -1,5 +1,9 @@
 import { IdeWorkspace } from './IdeWorkspace';
 import { largeProgramNotice } from './executionNotice';
+import { useCodingPolicy } from '@/platform/execution/useCodingPolicy';
+import { executionDisabledReason } from '@/platform/execution/policy';
+import { getSettingsSnapshot } from '@/platform/settings/store';
+import { LanguageEmblem } from '@/ui/primitives/LanguageEmblem';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Play, RotateCcw, Trash2 } from 'lucide-react';
 import { useSession } from '@/platform/session';
@@ -366,6 +370,7 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
     }
   }, [draft, executeCode, owner, profile]);
 
+  const disabledReason = useCodingPolicy(draft.language);
   const languageSelector = (
     <>
       <label className="sr-only" htmlFor="playground-language">
@@ -379,8 +384,9 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
         options={MODES.map((mode) => ({
           value: mode,
           label: LANGUAGE_LABELS[mode],
+          icon: <LanguageEmblem language={mode} size={24} />,
           // The web mode runs in this browser, so it can never need setup.
-          hint: mode !== 'web' && !isAvailable(mode) ? UNAVAILABLE_HINT : undefined
+          hint: executionDisabledReason(getSettingsSnapshot().coding, mode) ? 'Paused by admin' : mode !== 'web' && !isAvailable(mode) ? UNAVAILABLE_HINT : undefined
         }))}
         ariaLabel="Programming Language"
       />
@@ -410,10 +416,10 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
   const stdinLines = draft.stdin ? draft.stdin.replace(/\n+$/, '').split('\n').length : 0;
 
   const errored = result?.status === 'error' || Boolean(result?.stderr);
-  const needsSetup = !isAvailable(language);
+  const needsSetup = !disabledReason && !isAvailable(language);
 
-  const statusLabel = isRunning ? 'running' : errored ? 'error' : needsSetup ? UNAVAILABLE_STATUS : 'ready';
-  const statusClass = isRunning ? 'text-info' : errored ? 'text-error' : needsSetup ? 'text-warning' : 'text-success';
+  const statusLabel = isRunning ? 'running' : disabledReason ? 'paused by admin' : errored ? 'error' : needsSetup ? UNAVAILABLE_STATUS : 'ready';
+  const statusClass = isRunning ? 'text-info' : disabledReason ? 'text-warning' : errored ? 'text-error' : needsSetup ? 'text-warning' : 'text-success';
 
   const consoleText = isRunning
     ? progress || 'Running…'
@@ -423,6 +429,8 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-3"><LanguageEmblem language={language} /><span className="text-fg-secondary">{LANGUAGE_LABELS[language]} workspace</span></div>
+      {disabledReason && <p role="status" className="text-warning">{disabledReason}</p>}
       <PlaygroundLibrary key={`${owner}:${language}`} owner={owner} signedIn={signedIn} label={LANGUAGE_LABELS[language]}
         current={{ language: language as Exclude<PlaygroundProgram['language'], 'web'>, code: draft.code, stdin: usesStdin ? draft.stdin : '' }}
         successful={successful} running={isRunning} onOpen={(program) => {
@@ -538,7 +546,7 @@ const OwnedPlayground: React.FC<{ owner: string; signedIn: boolean }> = ({ owner
         </div>
         <div className="px-3 h-11 border-t border-border bg-surface-2 flex items-center justify-between gap-3">
           <span className="font-mono text-xs text-fg-muted truncate pl-1">{compilerService.engineFor(language)}</span>
-          <Button variant="primary" size="sm" disabled={isRunning} onClick={run}>
+          <Button variant="primary" size="sm" disabled={isRunning || Boolean(disabledReason)} onClick={run}>
             <Play size={13} />
             <span>{isRunning ? 'Running…' : 'Run'}</span>
             <kbd className="hidden sm:inline-block ml-1 !border-current/30 !bg-transparent !text-current opacity-70">Ctrl+Enter</kbd>

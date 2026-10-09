@@ -38,7 +38,7 @@ import {
 import { compileTsModule } from './build.js';
 import { runSqlInChild, prepareSqlEngine } from './sql.js';
 import { executionLimits, executionProfile } from '../src/platform/execution/limits.mjs';
-import { createLargeRunAdmission } from './execution-admission.js';
+import { createLargeRunAdmission, largeRunBusyMessage } from './execution-admission.js';
 import { createAdminRouter } from './admin.js';
 import { createGeminiClient } from './ai.js';
 import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken, learnerTokenIsCurrent } from './auth.js';
@@ -203,7 +203,7 @@ const corsPolicy = createCorsPolicy({
   getExtraOrigins: () => setting('access.cors.extraOrigins', [])
 });
 const trustedHops = () => setting('access.network.trustProxyHops', 2);
-adminDeps.access = { limiter, slots, cors: corsPolicy, hops: trustedHops, bootedAt: new Date().toISOString() };
+adminDeps.access = { limiter, slots, largeQueue: { stats: () => admitLargeRun.stats() }, cors: corsPolicy, hops: trustedHops, bootedAt: new Date().toISOString() };
 
 /** The friendly 429 sentence (`copy.limits.tooMany`). */
 function tooManyMessage(minutes) {
@@ -555,12 +555,14 @@ app.use(optionalAuth);
 
 app.get('/api/health', (_req, res) => {
   const snapshot = contentSnapshot();
+  const { running, queued, maxConcurrent, maxQueued, queueWaitMs } = admitLargeRun.stats();
   res.json({
     ok: true,
     challenges: allChallenges().length,
     stages: snapshot?.stages.length ?? 0,
     users: store.db().users.length,
     uptimeSeconds: Math.round(process.uptime()),
+    executionQueue: { running, queued, maxConcurrent, maxQueued, queueWaitMs },
     // Never the credentials themselves - just whether Judge0 is wired up, and
     // which languages that unlocks, so the client can label the Playground
     // honestly without ever seeing the key.
@@ -935,6 +937,7 @@ function getChallengeMerged(id) {
  */
 async function verifySubmission(challenge, body) {
   const isCode = challenge.type === 'code_runner' || challenge.type === 'debug';
+  if (isCode) assertExecutionEnabled(challenge.language, 'challenges');
 
   if (!isCode) {
     if (body.answer === undefined) return { ok: false, verified: true, reason: 'No answer was submitted.' };
@@ -956,18 +959,22 @@ async function verifySubmission(challenge, body) {
   // TypeScript runs through the same sandbox: the runner strips nothing, so
   // only type-annotation-free TS passes - the same rule the client applies.
   if (challenge.language === 'javascript' || challenge.language === 'typescript') {
-    const result = await slots.run(() =>
-      runJsInChild({
+    const result = await slots.run(() => {
+      assertExecutionEnabled(challenge.language, 'challenges');
+      return runJsInChild({
         code,
         entryFunction: challenge.entryFunction,
         testCases: challenge.testCases ?? []
-      })
-    );
+      });
+    });
     return { ok: result.status === 'passed', verified: true, reason: 'Tests run by the server.' };
   }
 
   if (challenge.language === 'python') {
-    const result = await slots.run(() => runPythonLocally(code, challenge.entryFunction, challenge.testCases ?? []));
+    const result = await slots.run(() => {
+      assertExecutionEnabled(challenge.language, 'challenges');
+      return runPythonLocally(code, challenge.entryFunction, challenge.testCases ?? []);
+    });
     if (result.skipped) {
       return { ok: true, verified: false, reason: 'No local Python; accepted on the client report.' };
     }
@@ -975,7 +982,10 @@ async function verifySubmission(challenge, body) {
   }
 
   if (challenge.language === 'sql') {
-    const result = await slots.run(() => runSqlInChild({ code, testCases: challenge.testCases ?? [] }));
+    const result = await slots.run(() => {
+      assertExecutionEnabled(challenge.language, 'challenges');
+      return runSqlInChild({ code, testCases: challenge.testCases ?? [] });
+    });
     return { ok: result.status === 'passed', verified: true, reason: 'SQL tests run by the server in isolated SQLite databases.' };
   }
 
@@ -1322,6 +1332,8 @@ function runPythonLocally(code, entryFunction, testCases) {
  * Returns { status: 'passed' | 'failed' | 'error' | 'skipped', testResults, stderr, reason }.
  */
 async function runSolutionAgainstTests(challenge, code) {
+  const disabled = codingDisabledReason(challenge.language, 'challenges');
+  if (disabled) return { status: 'error', testResults: [], stderr: disabled, reason: 'admin-disabled' };
   const testCases = challenge.testCases ?? [];
   if (challenge.language === 'sql') return runSqlInChild({ code, testCases });
   if (challenge.language === 'javascript' || challenge.language === 'typescript') {
@@ -1341,7 +1353,22 @@ async function runSolutionAgainstTests(challenge, code) {
 
 /* ---------------------------------------------------------------- execution */
 
-const admitLargeRun = createLargeRunAdmission();
+const admitLargeRun = createLargeRunAdmission(undefined, {
+  config: () => ({ ...setting('access.largeExecution', {}), runnerCapacity: setting('access.execution.maxConcurrent', 4) })
+});
+
+function codingDisabledReason(language, workflow) {
+  return learningDeps.lib?.executionDisabledReason(setting('coding', undefined), language, workflow) ?? null;
+}
+
+function assertExecutionEnabled(language, workflow) {
+  const message = codingDisabledReason(language, workflow);
+  if (message) {
+    const error = new BusyError('admin-disabled');
+    error.policyMessage = message;
+    throw error;
+  }
+}
 
 function runJsInChild(payload) {
   const limits = executionLimits(payload);
@@ -1409,12 +1436,13 @@ function runJsInChild(payload) {
  * out): say so in the shape a run result has, so the Playground and the
  * practice modal show it like any other failed run. Nothing ran.
  */
-function sendBusy(res) {
-  return res.status(503).json({
+function sendBusy(res, error) {
+  if (res.destroyed || res.writableEnded) return res;
+  return res.status(error?.reason === 'admin-disabled' ? 403 : 503).json({
     status: 'error',
     engine: 'none',
-    reason: 'busy',
-    stderr: copyText('limits.busy', {}, 'The code runner is busy - try again in a moment.'),
+    reason: error?.reason === 'admin-disabled' ? 'admin-disabled' : 'busy',
+    stderr: error?.policyMessage ?? largeRunBusyMessage(error) ?? copyText('limits.busy', {}, 'The code runner is busy - try again in a moment.'),
     testResults: []
   });
 }
@@ -1432,6 +1460,9 @@ app.post(
     const testCases = Array.isArray(req.body?.testCases) ? req.body.testCases.slice(0, 25) : [];
     if (req.body?.profile !== undefined && !['standard', 'large'].includes(req.body.profile)) return res.status(400).json({ error: 'Unknown execution profile.' });
     const profile = executionProfile({ profile: req.body?.profile, entryFunction, testCases });
+    if (req.body?.workflow !== undefined && !['playground', 'challenges', 'examples'].includes(req.body.workflow)) return res.status(400).json({ error: 'Unknown coding workflow.' });
+    const workflow = entryFunction || testCases.length ? 'challenges' : req.body?.workflow ?? 'playground';
+    try { assertExecutionEnabled(language, workflow); } catch (error) { return sendBusy(res, error); }
     // Optional, and only Judge0 languages can use it: the JavaScript sandbox
     // calls a function with arguments and Python runs in the browser, so
     // neither has a stdin to feed. Capped rather than rejected - a beginner's
@@ -1441,11 +1472,22 @@ app.post(
 
     if (code.length > 100_000) return res.status(413).json({ error: 'Submission is too large.' });
 
+    const controller = new AbortController();
+    const onClose = () => { if (!res.writableEnded) controller.abort(); };
+    res.once('close', onClose);
+    res.once('finish', () => res.removeListener('close', onClose));
+    const admissionOptions = { signal: controller.signal };
+    const runIfConnected = task => {
+      if (controller.signal.aborted) throw new BusyError('client-disconnected');
+      assertExecutionEnabled(language, workflow);
+      return task();
+    };
+
     if (language === 'sql') {
       try {
-        return res.json(await admitLargeRun(profile, () => slots.run(() => runSqlInChild({ code, testCases, profile }))));
+        return res.json(await admitLargeRun(profile, () => slots.run(() => runIfConnected(() => runSqlInChild({ code, testCases, profile }))), admissionOptions));
       } catch (err) {
-        if (err instanceof BusyError) return sendBusy(res);
+        if (err instanceof BusyError) return sendBusy(res, err);
         throw err;
       }
     }
@@ -1488,10 +1530,10 @@ app.post(
         });
       }
       try {
-        const result = await admitLargeRun(profile, () => slots.run(() => runJudge0Submission(judge0Config, { language, code, stdin, profile })));
+        const result = await admitLargeRun(profile, () => slots.run(() => runIfConnected(() => runJudge0Submission(judge0Config, { language, code, stdin, profile }))), admissionOptions);
         return res.json(result);
       } catch (err) {
-        if (err instanceof BusyError) return sendBusy(res);
+        if (err instanceof BusyError) return sendBusy(res, err);
         throw err;
       }
     }
@@ -1499,14 +1541,15 @@ app.post(
     try {
       // Timed inside the slot: the wait for one is not the program's time.
       const { result, elapsed } = await admitLargeRun(profile, () => slots.run(async () => {
+        runIfConnected(() => undefined);
         const started = process.hrtime.bigint();
         const out = await runJsInChild({ code, entryFunction, testCases, profile });
         return { result: out, elapsed: Number(process.hrtime.bigint() - started) / 1e6 };
-      }));
+      }), admissionOptions);
 
       res.json({ ...result, engine: 'node-vm', time: `${elapsed.toFixed(0)}ms (Node sandbox)` });
     } catch (err) {
-      if (err instanceof BusyError) return sendBusy(res);
+      if (err instanceof BusyError) return sendBusy(res, err);
       throw err;
     }
   })
