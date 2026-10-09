@@ -68,13 +68,13 @@ export const LearningPath: React.FC<LearningPathProps> = ({ readingFor }) => {
           <div className="min-w-0">
             <div className="text-sm font-medium text-fg">Practice</div>
             <div className="text-xs text-fg-secondary">
-              {practiceLine ?? (nextReview ? `All caught up - next review ${nextReview}.` : 'Nothing to practise yet - solve a few lessons first.')}
+              {practiceLine ?? (nextReview ? `All caught up - next review ${nextReview}.` : 'Nothing to practice yet - solve a few lessons first.')}
             </div>
           </div>
         </div>
         {practiceLine && (
           <Button size="sm" variant="secondary" onClick={() => intents.openReview()}>
-            Practise now
+            Practice now
           </Button>
         )}
       </div>

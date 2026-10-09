@@ -145,7 +145,7 @@ export function activityGrid(stats: UserStats, weeks = 14): HeatCell[][] {
 export const DEFAULT_BADGES: BadgeSettings = {
   tierNames: ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond'],
   families: [
-    { id: 'streak', metric: 'bestStreak', enabled: true, title: '{n}-day streak', detail: 'Practised {n} days in a row', tiers: [3, 7, 14, 30, 100] },
+    { id: 'streak', metric: 'bestStreak', enabled: true, title: '{n}-day streak', detail: 'Practiced {n} days in a row', tiers: [3, 7, 14, 30, 100] },
     { id: 'solved', metric: 'solvedCount', enabled: true, title: '{n} challenges solved', detail: 'Cleared {n} lessons and tests', tiers: [10, 50, 100, 200] },
     { id: 'units', metric: 'unitsCompleted', enabled: true, title: 'Unit finisher: {n}', detail: 'Units completed: {n}', tiers: [1, 10, 25, 40] },
     { id: 'perfect', metric: 'perfectUnits', enabled: true, title: 'Perfectionist: {n}', detail: 'Perfect units (first try, no hints): {n}', tiers: [1, 5, 15, 30] },

@@ -4,13 +4,24 @@
  * way the app read before copy was editable.
  */
 import { describe, expect, it } from 'vitest';
-import { fillCopy, tokensIn } from '../copy';
+import { fillCopy, refreshProductCopy, tokensIn } from '../copy';
 import { DEFAULT_SETTINGS } from '../defaults';
 import { SETTING_META } from '../meta';
 import { publicSettings } from '../merge';
 import { getCopy, setSettingsSnapshot } from '../store';
 
 describe('fillCopy', () => {
+  it('refreshes old shipped landing copy without replacing custom text', () => {
+    expect(refreshProductCopy('copy.landing.finalCta', 'Open the first stage. It takes about twenty minutes.')).toBe(DEFAULT_SETTINGS.copy.landing.finalCta);
+    expect(refreshProductCopy('landing.finalCta', 'Start your own journey.')).toBe('Start your own journey.');
+    expect(refreshProductCopy('copy.landing.heroFootnote', 'Free to start · {freeStages} free stages, {premiumStages} premium · Every stage ends in a coding test')).toBe(DEFAULT_SETTINGS.copy.landing.heroFootnote);
+  });
+
+  it('uses consistent practice spelling in cached copy, without changing inserted values', () => {
+    expect(refreshProductCopy('offline.auth', 'Practise, practised, practising, PRACTISE.')).toBe('Practice, practiced, practicing, PRACTICE.');
+    expect(fillCopy(refreshProductCopy('landing.finalCta', 'Practise with {name}'), { name: 'Practise' })).toBe('Practice with Practise');
+  });
+
   it('fills known tokens', () => {
     expect(fillCopy('Free to start · {freeStages} free stages, {premiumStages} premium', { freeStages: 6, premiumStages: 4 })).toBe(
       'Free to start · 6 free stages, 4 premium'

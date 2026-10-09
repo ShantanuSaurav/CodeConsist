@@ -87,7 +87,7 @@ const ReviewComplete: React.FC<ReviewCompleteProps> = ({
           <Check size={14} aria-hidden="true" /> Every question right: +{bonusXp} XP bonus
         </p>
       )}
-      {xp > 0 && capped && <p className="unit-complete-retry">That is today's Practice XP limit. Practising more still counts for your streak.</p>}
+      {xp > 0 && capped && <p className="unit-complete-retry">That is today's Practice XP limit. Practicing more still counts for your streak.</p>}
       {goalLine ? (
         <p className="unit-complete-perfect is-goal">
           <Target size={14} aria-hidden="true" /> {goalLine}

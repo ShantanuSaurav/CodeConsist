@@ -1,9 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ROUTES } from '@/config/routes';
+import React, { useEffect } from 'react';
 import { useContentStats, useSession } from '@/platform/session';
 import { useCopy } from '@/platform/settings';
-import { STORAGE_KEYS, remove } from '@/platform/storage/storage';
 import { Navbar } from '../components/Navbar';
 import { Hero } from '../components/Hero';
 import { SocialProof } from '../components/SocialProof';
@@ -12,26 +9,11 @@ import { LearningExperience } from '../components/LearningExperience';
 import { Gamification } from '../components/Gamification';
 import { FinalCTA } from '../components/FinalCTA';
 import { Footer } from '../components/Footer';
-import { WelcomeIntro } from '../components/WelcomeIntro';
 import { PlaygroundStory, ReadingStory, RoadmapStory } from '../components/ProductStories';
 import '../styles/landing.css';
 import '../styles/premium.css';
-
-/** Session-only memory - the intro should greet every visit, not just the first one ever. */
-const introSeen = () => {
-  try {
-    return window.sessionStorage.getItem(STORAGE_KEYS.intro) === '1';
-  } catch {
-    return false;
-  }
-};
-const rememberIntro = () => {
-  try {
-    window.sessionStorage.setItem(STORAGE_KEYS.intro, '1');
-  } catch {
-    /* private mode or blocked storage: the intro simply plays again */
-  }
-};
+import '../styles/cinematic.css';
+import '../styles/glass.css';
 
 /** "230+": lessons rounded down to a ten, as the build-time meta says them (scripts/content-stats.mjs). */
 const lessonsLabel = (lessons: number) => (lessons >= 10 ? `${Math.floor(lessons / 10) * 10}+` : String(lessons));
@@ -53,63 +35,25 @@ function useMetaDescription(): void {
     if (meta && text) meta.setAttribute('content', text);
   }, [contentReady, stats, copy]);
 }
-/**
- * "/" - the public entry point.
- *
- * Opening the site shows the welcome intro (the mark, the name, the tagline,
- * "Enter CodeConsist"). Entering goes to the existing /dashboard route -
- * signed-in learners land on their dashboard, guests on the guest flow with
- * its sign-in prompt - so no second home page exists. A brand-new learner
- * goes to the first-run setup (/welcome) first, while the admin has it on
- * (`onboarding.enabled` and `showAfterEnter`); nobody with progress is ever
- * sent there. The intro's quiet
- * second action ("learn more first") reveals the landing page in place.
- *
- * It is remembered per visit (sessionStorage): coming back to "/" inside the
- * same tab does not replay it, but the next time the site is opened it plays
- * again. An earlier build stored it in localStorage for good, which meant a
- * returning visitor never saw it; that key is cleared here.
- */
+/** Public home: the product is immediately available, without an intro gate. */
 export const Landing: React.FC = () => {
-  const navigate = useNavigate();
-  const { needsOnboarding, settings } = useSession();
   useMetaDescription();
-  const [intro, setIntro] = useState(() => {
-    remove(STORAGE_KEYS.intro); // the old, permanent flag from a previous build
-    return !introSeen();
-  });
-
-  const markSeen = useCallback(() => rememberIntro(), []);
-
-  // A new learner (nothing solved, the setup neither finished nor dismissed)
-  // goes through the first-run setup first, while the admin has it on; anyone
-  // with progress goes straight to their dashboard.
-  const onboarding = settings.onboarding;
-  const toSetup = needsOnboarding && onboarding.enabled && onboarding.showAfterEnter;
-  const enter = useCallback(() => {
-    markSeen();
-    navigate(toSetup ? ROUTES.onboarding : ROUTES.dashboard);
-  }, [markSeen, navigate, toSetup]);
-
-  const explore = useCallback(() => {
-    markSeen();
-    setIntro(false);
-  }, [markSeen]);
-
-  if (intro) return <WelcomeIntro onEnter={enter} onExplore={explore} />;
 
   return (
     <div className="landing bg-bg min-h-screen text-fg">
+      <a className="landing-skip" href="#main-content">Skip to content</a>
       <Navbar />
-      <Hero />
-      <SocialProof />
-      <RoadmapStory />
-      <LearningExperience />
-      <ReadingStory />
-      <PlaygroundStory />
-      <Gamification />
-      <HowItWorks />
-      <FinalCTA />
+      <main id="main-content" tabIndex={-1}>
+        <Hero />
+        <SocialProof />
+        <RoadmapStory />
+        <LearningExperience />
+        <ReadingStory />
+        <PlaygroundStory />
+        <Gamification />
+        <HowItWorks />
+        <FinalCTA />
+      </main>
       <Footer />
     </div>
   );

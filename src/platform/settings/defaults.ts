@@ -57,7 +57,7 @@ export const DEFAULT_ONBOARDING_SETTINGS: OnboardingSettings = {
     options: [
       { id: 'job', label: 'Get a job', description: 'Build the skills employers ask for.', icon: 'briefcase' },
       { id: 'college', label: 'Do well in college', description: 'Keep up with coursework and exams.', icon: 'graduation-cap' },
-      { id: 'interviews', label: 'Prepare for interviews', description: 'Practise the kind of problems interviews use.', icon: 'target' },
+      { id: 'interviews', label: 'Prepare for interviews', description: 'Practice the kind of problems interviews use.', icon: 'target' },
       { id: 'fun', label: 'Just for fun', description: 'Learn something new at my own pace.', icon: 'sparkles' }
     ]
   },
@@ -148,7 +148,7 @@ export const DEFAULT_SETTINGS: Settings = {
       // Worded so any number reads right ('1h left' as well as '5h left').
       body: 'Finish one lesson before midnight to keep it ({hoursLeft}h left).',
       bodyWithFreeze: 'Miss today and a streak freeze covers it ({freezes} left).',
-      cta: 'Practise now'
+      cta: 'Practice now'
     },
     goalMet: {
       toast: 'Daily goal met: {goal}.',
@@ -253,7 +253,7 @@ export const DEFAULT_SETTINGS: Settings = {
   league: jsonCopy(DEFAULT_LEAGUE_SETTINGS),
   copy: {
     offline: {
-      auth: 'Accounts are temporarily unavailable. Keep practising as a guest - your progress is saved on this device.',
+      auth: 'Accounts are temporarily unavailable. Keep practicing as a guest - your progress is saved on this device.',
       leaderboard: 'The leaderboard is temporarily unavailable.',
       banner: 'Sync is temporarily unavailable - your progress is saved on this device.',
       generic: 'CodeConsist is temporarily unavailable. Please try again in a little while.',
@@ -273,17 +273,17 @@ export const DEFAULT_SETTINGS: Settings = {
     },
     playground: {
       description:
-        'Web previews run in a sandboxed frame. JavaScript runs on the server with a browser fallback. Python runs in your browser; SQL uses a fresh, isolated SQLite database. Java, C and C++ use the server when a compiler is available.'
+        'Write code. Run it. Make it better. Explore JavaScript, Python and SQL, or bring HTML and CSS to life in a web preview.'
     },
     landing: {
-      heroFootnote: 'Free to start · {freeStages} free stages, {premiumStages} premium · Every stage ends in a coding test',
+      heroFootnote: 'Free to start · {freeStages} free stages, {premiumStages} premium · Every stage ends in a skill test',
       footerBlurb: 'The developer training environment.',
       howLessons:
         'Bite-sized lessons in every stage: quizzes, output prediction, fill-the-blanks, pseudocode ordering. Each new idea is explained before you are asked about it.',
-      finalCta: 'Open the first stage. It takes about twenty minutes.',
-      pathLine: '{stages} stages, in order, each ending in a coding test.',
+      finalCta: 'Your next chapter starts with one lesson.',
+      pathLine: '{stages} stages, in order, each ending in a skill test.',
       buildStep: 'Each stage ends in a mandatory test. The next stage stays locked until you clear it.',
-      pathLineWithSkip: '{stages} stages, in order, each ending in a coding test. Already know some? Take a short placement or test out of a stage.',
+      pathLineWithSkip: '{stages} stages, in order, each ending in a skill test. Already know some? Take a short placement or test out of a stage.',
       buildStepWithSkip: 'Each stage ends in a mandatory test. The next stage stays locked until you clear it - or test out of it.'
     },
     meta: {

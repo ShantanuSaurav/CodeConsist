@@ -4,7 +4,7 @@
  *
  *   POST /api/review/session  { stageId? }
  *        -> { sessionId, items: [{ challengeId, reason }], xp: { remainingToday }, nextDueDay, expiresAt }
- *        -> { sessionId: null, items: [], nextDueDay, xp }  when there is nothing to practise
+ *        -> { sessionId: null, items: [], nextDueDay, xp }  when there is nothing to practice
  *   POST /api/review/answer   { sessionId, challengeId, answer? | code?, attempts 1-10, hintsUsed 0-10, revealed? }
  *        -> { correct, outcome, awardedXp, bonusXp, goalBonusXp, xpRemainingToday, resolved,
  *             sessionComplete, progress, today, habits, habitEvents }
@@ -352,7 +352,7 @@ export function createReviewService({ lib, store, settings, activity, habits, ge
  * @param {Function} deps.requireAuth
  * @param {{ lib, settings, review }} deps.learningDeps
  * @param {(user) => { stageIds: string[], challenges: object[] }} deps.visibleBankFor
- *   what this learner may practise: the learner view minus premium stages
+ *   what this learner may practice: the learner view minus premium stages
  *   they have not unlocked, stage tests and kinds outside `review.itemTypes`
  * @param {(challenge, body) => Promise<{ ok, verified, reason }>} deps.verifySubmission
  * @param {(id: string) => object | null} deps.getChallengeMerged
@@ -369,7 +369,7 @@ export function createReviewRouter({ requireAuth, learningDeps, visibleBankFor, 
     if (raw !== undefined && raw !== null && typeof raw !== 'string') return res.status(400).json({ error: '`stageId` must be a stage id.' });
     const bank = visibleBankFor(req.user);
     const stageId = raw ? raw : null;
-    if (stageId && !bank.stageIds.includes(stageId)) return res.status(400).json({ error: 'That stage is not one you can practise.' });
+    if (stageId && !bank.stageIds.includes(stageId)) return res.status(400).json({ error: 'That stage is not one you can practice.' });
     const types = new Set(settings.current().review.itemTypes);
     const challenges = bank.challenges.filter((c) => !c.isStageTest && types.has(c.type));
     res.json(review.startSession(req.user, { stageId, bank: challenges, now: new Date() }));

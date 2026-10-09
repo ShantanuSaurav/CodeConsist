@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Menu, Moon, Sun, X } from 'lucide-react';
 import { useSession } from '@/platform/session';
 import { useTheme } from '@/platform/theme';
+import { ROUTES } from '@/config/routes';
 import { intents } from '@/platform/events';
 import { Button, ButtonLink, DevlingoLogo, useBodyScrollLock, useFocusTrap } from '@/ui';
 
@@ -20,7 +21,8 @@ const LINKS = [
 export const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const { user, stats } = useSession();
+  const { user, stats, needsOnboarding, settings } = useSession();
+  const startRoute = needsOnboarding && settings.onboarding.enabled && settings.onboarding.showAfterEnter ? ROUTES.onboarding : ROUTES.learn;
   const { theme, toggleTheme } = useTheme();
   const openAuthModal = intents.openAuth;
   const navigate = useNavigate();
@@ -43,7 +45,7 @@ export const Navbar: React.FC = () => {
   }, []);
 
   return (
-    <nav
+    <nav aria-label="Main navigation"
       className={`landing-navbar glass ${scrolled ? 'is-compact' : ''} ${menuOpen ? 'is-open' : ''}`}
     >
       <div className="max-w-6xl mx-auto px-6 h-full flex items-center justify-between">
@@ -75,7 +77,7 @@ export const Navbar: React.FC = () => {
               <Button size="sm" variant="ghost" className="hidden sm:inline-flex" onClick={openAuthModal}>
                 Sign in
               </Button>
-              <ButtonLink size="sm" variant="primary" to="/dashboard/learn" className="hidden sm:inline-flex">
+              <ButtonLink size="sm" variant="primary" to={startRoute} className="hidden sm:inline-flex">
                 Start learning
               </ButtonLink>
             </>
@@ -89,6 +91,7 @@ export const Navbar: React.FC = () => {
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="Toggle navigation menu"
             aria-expanded={menuOpen}
+            aria-controls={menuOpen ? 'landing-navigation' : undefined}
           >
             {menuOpen ? <X size={18} /> : <Menu size={18} />}
           </Button>
@@ -96,7 +99,7 @@ export const Navbar: React.FC = () => {
       </div>
 
       {menuOpen && (
-        <div ref={menuRef} role="dialog" aria-modal="true" aria-label="Navigation" tabIndex={-1} className="landing-mobile-nav" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setMenuOpen(false); } }}>
+        <div id="landing-navigation" ref={menuRef} role="dialog" aria-modal="true" aria-label="Navigation" tabIndex={-1} className="landing-mobile-nav" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setMenuOpen(false); } }}>
           <div className="landing-mobile-nav-heading"><span className="eyebrow">EXPLORE CODECONSIST</span><Button variant="ghost" icon aria-label="Close navigation" onClick={() => setMenuOpen(false)}><X size={18} /></Button></div>
           {LINKS.map((l) => (
             <Link key={l.to} to={l.to} onClick={() => setMenuOpen(false)} className="nav-item">
@@ -114,7 +117,7 @@ export const Navbar: React.FC = () => {
               >
                 Sign in
               </Button>
-              <ButtonLink block variant="primary" to="/dashboard/learn" onClick={() => setMenuOpen(false)}>
+              <ButtonLink block variant="primary" to={startRoute} onClick={() => setMenuOpen(false)}>
                 Start learning
               </ButtonLink>
             </div>

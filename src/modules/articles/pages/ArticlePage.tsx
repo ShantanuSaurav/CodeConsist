@@ -137,7 +137,7 @@ export const ArticlePage: React.FC<ArticlePageProps> = ({ relatedFor }) => {
 
           <div className="border-t border-border pt-6 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <div className="font-medium text-fg">Ready to practise?</div>
+              <div className="font-medium text-fg">Ready to practice?</div>
               <div className="text-sm text-fg-secondary mt-0.5">
                 {status.total} lessons{stage.test ? ` and the stage test "${stage.test.title}"` : ''} wait in Stage{' '}
                 {String(stage.index).padStart(2, '0')}.

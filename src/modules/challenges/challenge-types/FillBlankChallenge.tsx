@@ -1,7 +1,7 @@
 import React from 'react';
 import { Challenge, FeedbackNote } from '@/types';
 import { Answer, choiceOrder } from '@/platform/grading-engine/answers';
-import { wrongPositions } from './registry';
+import { wrongBlankPositions } from './answerPositions';
 import { CodeBlock } from '@/ui/primitives/CodeBlock';
 
 interface Props {
@@ -27,7 +27,7 @@ export const FillBlankChallenge: React.FC<Props> = ({ challenge, answer, onAnswe
   // guarantees a matching shape, but this component must not be the thing that
   // crashes if that guarantee is ever broken again.
   const values = Array.isArray(answer) ? (answer as string[]).slice() : blanks.map(() => '');
-  const wrong = checked ? new Set(wrongPositions(challenge, answer)) : new Set<number>();
+  const wrong = checked ? new Set(wrongBlankPositions(challenge, answer)) : new Set<number>();
 
   const setValue = (index: number, value: string) => {
     if (locked) return;

@@ -49,7 +49,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.11"
   },
   "description": "CodeConsist - the developer training environment. 834 lessons and 12 stage tests across 3 tracks, guided Learn mode, articles, roadmaps, real code execution and an admin console. Runs end to end on localhost.",
   "engines": {

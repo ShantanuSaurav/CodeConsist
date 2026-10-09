@@ -6,6 +6,13 @@
   <title>CodeConsist — Learn to Code. Level Up for Real.</title>
   <!-- The CC_ placeholders are filled from the content bank at build time (scripts/vite-content-stats.mjs). -->
   <meta name="description" content="CodeConsist - learn to code with %CC_LESSONS% bite-sized lessons and %CC_TESTS% stage tests across %CC_STAGES% stages on %CC_TRACKS% tracks, with real code execution. Free to start." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="CodeConsist" />
+  <meta property="og:title" content="CodeConsist — Small steps. Real skills." />
+  <meta property="og:description" content="Build real coding skills with %CC_LESSONS% lessons, %CC_TESTS% stage tests, and a playground for your ideas. Free to start." />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="CodeConsist — Small steps. Real skills." />
+  <meta name="twitter:description" content="Learn, practice, and build. A clear path from your first line of code to real developer skills." />
   <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <!-- The browser chrome follows the system scheme; --bg in each theme. -->
@@ -58,7 +65,7 @@
     @keyframes bootBlink { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 transparent); } 50% { transform: scale(1.04); filter: drop-shadow(0 0 18px rgba(217, 77, 0, 0.35)); } }
     html.dark .boot img { animation-name: bootBlinkDark; }
     @keyframes bootBlinkDark { 0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 transparent); } 50% { transform: scale(1.04); filter: drop-shadow(0 0 18px rgba(255, 122, 51, 0.35)); } }
-    @media (prefers-reduced-motion: reduce) { .boot img { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .boot img, .boot-fill { animation: none; } }
   </style>
 </head>
 <body>

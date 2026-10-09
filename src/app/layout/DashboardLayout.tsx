@@ -47,7 +47,7 @@ export const DashboardLayout: React.FC = () => {
       <div className="app-content">
         <div className="app-notices">
           {(isGuest || serverStatus === 'offline') && <div className="app-notice" role={serverStatus === 'offline' ? 'status' : undefined} data-testid={serverStatus === 'offline' ? 'offline-banner' : undefined}>
-            <span>{serverStatus === 'offline' ? <>{copy('copy.offline.banner')}<DevHint> The API is offline: start it with npm run dev:api.</DevHint></> : <>Practising as a guest — progress is saved in this browser{stats.completedChallenges.length > 0 ? ` (${stats.completedChallenges.length} solved so far)` : ''}.</>}</span>
+            <span>{serverStatus === 'offline' ? <>{copy('copy.offline.banner')}<DevHint> The API is offline: start it with npm run dev:api.</DevHint></> : <>Practicing as a guest — progress is saved in this browser{stats.completedChallenges.length > 0 ? ` (${stats.completedChallenges.length} solved so far)` : ''}.</>}</span>
             {serverStatus !== 'offline' && <button type="button" onClick={() => intents.openAuth()} className="app-notice-action">Sign in to sync <span aria-hidden="true">↗</span></button>}
           </div>}
           <HabitBanner />

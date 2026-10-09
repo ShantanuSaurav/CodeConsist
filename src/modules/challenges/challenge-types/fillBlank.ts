@@ -1,3 +1,4 @@
+import { wrongBlankPositions } from './answerPositions';
 import { checkBlank } from '@/platform/grading-engine/grading';
 import { blankNotes } from '@/platform/grading-engine/feedback';
 import { FillBlankChallenge } from './FillBlankChallenge';
@@ -22,12 +23,6 @@ export const fillBlank: AnswerTypeDefinition = {
       blanks.every((b, i) => checkBlank(String(given[i] ?? ''), b.answer, b.alternatives ?? []))
     );
   },
-  wrongPositions: (c, answer) => {
-    const blanks = c.blanks ?? [];
-    const given = (answer as string[]) ?? [];
-    return blanks
-      .map((b, i) => (checkBlank(String(given[i] ?? ''), b.answer, b.alternatives ?? []) ? -1 : i))
-      .filter((i) => i >= 0);
-  },
+  wrongPositions: wrongBlankPositions,
   feedback: (c, answer, reveal) => blankNotes(c, Array.isArray(answer) ? (answer as string[]) : [], reveal)
 };

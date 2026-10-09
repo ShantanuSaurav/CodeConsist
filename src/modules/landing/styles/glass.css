@@ -1,0 +1,133 @@
+@layer components {
+  /* Local materials: the content/editor surfaces retain their contrast tokens.
+     Only a few outer surfaces blur; nested cards use a translucent tint. */
+  .landing {
+    --landing-glass: rgba(255, 255, 255, .64);
+    --landing-glass-nav: rgba(255, 255, 255, .78);
+    --landing-glass-menu: rgba(255, 255, 255, .97);
+    --landing-glass-tint: rgba(255, 255, 255, .42);
+    --landing-glass-edge: rgba(255, 255, 255, .84);
+    --landing-glass-shine: rgba(255, 255, 255, .65);
+    --landing-glass-shadow: 0 20px 60px -24px rgba(52, 40, 29, .22);
+    --landing-aurora-warm: rgba(234, 140, 71, .16);
+    --landing-aurora-cool: rgba(112, 134, 219, .12);
+    --landing-glass-blur: 18px;
+  }
+
+  .dark .landing {
+    --landing-glass: rgba(25, 28, 35, .68);
+    --landing-glass-nav: rgba(19, 22, 29, .82);
+    --landing-glass-menu: rgba(19, 22, 29, .97);
+    --landing-glass-tint: rgba(255, 255, 255, .035);
+    --landing-glass-edge: rgba(255, 255, 255, .14);
+    --landing-glass-shine: rgba(255, 255, 255, .085);
+    --landing-glass-shadow: 0 24px 64px -24px rgba(0, 0, 0, .65);
+    --landing-aurora-warm: rgba(217, 98, 37, .18);
+    --landing-aurora-cool: rgba(98, 124, 216, .14);
+  }
+
+  /* Static color behind the glass gives it depth without a full-page blur
+     or continuously repainted animated gradients. */
+  .landing .landing-hero::before {
+    height: 100%;
+    background:
+      radial-gradient(ellipse at 82% 22%, var(--landing-aurora-warm), transparent 44%),
+      radial-gradient(ellipse at 35% 72%, var(--landing-aurora-cool), transparent 46%);
+  }
+
+  .landing :is(.landing-practice-story, .landing-playground-story) {
+    background:
+      radial-gradient(ellipse at 80% 45%, var(--landing-aurora-cool), transparent 60%),
+      var(--surface-2);
+  }
+
+  .landing :is(.landing-navbar, .landing-mobile-nav, .landing-workspace, .practice-panel, .reading-paper, .progress-card, .cta-panel) {
+    background: linear-gradient(135deg, var(--landing-glass-shine), transparent 42%), var(--glass-fallback);
+    border: 1px solid var(--landing-glass-edge);
+    box-shadow: inset 0 1px 0 var(--landing-glass-shine), inset 0 -1px 0 var(--border-subtle), var(--landing-glass-shadow);
+    background-clip: padding-box;
+  }
+
+  .landing .landing-navbar { border-radius: 20px; }
+  .landing .landing-navbar.is-compact { background-color: var(--glass-fallback); }
+  .landing .landing-mobile-nav { border-radius: 20px; }
+  .landing .landing-workspace { border-radius: 24px; }
+
+  /* A single glass pane behind the original logo. The moving artwork sits
+     above it, so its motion never animates the filter itself. */
+  .landing .brand-scene::before {
+    content: '';
+    position: absolute;
+    inset: 13% 7%;
+    z-index: -1;
+    border: 1px solid var(--landing-glass-edge);
+    border-radius: 36px;
+    background: linear-gradient(135deg, var(--landing-glass-shine), transparent 55%), var(--glass-fallback);
+    box-shadow: inset 0 1px 0 var(--landing-glass-shine), var(--landing-glass-shadow);
+    transform: rotate(-8deg);
+    pointer-events: none;
+  }
+
+  .landing :is(.brand-code, .constellation-track-title, .landing-hero-actions .btn-secondary) {
+    background: linear-gradient(135deg, var(--landing-glass-shine), transparent 65%), var(--surface);
+    border-color: var(--landing-glass-edge);
+    box-shadow: inset 0 1px 0 var(--landing-glass-shine), var(--shadow-card);
+  }
+  .landing .landing-workspace .hero-panel {
+    background: linear-gradient(145deg, var(--landing-glass-tint), transparent), var(--surface-2);
+    border-color: var(--border);
+    box-shadow: inset 0 1px 0 var(--landing-glass-shine), var(--shadow-card);
+  }
+  .landing .cta-panel {
+    background-image:
+      linear-gradient(135deg, var(--landing-glass-shine), transparent 42%),
+      radial-gradient(ellipse at 95% 100%, var(--landing-aurora-warm), transparent 65%);
+  }
+
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .landing :is(.landing-navbar, .landing-mobile-nav, .landing-workspace, .practice-panel, .reading-paper, .progress-card, .cta-panel),
+    .landing .brand-scene::before {
+      background-color: var(--landing-glass);
+      -webkit-backdrop-filter: blur(var(--landing-glass-blur)) saturate(145%);
+      backdrop-filter: blur(var(--landing-glass-blur)) saturate(145%);
+    }
+    .landing .landing-navbar,
+    .landing .landing-navbar.is-compact { background-color: var(--landing-glass-nav); }
+    /* Nested backdrop filters cannot always sample beyond the navbar in Safari.
+       A stronger tint keeps overlaid navigation readable in every browser. */
+    .landing .landing-mobile-nav { background-color: var(--landing-glass-menu); }
+  }
+
+  @media (max-width: 600px) {
+    .landing { --landing-glass-blur: 10px; }
+    .landing .landing-navbar { border-radius: 16px; }
+    .landing .landing-workspace { border-radius: 18px; }
+    .landing .brand-scene::before { border-radius: 26px; }
+  }
+
+  /* Respect macOS accessibility preferences and retain an opaque fallback
+     on browsers without backdrop filters. Never rely on blur for legibility. */
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    .landing :is(.landing-navbar, .landing-navbar.is-compact, .landing-mobile-nav, .landing-workspace, .practice-panel, .reading-paper, .progress-card, .cta-panel),
+    .landing .brand-scene::before {
+      background: var(--surface);
+      border-color: var(--border-strong);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    .landing :is(.brand-code, .constellation-track-title, .landing-hero-actions .btn-secondary) {
+      background: var(--surface);
+      border-color: var(--border-strong);
+    }
+  }
+  @media (forced-colors: active) {
+    .landing :is(.landing-navbar, .landing-mobile-nav, .landing-workspace, .practice-panel, .reading-paper, .progress-card, .cta-panel) {
+      background: Canvas;
+      border-color: CanvasText;
+      box-shadow: none;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    .landing .brand-scene::before { display: none; }
+  }
+}

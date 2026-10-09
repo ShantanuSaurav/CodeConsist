@@ -8,6 +8,7 @@ import { ButtonLink, CodeBlock, ProgressBar } from '@/ui';
 import { ROUTES } from '@/config/routes';
 import type { Challenge, ChallengeType } from '@/types';
 import { useNextChallenge } from './useNextChallenge';
+import { CinematicMark } from './CinematicMark';
 
 const TYPE_LABEL: Record<ChallengeType, string> = {
   quiz: 'Quiz',
@@ -83,7 +84,8 @@ const Preview: React.FC<{ challenge: Challenge }> = ({ challenge: c }) => {
  * exactly that lesson, and the panel moves on as they solve.
  */
 export const Hero: React.FC = () => {
-  const { contentReady, activeTrack, learnerStages, habits, stats: learnerStats } = useSession();
+  const { contentReady, activeTrack, learnerStages, habits, stats: learnerStats, needsOnboarding, settings } = useSession();
+  const startRoute = needsOnboarding && settings.onboarding.enabled && settings.onboarding.showAfterEnter ? ROUTES.onboarding : ROUTES.learn;
   const next = useNextChallenge(anyLesson);
   const sample = next?.challenge ?? null;
 
@@ -93,35 +95,40 @@ export const Hero: React.FC = () => {
   const copy = useCopy();
 
   return (
-    <section className="hero landing-hero">
+    <section className="hero landing-hero" aria-labelledby="hero-title">
       <div className="landing-hero-inner">
+        <div className="landing-hero-stage">
         <div className="landing-hero-copy">
           <div className="eyebrow hero-in hero-in-1">
-            {contentReady ? `${lessons} lessons · ${tests} stage tests · real code execution` : 'Developer training environment'}
+            <span className="workspace-live-dot" /> A LITTLE EVERY DAY. A LONG WAY FORWARD.
           </div>
-          <h1 className="hero-in hero-in-1">
+          <h1 id="hero-title" className="hero-in hero-in-1">
             Small steps.
             <br />
-            <span>Real developer.</span>
+            <span>Real skills.</span>
           </h1>
           <p className="hero-in hero-in-2 landing-hero-description">
             Go from understanding code to building with it. A clear learning path, hands-on challenges, and a space to make ideas work.
           </p>
 
           <div className="hero-in hero-in-3 landing-hero-actions">
-            <ButtonLink to={ROUTES.learn} variant="primary" size="lg" className="cta-arrow">
-              Start Learning <ArrowRight size={15} />
+            <ButtonLink to={startRoute} variant="primary" size="lg" className="cta-arrow">
+              {learnerStats.completedChallenges.length ? 'Continue learning' : 'Start learning'} <ArrowRight size={15} />
             </ButtonLink>
             <ButtonLink to={ROUTES.roadmaps} variant="secondary" size="lg">
-              Explore Roadmaps
+              Explore roadmaps
             </ButtonLink>
           </div>
 
           <p className="hero-in hero-in-4 mt-8 text-sm text-fg-muted">
             {/* Admin-editable (`copy.landing.heroFootnote`); the stage counts come from the content. */}
-            {contentReady ? copy('copy.landing.heroFootnote', { ...stats }) : 'Free to start · Every stage ends in a coding test'}
+            {contentReady ? copy('copy.landing.heroFootnote', { ...stats }) : 'Free to start · Learn at your own pace'}
           </p>
         </div>
+
+        <CinematicMark />
+        </div>
+        <div className="hero-chapter"><span>FROM YOUR FIRST LINE TO YOUR NEXT BREAKTHROUGH</span><span>{contentReady ? `${lessons} lessons / ${tests} stage tests` : 'Your learning journey starts here'} <span aria-hidden="true">↓</span></span></div>
 
         {/* Your next lesson */}
         <div className="hero-panel-wrap landing-workspace">
@@ -156,8 +163,14 @@ export const Hero: React.FC = () => {
                 </button>
               </div>
             </div>
+          ) : contentReady ? (
+            <div className="panel hero-panel workspace-empty">
+              <h2>Your next chapter awaits.</h2>
+              <p>Explore the available tracks or experiment in the playground.</p>
+              <ButtonLink to={ROUTES.learn} variant="primary">Explore lessons <ArrowRight size={15} /></ButtonLink>
+            </div>
           ) : (
-            <div className="panel hero-panel h-[26rem] animate-pulse" aria-label="Loading your next lesson" />
+            <div className="panel hero-panel h-[26rem] animate-pulse" role="status" aria-label="Loading your next lesson" />
           )}
           </div>
           <div className="workspace-status"><span><b>{learnerStats.xp.toLocaleString()}</b> XP earned</span><span><b>{habits.streak}</b> day streak</span>{habits.goal && <div className="workspace-goal"><span>Daily goal</span><ProgressBar value={habits.goal.percent} size="sm" label={`Daily goal ${habits.goal.percent}%`} /><b>{habits.goal.percent}%</b></div>}</div>

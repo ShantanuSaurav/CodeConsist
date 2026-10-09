@@ -1,5 +1,5 @@
 /* ==========================================================================
-   The Practice line a screen shows ("6 to practise: 2 mistakes, 4 due", or
+   The Practice line a screen shows ("6 to practice: 2 mistakes, 4 due", or
    "All caught up"): what the next session would hold, worked out with the
    same builder the session uses, so the promise and the session agree.
    ========================================================================== */
@@ -37,14 +37,14 @@ export function reviewSummary(input: Omit<BuildReviewSessionInput, 'seed'> & { s
   };
 }
 
-/** "6 to practise: 2 mistakes, 4 due" - or null when there is nothing. */
+/** "6 to practice: 2 mistakes, 4 due" - or null when there is nothing. */
 export function describeReviewSummary(summary: Pick<ReviewSummary, 'total' | 'mistakes' | 'due' | 'weak'>): string | null {
   if (summary.total <= 0) return null;
   const parts: string[] = [];
   if (summary.mistakes > 0) parts.push(`${summary.mistakes} ${summary.mistakes === 1 ? 'mistake' : 'mistakes'}`);
   if (summary.due > 0) parts.push(`${summary.due} due`);
   if (summary.weak > 0) parts.push(`${summary.weak} to strengthen`);
-  return `${summary.total} to practise${parts.length ? `: ${parts.join(', ')}` : ''}`;
+  return `${summary.total} to practice${parts.length ? `: ${parts.join(', ')}` : ''}`;
 }
 
 /** When the next question falls due, in words: "tomorrow", "in 3 days", or the date. */

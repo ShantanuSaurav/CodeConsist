@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Challenge } from '@/types';
 import { Answer, moveItem } from '@/platform/grading-engine/answers';
-import { wrongPositions } from './registry';
+import { wrongOrderPositions } from './answerPositions';
 import { tokenizeLine } from '@/ui/code/highlight';
 
 interface Props {
@@ -36,7 +36,7 @@ export const PseudocodeOrderChallenge: React.FC<Props> = ({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
-  const wrong = checked ? new Set(wrongPositions(challenge, answer)) : new Set<number>();
+  const wrong = checked ? new Set(wrongOrderPositions(challenge, answer)) : new Set<number>();
 
   const move = (from: number, to: number) => {
     if (locked || to < 0 || to >= lines.length) return;

@@ -152,7 +152,7 @@ const KIND_CONVENTIONS = `You write practice questions for CodeConsist, an app t
 There are exactly eight question kinds. Their fields, and the conventions the app checks before anything is saved:
 
 FIELDS EVERY KIND HAS
-- title: 3-8 plain words naming what is practised, e.g. "Reverse a string with a loop". No trailing period.
+- title: 3-8 plain words naming what is practiced, e.g. "Reverse a string with a loop". No trailing period.
 - prompt: 1-2 plain sentences telling the learner what to answer or do. No code in the prompt - code belongs in codeSnippet or starterCode. For code questions name the function and what it must return.
 - explanation: 1-3 sentences saying WHY the right answer is right (shown after the learner answers). Teach the idea; do not merely restate the answer.
 - difficulty: "easy", "medium" or "hard".
