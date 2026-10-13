@@ -23,6 +23,8 @@ import { PlaygroundLibrary } from './PlaygroundLibrary';
 import { guestProgramToSave, recordPlaygroundRun, setGuestProgramToSave } from './runHistory';
 
 const SNIPPETS: Record<string, Record<string, string>> = {
+  typescript: { 'Hello World': 'const message: string = "Hello World";\nconsole.log(message);' },
+  go: { 'Hello World': 'package main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("Hello World")\n}' },
   sql: SQL_EXAMPLES,
   javascript: {
     'Hello World': `console.log("Hello World");`,
@@ -131,7 +133,7 @@ int main() {
   }
 };
 
-const LANGUAGES: SupportedLanguage[] = ['javascript', 'python', 'sql', 'java', 'c', 'cpp'];
+const LANGUAGES: SupportedLanguage[] = ['javascript', 'typescript', 'python', 'sql', 'java', 'c', 'cpp', 'go'];
 
 /**
  * What the selector offers. 'web' is deliberately NOT a `SupportedLanguage`:
@@ -148,6 +150,8 @@ const MODES: Mode[] = ['web', ...LANGUAGES];
 const LANGUAGE_LABELS: Record<string, string> = {
   web: 'HTML / CSS / JS',
   javascript: 'JavaScript',
+  typescript: 'TypeScript',
+  go: 'Go',
   python: 'Python',
   sql: 'SQL (SQLite)',
   java: 'Java',
@@ -157,6 +161,8 @@ const LANGUAGE_LABELS: Record<string, string> = {
 
 const FILE_NAMES: Partial<Record<SupportedLanguage, string>> = {
   javascript: 'playground.js',
+  typescript: 'playground.ts',
+  go: 'main.go',
   python: 'playground.py',
   sql: 'playground.sql',
   java: 'Main.java',

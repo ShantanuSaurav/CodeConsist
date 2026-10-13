@@ -2541,6 +2541,7 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
       return;
     }
 
+    if (getToken()) await api.logout().catch(() => undefined);
     setToken(null);
     setUser(null);
     // The account's progress lives on the server; the local copy is a cache

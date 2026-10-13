@@ -22,9 +22,14 @@ describe('bounded large-program policy', () => {
   it.each(['c', 'cpp', 'go'])('sends fixed larger compiler limits for %s', language => {
     const config = resolveJudge0Config({ JUDGE0_API_URL: 'http://localhost:2358' });
     const standard = buildSubmissionBody(config, { language, code: 'program' });
-    expect(standard.memory_limit).toBeUndefined();
+    if (language === 'go') {
+      // The self-hosted Go multi-file toolchain uses an explicit address-space
+      // limit with bounded compilation concurrency and disabled networking.
+      expect(standard.memory_limit).toBe(1024000);
+      expect(standard.enable_network).toBe(false);
+    } else expect(standard.memory_limit).toBeUndefined();
     const large = buildSubmissionBody(config, { language, code: 'program', profile: 'large', stdin: '42' });
-    expect(large).toMatchObject({ memory_limit: 524288, cpu_time_limit: 10, wall_time_limit: 15 });
+    expect(large).toMatchObject({ memory_limit: language === 'go' ? 1024000 : 524288, cpu_time_limit: 10, wall_time_limit: 15 });
     expect(Buffer.from(large.stdin, 'base64').toString()).toBe('42');
     if (language !== 'go') expect(large.compiler_options).toContain('-O2');
     if (language === 'cpp') expect(large.compiler_options).toContain('-std=c++17');

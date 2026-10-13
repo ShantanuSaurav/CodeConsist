@@ -7,7 +7,7 @@ describe('playground library contracts', () => {
     const value = language === 'web' ? { language, files: { html: '<p>Hi</p>', css: '', js: '' } } : { ...program, language };
     expect(normalizePlaygroundProgram({ ...value, userId: 'not-the-owner' })).toEqual(value);
   });
-  it.each([null, [], {}, { ...program, language: '__proto__' }, { ...program, code: 4 }, { ...program, stdin: 'ignored' }, { ...program, code: 'x'.repeat(100001) }, { ...program, language: 'java', stdin: 'x'.repeat(10001) }, { language: 'web', files: { html: 'x', css: 4, js: '' } }, { language: 'web', files: { html: 'x'.repeat(100001), css: '', js: '' } }])('rejects malformed or oversized programs %#', (value) => {
+  it.each([null, [], {}, { ...program, language: '__proto__' }, { ...program, code: 4 }, { ...program, stdin: 42 }, { ...program, code: 'x'.repeat(100001) }, { ...program, language: 'java', stdin: 'x'.repeat(10001) }, { language: 'web', files: { html: 'x', css: 4, js: '' } }, { language: 'web', files: { html: 'x'.repeat(100001), css: '', js: '' } }])('rejects malformed or oversized programs %#', (value) => {
     expect(normalizePlaygroundProgram(value)).toBeNull();
   });
   it('requires an actual successful execution without stderr', () => {

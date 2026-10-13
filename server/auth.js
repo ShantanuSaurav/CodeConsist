@@ -19,6 +19,7 @@ import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'node:url';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { sessionId } from './learner-sessions.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -74,7 +75,7 @@ export function signLearnerToken(user) {
   // `tv` is the account's token version. A password reset bumps it, so every
   // token issued before the reset stops being accepted - the learner-side
   // twin of the admin token's `credentialsVersion` below.
-  return jwt.sign({ sub: user.id, tv: tokenVersionOf(user) }, secret(), { expiresIn: LEARNER_TOKEN_TTL });
+  return jwt.sign({ sub: user.id, tv: tokenVersionOf(user), jti: crypto.randomUUID() }, secret(), { expiresIn: LEARNER_TOKEN_TTL });
 }
 
 export function verifyLearnerToken(token) {
@@ -97,7 +98,7 @@ function tokenVersionOf(user) {
 export function learnerTokenIsCurrent(payload, user) {
   if (!payload || !user) return false;
   const claimed = payload.tv === undefined || payload.tv === null ? 0 : payload.tv;
-  return claimed === tokenVersionOf(user);
+  return claimed === tokenVersionOf(user) && !(Array.isArray(user.sessions) && user.sessions.some(row => row.id === sessionId(payload) && row.signedOutAt));
 }
 
 /* ---------------------------------------------------------------- admin */

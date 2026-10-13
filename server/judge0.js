@@ -35,6 +35,11 @@ import { executionLimits, executionProfile } from '../src/platform/execution/lim
  */
 export const JUDGE0_LANGUAGE_IDS = { java: 62, c: 50, cpp: 54, go: 60 };
 
+// Native clients need a Python fallback when they do not bundle Pyodide.
+// Keep the browser language map above stable; submitted Python is sent only
+// to the same isolated Judge0 service, never to a host Python process.
+export const JUDGE0_SERVER_LANGUAGE_IDS = { ...JUDGE0_LANGUAGE_IDS, python: 71 };
+
 /**
  * How much stdin a submission may carry. The point of stdin is the beginner's
  * first Scanner/scanf program, which reads a line or two; 10 KB is far past
@@ -220,6 +225,7 @@ export function buildRuntimes(config) {
 
   const runtimes = {
     javascript: { available: true, engine: 'node', label: 'Node sandbox' },
+    typescript: { available: true, engine: 'node', label: 'TypeScript / Node sandbox' },
     sql: { available: true, engine: 'browser', label: 'SQLite (WebAssembly)' },
     python: { available: true, engine: 'browser', label: 'CPython (WebAssembly)' }
   };
@@ -227,6 +233,17 @@ export function buildRuntimes(config) {
     runtimes[language] = { ...compiled };
   }
   return runtimes;
+}
+
+/** Capabilities of POST /api/execute, separate from the browser's local engines. */
+export function buildServerRuntimes(config) {
+  const runtimes = buildRuntimes(config);
+  return {
+    ...runtimes,
+    typescript: { available: true, engine: 'node', label: 'TypeScript / Node sandbox' },
+    sql: { available: true, engine: 'sqlite', label: 'SQLite sandbox' },
+    python: { ...runtimes.java }
+  };
 }
 
 /**
@@ -237,8 +254,8 @@ export function buildRuntimes(config) {
  */
 export function judge0SetupHint(language) {
   return (
-    `Running ${language} needs a Judge0 engine and none is configured. JavaScript and Python already ` +
-    'work with no setup. The free way to get the rest is to run Judge0 in Docker on this machine - no ' +
+    `Running ${language} on the server needs a Judge0 engine and none is configured. JavaScript already ` +
+    'works here; the website can also run Python locally with Pyodide. Run Judge0 in Docker on this machine - no ' +
     'account, no key, no rate limit, and code never leaves the laptop: docs/RUNNING-JAVA-C-CPP.md has ' +
     'the exact steps. Then put JUDGE0_API_URL=http://localhost:2358 in .env at the project root and ' +
     'restart the API server. A hosted endpoint works too: set JUDGE0_API_URL and JUDGE0_API_KEY ' +
@@ -246,7 +263,7 @@ export function judge0SetupHint(language) {
   );
 }
 
-const LANGUAGE_NAMES = { java: 'Java', c: 'C', cpp: 'C++', go: 'Go' };
+const LANGUAGE_NAMES = { java: 'Java', c: 'C', cpp: 'C++', go: 'Go', python: 'Python' };
 
 /**
  * The same situation in words for a learner, who can do nothing about a
@@ -261,6 +278,7 @@ const LANGUAGE_NAMES = { java: 'Java', c: 'C', cpp: 'C++', go: 'Go' };
 export function runtimeUnavailableMessage(language, render) {
   const name = LANGUAGE_NAMES[language] ?? language;
   const custom = typeof render === 'function' ? render(name) : '';
+  if (language === 'python') return 'Python needs the PC compiler connection. Its sandbox is not configured yet.';
   return custom || `${name} can't run here right now - this server has no compiler for it yet. JavaScript and Python work as usual.`;
 }
 
@@ -379,8 +397,8 @@ export function storedZip(files) {
 const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 /**
- * The submission body for one run. Everything except self-hosted Java is a
- * plain single-file submission; see JAVA_MEMORY_LIMIT_KB for why that one is not.
+ * The submission body for one run. Self-hosted Java and Go use explicit
+ * compiler scripts to fit the PC's per-process reservation limits.
  */
 export function buildSubmissionBody(config, { language, code, stdin = '', profile }) {
   const limits = executionLimits({ profile });
@@ -397,15 +415,35 @@ export function buildSubmissionBody(config, { language, code, stdin = '', profil
       run: `${JAVA_HOME}/bin/java ${runtimeFlags.join(' ')} -Dfile.encoding=UTF-8 -cp . ${shellQuote(className)}\n`
     });
     body = { language_id: MULTI_FILE_LANGUAGE_ID, additional_files: zip.toString('base64'), memory_limit: JAVA_MEMORY_LIMIT_KB };
+  } else if (language === 'go' && config?.mode === 'self-hosted') {
+    // Go's default parallel compiler/cgo threads exceed this PC's isolate
+    // budget. A smaller native thread stack fixes pthread_create failures.
+    // Bound concurrency and use pure Go without relaxing isolation.
+    const zip = storedZip({
+      'main.go': code,
+      compile: 'ulimit -s 1024\nCGO_ENABLED=0 GOMAXPROCS=2 MALLOC_ARENA_MAX=1 GO111MODULE=off /usr/local/go-1.13.5/bin/go build -p 1 -o main main.go\n',
+      run: 'GOMAXPROCS=2 ./main\n'
+    });
+    body = { language_id: MULTI_FILE_LANGUAGE_ID, additional_files: zip.toString('base64'), memory_limit: 1_024_000, enable_network: false };
   } else {
-    body = { source_code: encode(code), language_id: JUDGE0_LANGUAGE_IDS[language] };
+    body = { source_code: encode(code), language_id: JUDGE0_SERVER_LANGUAGE_IDS[language] };
     if (COMPILER_OPTIONS[language]) body.compiler_options = COMPILER_OPTIONS[language];
   }
 
+  if (language === 'python') {
+    // The native fallback always has explicit budgets and no network access,
+    // even when the operator's Judge0 defaults are more permissive.
+    Object.assign(body, {
+      enable_network: false,
+      cpu_time_limit: limits.judgeCpuSeconds,
+      wall_time_limit: limits.judgeWallSeconds,
+      memory_limit: limits.judgeMemoryKb
+    });
+  }
   if (executionProfile({ profile }) === 'large') {
     body.cpu_time_limit = limits.judgeCpuSeconds;
     body.wall_time_limit = limits.judgeWallSeconds;
-    body.memory_limit = language === 'java' ? JAVA_MEMORY_LIMIT_KB : limits.judgeMemoryKb;
+    body.memory_limit = language === 'java' || language === 'go' ? JAVA_MEMORY_LIMIT_KB : limits.judgeMemoryKb;
     if (language === 'c' || language === 'cpp') body.compiler_options = [COMPILER_OPTIONS[language], '-O2'].filter(Boolean).join(' ');
   }
 
@@ -430,8 +468,8 @@ function failure(stderr, extra = {}) {
  */
 export async function runJudge0Submission(config, { language, code, stdin = '', profile } = {}) {
   const limits = executionLimits({ profile });
-  const languageId = JUDGE0_LANGUAGE_IDS[language];
-  if (!languageId) {
+  const languageId = JUDGE0_SERVER_LANGUAGE_IDS[language];
+  if (!Object.hasOwn(JUDGE0_SERVER_LANGUAGE_IDS, language)) {
     return { status: 'error', engine: 'none', stderr: `${language} is not supported by the configured compiler.`, testResults: [] };
   }
   if (!config?.configured) {

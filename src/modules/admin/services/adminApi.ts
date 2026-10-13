@@ -975,6 +975,9 @@ export interface PasswordResetRow {
 /* ----------------------------------------------------------------- methods */
 
 export const adminApi = {
+  async userSessions(id: string): Promise<{ sessions: { id: string; platform: string; browser: string; signedInAt: string; lastSeenAt: string; expiresAt: string; status: string }[] }> {
+    return request(`/admin/users/${encodeURIComponent(id)}/sessions`);
+  },
   /**
    * Signs in through the SEPARATE administrator credential system - Admin
    * User ID + Admin Password, never an email, never a learner account (see

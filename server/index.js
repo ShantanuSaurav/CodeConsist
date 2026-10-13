@@ -15,6 +15,7 @@
 // Must stay the first import - see server/env.js.
 // Environment and admin credentials loaded.
 import './env.js';
+import { sessionId, touchSession } from './learner-sessions.js';
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
@@ -37,6 +38,8 @@ import {
 } from './content.js';
 import { compileTsModule } from './build.js';
 import { runSqlInChild, prepareSqlEngine } from './sql.js';
+import { prepareJavaScript } from './typescript.js';
+import { runPythonTests } from './python-judge.js';
 import { executionLimits, executionProfile } from '../src/platform/execution/limits.mjs';
 import { createLargeRunAdmission, largeRunBusyMessage } from './execution-admission.js';
 import { createAdminRouter } from './admin.js';
@@ -45,14 +48,15 @@ import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken, l
 import { bootstrapAdminAccount, authenticateAdmin, publicAdmin, requireAdminAuth } from './admin-auth.js';
 import * as excel from './excel.js';
 import { createPaymentProvider } from './payments.js';
-import { entitlementsFor, setCertificateTestOutRule, stageAccessFor, unlockedStageIds } from './billing.js';
+import { entitlementsFor, setCertificateTestOutRule, stageAccessFor, unlockedStageIds, markPaid } from './billing.js';
 import { clientIp, trustProxyFn } from './client-ip.js';
 import { createCorsPolicy } from './cors-policy.js';
 import { BUCKET_SETTING, BusyError, createExecutionSlots, createLimiter, limitCheck, rateLimit } from './rate-limit.js';
-import { acceptClaims, checkSolveAccess, completedStagesFor as clearedStagesFor, filterMerge, mergeAccess, verifyClaims } from './progression.js';
+import { acceptClaims, checkSolveAccess, completedStagesFor as clearedStagesFor, filterMerge, mergeAccess, verifyClaims, learnerAccess } from './progression.js';
 import { createAssessmentRouter } from './assessment-routes.js';
 import { createPasswordResetRouter } from './password-reset.js';
 import { createBillingRouter, createWebhookRouter } from './billing-routes.js';
+import { createMobileRouter } from './mobile-routes.js';
 import { createOAuthProviders, PROVIDER_IDS } from './oauth.js';
 import { createOAuthRouter } from './oauth-routes.js';
 import { clearDraftForSolve, createDraftsRouter } from './drafts-routes.js';
@@ -70,8 +74,10 @@ import { createLeaguesService } from './leagues.js';
 import { createLeaguesRouter } from './leagues-routes.js';
 import {
   JUDGE0_LANGUAGE_IDS,
+  JUDGE0_SERVER_LANGUAGE_IDS,
   JUDGE0_STDIN_LIMIT,
   buildRuntimes,
+  buildServerRuntimes,
   judge0SetupHint,
   resolveJudge0Config,
   runJudge0Submission,
@@ -361,7 +367,7 @@ async function bootstrap() {
   // first lesson, as the units service groups the stage (server/content.js).
   setUnitFirstLessonResolver((unitId) => learningDeps.units?.firstLessonOf(unitId) ?? null);
   learningDeps.runtimeInfo = () => ({
-    pythonVerifiable: Boolean(findPython()),
+    pythonVerifiable: JUDGE0_CONFIGURED || Boolean(findPython()),
     judge0Languages: JUDGE0_CONFIGURED ? Object.keys(JUDGE0_LANGUAGE_IDS) : []
   });
   learningDeps.canVerify = serverCanVerify;
@@ -537,6 +543,7 @@ function optionalAuth(req, _res, next) {
       const payload = verifyLearnerToken(token);
       const user = store.findUserById(payload.sub) || null;
       req.user = user && learnerTokenIsCurrent(payload, user) ? user : null;
+      if (req.user && touchSession(req.user, payload, req)) store.persist();
     } catch {
       req.user = null;
     }
@@ -550,6 +557,29 @@ function requireAuth(req, res, next) {
 }
 
 app.use(optionalAuth);
+// Record password, registration and native OAuth sessions when issued. Web
+// OAuth sessions are recorded on their first authenticated API request.
+app.use('/api/auth', (req, res, next) => {
+  const send = res.json.bind(res);
+  res.json = (body) => {
+    if (body?.token) {
+      try {
+        const payload = verifyLearnerToken(body.token);
+        const user = store.findUserById(payload.sub);
+        if (user && touchSession(user, payload, req)) store.persist();
+      } catch { /* No session metadata for invalid/error responses. */ }
+    }
+    return send(body);
+  };
+  next();
+});
+app.post('/api/auth/logout', requireAuth, asyncRoute(async (req, res) => {
+  const id = sessionId(verifyLearnerToken(readToken(req)));
+  const row = req.user.sessions?.find(item => item.id === id);
+  if (row) row.signedOutAt = new Date().toISOString();
+  await store.persistNow({ strict: true });
+  res.json({ ok: true });
+}));
 
 /* ------------------------------------------------------------------ health */
 
@@ -574,6 +604,9 @@ app.get('/api/health', (_req, res) => {
     // rate-limited hosted one. Names and versions only - no URL, no host,
     // no key (server/judge0.js).
     runtimes: buildRuntimes(judge0Config),
+    // Mobile clients must not mistake a browser-only WebAssembly runtime for
+    // a server compiler. The existing browser contract remains unchanged.
+    serverRuntimes: buildServerRuntimes(judge0Config),
     // Learners refetch GET /api/settings when this differs from what they
     // have cached, so an admin's change reaches every open tab within one
     // probe. Absent only before bootstrap.
@@ -956,13 +989,15 @@ async function verifySubmission(challenge, body) {
   // at most a few child processes at once, a short queue, then BusyError -
   // which the solve route answers 503 "busy" without recording anything.
 
-  // TypeScript runs through the same sandbox: the runner strips nothing, so
-  // only type-annotation-free TS passes - the same rule the client applies.
+  // Native clients submit actual TypeScript. Convert syntax before entering
+  // the existing child sandbox; esbuild never bundles or resolves imports.
   if (challenge.language === 'javascript' || challenge.language === 'typescript') {
-    const result = await slots.run(() => {
+    const result = await slots.run(async () => {
       assertExecutionEnabled(challenge.language, 'challenges');
+      const prepared = await prepareJavaScript(code, challenge.language);
+      if (prepared.error) return { status: 'error', stderr: prepared.error };
       return runJsInChild({
-        code,
+        code: prepared.code,
         entryFunction: challenge.entryFunction,
         testCases: challenge.testCases ?? []
       });
@@ -971,6 +1006,13 @@ async function verifySubmission(challenge, body) {
   }
 
   if (challenge.language === 'python') {
+    if (JUDGE0_CONFIGURED) {
+      const result = await slots.run(() => {
+        assertExecutionEnabled(challenge.language, 'challenges');
+        return runPythonTests(judge0Config, { code, entryFunction: challenge.entryFunction, testCases: challenge.testCases ?? [] }, grading);
+      });
+      return { ok: result.status === 'passed', verified: true, reason: result.stderr || 'Tests run by the server in the isolated Python compiler.' };
+    }
     const result = await slots.run(() => {
       assertExecutionEnabled(challenge.language, 'challenges');
       return runPythonLocally(code, challenge.entryFunction, challenge.testCases ?? []);
@@ -1014,7 +1056,7 @@ function serverCanVerify(challenge) {
   if (challenge.language === 'html' || challenge.uiPreview) return false;
   if (challenge.language === 'javascript' || challenge.language === 'typescript') return true;
   if (challenge.language === 'sql') return true;
-  if (challenge.language === 'python') return Boolean(findPython());
+  if (challenge.language === 'python') return JUDGE0_CONFIGURED || Boolean(findPython());
   return false;
 }
 
@@ -1160,6 +1202,21 @@ app.use(
 // verified signature, the explicit test-mode step or an admin grant - there
 // is no route that simply sets a flag any more.
 app.use('/api', createBillingRouter({ ...billingDeps, requireAuth, optionalAuth, publicUser }));
+app.use('/api', createMobileRouter({
+  ...billingDeps, requireAuth, writeLimit: limitBy('write.account', byAccount), getOrder: store.getOrder, markPaid,
+  achievementsFor: (user) => {
+    const snapshot = contentSnapshot();
+    const overrides = store.getContentOverrides();
+    const progress = recalcForUser({ store, learningDeps }, user);
+    const { lib, settings, units } = learningDeps;
+    const access = learnerAccess(user, progress, { lib, snapshot, overrides });
+    const view = applyLearnerOverrides(snapshot, overrides);
+    const merged = units ? units.attachUnits(view) : view;
+    const stages = lib.applyProgressByTrack(lib.groupIntoStages(merged.stages, merged.challenges), access.tracks, access.stats);
+    const rules = settings.current();
+    return { achievements: lib.achievements({ ...progress, ...access.stats }, stages, rules.badges, { perfectRequiresNoHints: rules.units.perfectRequiresNoHints }), habits: habitsForUser({ store, learningDeps }, user) };
+  }
+}));
 
 /* ------------------------------------------------------------- leaderboard */
 
@@ -1337,10 +1394,13 @@ async function runSolutionAgainstTests(challenge, code) {
   const testCases = challenge.testCases ?? [];
   if (challenge.language === 'sql') return runSqlInChild({ code, testCases });
   if (challenge.language === 'javascript' || challenge.language === 'typescript') {
-    const result = await runJsInChild({ code, entryFunction: challenge.entryFunction, testCases });
+    const prepared = await prepareJavaScript(code, challenge.language);
+    if (prepared.error) return { status: 'error', testResults: [], stderr: prepared.error };
+    const result = await runJsInChild({ code: prepared.code, entryFunction: challenge.entryFunction, testCases });
     return { ...result, reason: 'Run by the server sandbox.' };
   }
   if (challenge.language === 'python') {
+    if (JUDGE0_CONFIGURED) return runPythonTests(judge0Config, { code, entryFunction: challenge.entryFunction, testCases }, grading);
     const result = await runPythonLocally(code, challenge.entryFunction, testCases);
     if (result.skipped) return { status: 'skipped', testResults: [], stderr: '', reason: 'No local Python on this server, so the solution could not be executed here.' };
     return { status: result.passed ? 'passed' : 'failed', testResults: [], stderr: '', reason: 'Run with the local CPython.' };
@@ -1464,8 +1524,8 @@ app.post(
     const workflow = entryFunction || testCases.length ? 'challenges' : req.body?.workflow ?? 'playground';
     try { assertExecutionEnabled(language, workflow); } catch (error) { return sendBusy(res, error); }
     // Optional, and only Judge0 languages can use it: the JavaScript sandbox
-    // calls a function with arguments and Python runs in the browser, so
-    // neither has a stdin to feed. Capped rather than rejected - a beginner's
+    // calls a function with arguments; Python can use Judge0 from native
+    // clients. Capped rather than rejected - a beginner's
     // Scanner program needs a line or two, and silently trimming a runaway
     // paste beats a 413 nobody can act on.
     const stdin = typeof req.body?.stdin === 'string' ? req.body.stdin.slice(0, JUDGE0_STDIN_LIMIT) : '';
@@ -1492,19 +1552,8 @@ app.post(
       }
     }
 
-    if (language === 'python') {
-      // The browser runs Python itself (Pyodide) - there is nothing for the
-      // server to do here, and it should never have been asked.
-      return res.status(501).json({
-        status: 'error',
-        engine: 'none',
-        stderr: 'Python runs in the browser (Pyodide), not on the server.',
-        testResults: []
-      });
-    }
-
     if (language !== 'javascript' && language !== 'typescript') {
-      if (!JUDGE0_LANGUAGE_IDS[language]) {
+      if (!Object.hasOwn(JUDGE0_SERVER_LANGUAGE_IDS, language)) {
         return res.status(501).json({
           status: 'error',
           engine: 'none',
@@ -1530,7 +1579,9 @@ app.post(
         });
       }
       try {
-        const result = await admitLargeRun(profile, () => slots.run(() => runIfConnected(() => runJudge0Submission(judge0Config, { language, code, stdin, profile }))), admissionOptions);
+        const result = await admitLargeRun(profile, () => slots.run(() => runIfConnected(() => language === 'python' && entryFunction && testCases.length
+          ? runPythonTests(judge0Config, { code, entryFunction, testCases }, grading)
+          : runJudge0Submission(judge0Config, { language, code, stdin, profile }))), admissionOptions);
         return res.json(result);
       } catch (err) {
         if (err instanceof BusyError) return sendBusy(res, err);
@@ -1543,7 +1594,8 @@ app.post(
       const { result, elapsed } = await admitLargeRun(profile, () => slots.run(async () => {
         runIfConnected(() => undefined);
         const started = process.hrtime.bigint();
-        const out = await runJsInChild({ code, entryFunction, testCases, profile });
+        const prepared = await prepareJavaScript(code, language);
+        const out = prepared.error ? { status: 'error', stderr: prepared.error, testResults: [] } : await runJsInChild({ code: prepared.code, entryFunction, testCases, profile });
         return { result: out, elapsed: Number(process.hrtime.bigint() - started) / 1e6 };
       }), admissionOptions);
 

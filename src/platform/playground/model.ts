@@ -1,6 +1,6 @@
 import type { ExecutionResult } from '@/types';
 
-export const PLAYGROUND_LANGUAGES = ['javascript', 'python', 'sql', 'java', 'c', 'cpp', 'web'] as const;
+export const PLAYGROUND_LANGUAGES = ['javascript', 'typescript', 'python', 'sql', 'java', 'c', 'cpp', 'go', 'web'] as const;
 export type PlaygroundLanguage = (typeof PLAYGROUND_LANGUAGES)[number];
 export type PlaygroundProgram =
   | { language: Exclude<PlaygroundLanguage, 'web'>; code: string; stdin: string }
@@ -35,7 +35,6 @@ export function normalizePlaygroundProgram(value: unknown): PlaygroundProgram | 
   }
   if (typeof input.code !== 'string' || input.code.length > 100_000) return null;
   if (typeof input.stdin !== 'string' || input.stdin.length > 10_000) return null;
-  if (!['java', 'c', 'cpp'].includes(input.language) && input.stdin !== '') return null;
   return { language: input.language, code: input.code, stdin: input.stdin };
 }
 
