@@ -21,6 +21,7 @@
  * `users`).
  */
 import express from 'express';
+import { sessionRows } from './learner-sessions.js';
 import * as store from './db.js';
 import {
   contentSnapshot,
@@ -627,6 +628,11 @@ export function createAdminRouter(deps = {}) {
     res.json({ users: rows });
   });
 
+  router.get('/users/:id/sessions', (req, res) => {
+    const user = store.findUserById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Learner not found.' });
+    res.set('Cache-Control', 'private, no-store').json({ sessions: sessionRows(user) });
+  });
   router.patch('/users/:id', (req, res) => {
     const target = store.findUserById(req.params.id);
     if (!target) return res.status(404).json({ error: 'No such user.' });

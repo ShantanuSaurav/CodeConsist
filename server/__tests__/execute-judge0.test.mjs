@@ -18,6 +18,7 @@ import {
   JAVA_MEMORY_LIMIT_KB,
   JUDGE0_STDIN_LIMIT,
   buildRuntimes,
+  buildServerRuntimes,
   javaEntryPoint,
   judge0Headers,
   resolveJudge0Config,
@@ -211,6 +212,31 @@ describe('a submission, as the stub receives it', () => {
     expect(received[0].body).not.toHaveProperty('stdin');
   });
 
+  it('runs a native Python program through the isolated compiler with stdin', async () => {
+    reply = { ...ACCEPTED, stdout: b64('Hello, mobile\n') };
+    const result = await runJudge0Submission(resolveJudge0Config({ JUDGE0_API_URL: stubUrl }), {
+      language: 'python', code: 'print("Hello, " + input())', stdin: 'mobile\n'
+    });
+    expect(received).toHaveLength(1);
+    expect(received[0].body.language_id).toBe(71);
+    expect(Buffer.from(received[0].body.source_code, 'base64').toString()).toBe('print("Hello, " + input())');
+    expect(Buffer.from(received[0].body.stdin, 'base64').toString()).toBe('mobile\n');
+    expect(received[0].body).toMatchObject({ enable_network: false, cpu_time_limit: 5, wall_time_limit: 10 });
+    expect(result).toMatchObject({ status: 'passed', engine: 'judge0', stdout: 'Hello, mobile' });
+  });
+
+  it('does not send Python when its sandbox is unconfigured', async () => {
+    const result = await runJudge0Submission(resolveJudge0Config({}), { language: 'python', code: 'print(1)' });
+    expect(result).toMatchObject({ status: 'error', engine: 'none' });
+    expect(received).toHaveLength(0);
+  });
+
+  it.each(['__proto__', 'constructor', 'toString'])('rejects prototype keys as a compiler language: %s', async (language) => {
+    const result = await runJudge0Submission(resolveJudge0Config({ JUDGE0_API_URL: stubUrl }), { language, code: '' });
+    expect(result.status).toBe('error');
+    expect(received).toHaveLength(0);
+  });
+
   it('caps stdin rather than forwarding whatever arrives', async () => {
     reply = ACCEPTED;
     await runJudge0Submission(resolveJudge0Config({ JUDGE0_API_URL: stubUrl }), {
@@ -323,6 +349,21 @@ function readStoredZip(base64) {
 }
 
 describe('per-language submissions', () => {
+  it('bounds self-hosted Go compilation and preserves source and stdin inside Judge0', async () => {
+    reply = ACCEPTED;
+    const code = 'package main\nfunc main(){}';
+    await runJudge0Submission(resolveJudge0Config({ JUDGE0_API_URL: stubUrl }), { language: 'go', code, stdin: 'hello' });
+    const body = received[0].body;
+    expect(body).toMatchObject({ language_id: 89, memory_limit: 1024000, enable_network: false });
+    expect(Buffer.from(body.stdin, 'base64').toString()).toBe('hello');
+    const files = readStoredZip(body.additional_files);
+    expect(files['main.go']).toBe(code);
+    expect(files.compile).toContain('ulimit -s 1024');
+    expect(files.compile).toContain('CGO_ENABLED=0 GOMAXPROCS=2 MALLOC_ARENA_MAX=1 GO111MODULE=off');
+    expect(files.compile).toContain('go build -p 1 -o main main.go');
+    expect(files.run).toBe('GOMAXPROCS=2 ./main\n');
+  });
+
   it('compiles C++ as C++17', async () => {
     reply = ACCEPTED;
     await runJudge0Submission(resolveJudge0Config({ JUDGE0_API_URL: stubUrl }), { language: 'cpp', code: 'int main(){}' });
@@ -470,7 +511,8 @@ describe('the runtimes block of /api/health', () => {
   it('reports every language, and never an endpoint', () => {
     const runtimes = buildRuntimes(resolveJudge0Config({ JUDGE0_API_URL: 'http://localhost:2358' }));
 
-    expect(Object.keys(runtimes)).toEqual(['javascript', 'sql', 'python', 'java', 'c', 'cpp', 'go']);
+    expect(Object.keys(runtimes)).toEqual(['javascript', 'typescript', 'sql', 'python', 'java', 'c', 'cpp', 'go']);
+    expect(runtimes.typescript).toEqual({ available: true, engine: 'node', label: 'TypeScript / Node sandbox' });
     expect(runtimes.sql).toEqual({ available: true, engine: 'browser', label: 'SQLite (WebAssembly)' });
     expect(runtimes.javascript).toEqual({ available: true, engine: 'node', label: 'Node sandbox' });
     expect(runtimes.python).toEqual({ available: true, engine: 'browser', label: 'CPython (WebAssembly)' });
@@ -510,6 +552,23 @@ describe('the runtimes block of /api/health', () => {
   it('gives each language its own object, so a client cannot mutate the rest', () => {
     const runtimes = buildRuntimes(resolveJudge0Config({ JUDGE0_API_URL: 'http://localhost:2358' }));
     expect(runtimes.java).not.toBe(runtimes.c);
+  });
+});
+
+describe('native compiler capabilities', () => {
+  it('does not advertise browser Python as a server engine without Judge0', () => {
+    const config = resolveJudge0Config({});
+    expect(buildRuntimes(config).python.available).toBe(true);
+    expect(buildServerRuntimes(config).python).toEqual({ available: false, engine: 'none', label: 'needs Judge0' });
+    expect(buildServerRuntimes(config).sql).toEqual({ available: true, engine: 'sqlite', label: 'SQLite sandbox' });
+  });
+
+  it('advertises the configured isolated Python engine without disclosing connection details', () => {
+    const config = resolveJudge0Config({ JUDGE0_API_URL: stubUrl, JUDGE0_AUTH_TOKEN: 'private-token' });
+    const native = buildServerRuntimes(config);
+    expect(native.python).toEqual({ available: true, engine: 'judge0', label: 'Judge0 (self-hosted)' });
+    expect(buildRuntimes(config).python.engine).toBe('browser');
+    expect(JSON.stringify(native)).not.toMatch(/private-token|https?:|127\.0\.0\.1/);
   });
 });
 

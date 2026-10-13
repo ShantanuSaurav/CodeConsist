@@ -584,7 +584,8 @@ export const compilerService = {
     const reported = serverRuntimes[language];
     if (reported?.label && reported.engine !== 'browser') return reported.label;
 
-    if (language === 'javascript' || language === 'typescript') return 'Node sandbox / browser worker';
+    if (language === 'javascript') return 'Node sandbox / browser worker';
+    if (language === 'typescript') return 'TypeScript / Node sandbox';
     if (language === 'python') return `CPython ${PYODIDE_VERSION} (WebAssembly)`;
     if (language === 'sql') return 'SQLite (WebAssembly)';
     if (language === 'html') return 'Browser DOM sandbox';
@@ -610,7 +611,7 @@ export const compilerService = {
 
   /** Languages that always work, with nothing to configure. */
   runsLocally(language: SupportedLanguage): boolean {
-    return language === 'javascript' || language === 'typescript' || language === 'python' || language === 'html' || language === 'sql';
+    return language === 'javascript' || language === 'python' || language === 'html' || language === 'sql';
   },
 
   canRun(language: SupportedLanguage): boolean {
@@ -661,7 +662,7 @@ export const compilerService = {
       // same engine the content validator uses. `workerUnavailable` must not
       // gate this branch - if the browser sandbox is broken, the server is the
       // only thing left, so we should try it harder, not skip it.
-      if (!preferLocal || workerUnavailable) {
+      if (language === 'typescript' || !preferLocal || workerUnavailable) {
         try {
           if (profile === 'large') onProgress?.('Waiting for server resources or running your program… Queue wait is limited to 30 seconds.');
           const result = await api.execute({ language, code, entryFunction, testCases, ...(options.workflow ? { workflow } : {}), ...(profile === 'large' ? { profile } : {}) });
@@ -675,6 +676,7 @@ export const compilerService = {
           // it instead of showing an error.
         }
       }
+      if (language === 'typescript') return { status: 'error', engine: 'none', reason: 'runtime-unavailable', stderr: 'TypeScript needs the server connection. Your code is still available to edit.', testResults: [] };
       return runInWorker(code, entryFunction, testCases, profile);
     }
 

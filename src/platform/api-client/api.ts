@@ -574,6 +574,9 @@ function withoutLocalOnly<T extends object>(progress: T): T {
 /* ----------------------------------------------------------------- methods */
 
 export const api = {
+  async logout(): Promise<void> {
+    await request('/auth/logout', { method: 'POST', body: {}, timeoutMs: 3000 });
+  },
   async health(): Promise<HealthResponse> {
     return request<HealthResponse>('/health', { auth: false, timeoutMs: 10000 });
   },

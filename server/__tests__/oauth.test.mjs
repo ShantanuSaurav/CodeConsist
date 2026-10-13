@@ -83,6 +83,12 @@ async function refuses(promise) {
 /* ----------------------------------------------------- google id_token */
 
 describe('verifyGoogleIdToken', () => {
+  it('binds native Google ID tokens to the initiating nonce', async () => {
+    const token = idToken(goodClaims({ nonce: 'native-request-nonce' }));
+    await expect(verifyGoogleIdToken(token, { clientId: CLIENT_ID, jwks: cacheWith(), nonce: 'native-request-nonce' })).resolves.toMatchObject({ sub: '1122334455' });
+    await refuses(verifyGoogleIdToken(token, { clientId: CLIENT_ID, jwks: cacheWith(), nonce: 'other-request-nonce' }));
+    await refuses(verifyGoogleIdToken(idToken(goodClaims()), { clientId: CLIENT_ID, jwks: cacheWith(), nonce: 'native-request-nonce' }));
+  });
   it('accepts a token Google really signed', async () => {
     const claims = await verifyGoogleIdToken(idToken(goodClaims()), { clientId: CLIENT_ID, jwks: cacheWith() });
     expect(claims.sub).toBe('1122334455');
@@ -267,6 +273,18 @@ describe('pickGitHubEmail', () => {
 });
 
 describe('github exchange', () => {
+  it('binds native GitHub authorization and token exchange with S256 PKCE', async () => {
+    const verifier = 'native-device-code-verifier';
+    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+    const fetchImpl = stubFetch(githubUrls({ emails: [{ email: 'ada@example.com', verified: true, primary: true }] }));
+    const providers = createOAuthProviders({ env: GITHUB_ENV, fetchImpl });
+    const url = new URL(providers.github.authorizeUrl('state', 'https://site.example/api/auth/oauth/github/callback', challenge));
+    expect(url.searchParams.get('code_challenge')).toBe(challenge);
+    expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+    await providers.github.exchange('provider-code', 'https://site.example/api/auth/oauth/github/callback', verifier);
+    const form = new URLSearchParams(fetchImpl.mock.calls[0][1].body);
+    expect(form.get('code_verifier')).toBe(verifier);
+  });
   it('picks the primary verified email', async () => {
     const fetchImpl = stubFetch(
       githubUrls({

@@ -35,7 +35,7 @@ export {
   optionNotes
 } from './grading-engine/feedback';
 export * from './xp-leveling/leveling';
-export { DEFAULT_RANKS, rankTitle, nextRankLevel } from './xp-leveling/insights';
+export { DEFAULT_RANKS, rankTitle, nextRankLevel, achievements } from './xp-leveling/insights';
 // Units and the perfect-unit bonus (Phase 2): the server groups a stage's
 // lessons and pays for a completed unit with the same code the browser runs.
 export * from './progress/units';

@@ -159,7 +159,7 @@ export function createJwksCache(fetchImpl = fetch, url = GOOGLE_JWKS_URL) {
  * `iss`, `aud`, `exp` and `email_verified`. A token that fails any of these
  * throws - it is never downgraded to "unverified but usable".
  */
-export async function verifyGoogleIdToken(idToken, { clientId, jwks, fetchImpl = fetch, now = Date.now() } = {}) {
+export async function verifyGoogleIdToken(idToken, { clientId, jwks, nonce, fetchImpl = fetch, now = Date.now() } = {}) {
   const parts = String(idToken ?? '').split('.');
   if (parts.length !== 3) throw new OAuthError('Google sent an identity token this app could not read.');
 
@@ -202,7 +202,18 @@ export async function verifyGoogleIdToken(idToken, { clientId, jwks, fetchImpl =
   if (typeof claims.sub !== 'string' || !claims.sub) {
     throw new OAuthError('Google sent an identity token this app could not read.');
   }
+  if (nonce !== undefined && (typeof claims.nonce !== 'string' || !nonce || claims.nonce !== nonce)) {
+    throw new OAuthError('That Google sign-in does not belong to this request. Please try again.', 400);
+  }
   return claims;
+}
+
+function googleIdentity(claims) {
+  return {
+    providerUserId: String(claims.sub), email: String(claims.email).trim().toLowerCase(), emailVerified: true,
+    name: typeof claims.name === 'string' ? claims.name : null, username: null,
+    avatarUrl: typeof claims.picture === 'string' ? claims.picture : null
+  };
 }
 
 function buildGoogle(env, fetchImpl) {
@@ -215,6 +226,10 @@ function buildGoogle(env, fetchImpl) {
   return {
     id: 'google',
     label: 'Google',
+    clientId,
+    async verifyNativeToken(idToken, nonce) {
+      return googleIdentity(await verifyGoogleIdToken(idToken, { clientId, jwks, nonce }));
+    },
     authorizeUrl(state, redirectUri) {
       const params = new URLSearchParams({
         client_id: clientId,
@@ -246,14 +261,7 @@ function buildGoogle(env, fetchImpl) {
         throw new OAuthError('Google did not return an identity token. Please try again.');
       }
       const claims = await verifyGoogleIdToken(token.id_token, { clientId, jwks });
-      return {
-        providerUserId: String(claims.sub),
-        email: String(claims.email).trim().toLowerCase(),
-        emailVerified: true,
-        name: typeof claims.name === 'string' ? claims.name : null,
-        username: null, // Google has no handle - the route falls back to the name, then the email.
-        avatarUrl: typeof claims.picture === 'string' ? claims.picture : null
-      };
+      return googleIdentity(claims);
     }
   };
 }
@@ -281,21 +289,23 @@ function buildGitHub(env, fetchImpl) {
   return {
     id: 'github',
     label: 'GitHub',
-    authorizeUrl(state, redirectUri) {
+    authorizeUrl(state, redirectUri, pkceChallenge) {
       const params = new URLSearchParams({
         client_id: clientId,
         redirect_uri: redirectUri,
         // read:user for the profile, user:email for the verified address list.
         scope: 'read:user user:email',
-        state
+        state,
+        ...(pkceChallenge ? { code_challenge: pkceChallenge, code_challenge_method: 'S256' } : {})
       });
       return `${GITHUB_AUTHORIZE_URL}?${params}`;
     },
-    async exchange(code, redirectUri) {
+    async exchange(code, redirectUri, pkceVerifier) {
       const token = await fetchJson(fetchImpl, GITHUB_TOKEN_URL, {
         method: 'POST',
         label: 'GitHub',
-        form: { client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri }
+        form: { client_id: clientId, client_secret: clientSecret, code, redirect_uri: redirectUri,
+          ...(pkceVerifier ? { code_verifier: pkceVerifier } : {}) }
       });
       // GitHub answers a bad or replayed code with HTTP 200 and an `error`
       // field, so a missing token is the only reliable check.

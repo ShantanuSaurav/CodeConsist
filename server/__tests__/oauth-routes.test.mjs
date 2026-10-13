@@ -74,6 +74,8 @@ const IDENTITY = {
 
 let store;
 let exchangeImpl;
+let nativeVerifyImpl;
+let githubEnabled;
 let syncUser;
 let server;
 let base;
@@ -83,14 +85,18 @@ async function startApp() {
     google: {
       id: 'google',
       label: 'Google',
+      clientId: 'native-web-client.apps.googleusercontent.com',
+      verifyNativeToken: (token, nonce) => nativeVerifyImpl(token, nonce),
       authorizeUrl: (state, redirectUri) =>
         `https://accounts.google.example/authorize?state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(redirectUri)}`,
       exchange: (code, redirectUri) => exchangeImpl(code, redirectUri)
     },
     // Not configured on this install - its routes must 404, not half-work.
-    github: null,
+    get github() { return githubEnabled ? { id: 'github', label: 'GitHub',
+      authorizeUrl: (state, redirectUri) => `https://github.com/login/oauth/authorize?state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(redirectUri)}`,
+      exchange: (code, redirectUri) => exchangeImpl(code, redirectUri) } : null; },
     enabled: ['google'],
-    publicConfig: () => ({ google: true, github: false })
+    publicConfig: () => ({ google: true, github: Boolean(githubEnabled) })
   };
 
   const app = express();
@@ -138,6 +144,11 @@ const errorFrom = (res) => new URL(res.headers.get('location')).searchParams.get
 beforeEach(async () => {
   store = createStore();
   exchangeImpl = async () => ({ ...IDENTITY });
+  githubEnabled = false;
+  nativeVerifyImpl = vi.fn(async (token, nonce) => {
+    if (token !== `signed:${nonce}`) throw new OAuthError('That Google sign-in does not belong to this request.', 400);
+    return { ...IDENTITY };
+  });
   syncUser = vi.fn();
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -160,6 +171,168 @@ const passwordAccount = (extra = {}) =>
     identities: {},
     ...extra
   });
+
+const mobilePost = (path, body = {}, token) => fetch(base + path, {
+  method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body), redirect: 'manual'
+});
+async function mobileStart(body = {}, token, provider = 'google') {
+  const res = await mobilePost(`/api/auth/mobile/${provider}/start`, body, token);
+  const data = await res.json();
+  return { ...data, state: data.authorizationUrl ? new URL(data.authorizationUrl).searchParams.get('state') : null, response: res };
+}
+const poll = (flow, extra = {}) => mobilePost('/api/auth/mobile/poll', { id: flow.id, verifier: flow.verifier, ...extra });
+async function mobileComplete(flow) {
+  const response = await callback(flow.state);
+  const html = await response.text();
+  return { response, html, code: html.match(/<h2>(\d{6})<\/h2>/)?.[1] };
+}
+
+describe('native provider sign-in handoff', () => {
+  it.each(['google', 'github'])('returns %s directly to the app and requires both device verifier and callback proof', async provider => {
+    githubEnabled = true;
+    const flow = await mobileStart({ returnToApp: true }, undefined, provider);
+    const done = await get(`/api/auth/oauth/${provider}/callback?code=auth-code&state=${flow.state}`);
+    expect(done.status).toBe(302);
+    const location = done.headers.get('location');
+    const returned = new URL(location);
+    expect(returned.protocol + '//' + returned.host + returned.pathname).toBe('codeconsist://auth/callback');
+    expect(returned.searchParams.get('attempt')).toBe(flow.id);
+    expect(location).not.toContain(flow.verifier);
+    expect(location).not.toContain('learner.');
+    const proof = returned.searchParams.get('proof');
+    expect(proof).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(await (await poll(flow)).json()).toEqual({ status: 'awaiting_app_return' });
+    expect((await poll(flow, { verifier: 'A'.repeat(43), proof })).status).toBe(410);
+    expect((await poll(flow, { proof: 'B'.repeat(43) })).status).toBe(400);
+    const response = await poll(flow, { proof });
+    expect(response.status).toBe(200);
+    expect((await response.json()).user.id).toBe(store.users[0].id);
+    expect((await poll(flow, { proof })).status).toBe(410);
+  });
+  it('returns provider errors to the app and cancellation releases a pending flow', async () => {
+    const failed = await mobileStart({ returnToApp: true });
+    exchangeImpl = async () => { throw new OAuthError('Provider verification failed.'); };
+    const response = await callback(failed.state);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toMatch(/^codeconsist:\/\/auth\/callback\?/);
+    expect(response.headers.get('location')).not.toContain('Provider verification failed');
+    expect((await poll(failed)).status).toBe(400);
+    const cancelled = await mobileStart({ returnToApp: true });
+    await mobilePost('/api/auth/mobile/cancel', { id: cancelled.id, verifier: cancelled.verifier });
+    expect((await poll(cancelled)).status).toBe(410);
+    exchangeImpl = async () => ({ ...IDENTITY });
+    await callback(cancelled.state);
+    expect(store.users).toHaveLength(0);
+  });
+  it('keeps session tokens and the polling verifier out of URLs and requires the browser-only code', async () => {
+    const flow = await mobileStart();
+    expect(flow.response.status).toBe(200);
+    expect(flow.response.headers.get('cache-control')).toContain('no-store');
+    expect(flow.authorizationUrl).not.toContain(flow.verifier);
+    expect((await poll(flow)).status).toBe(202);
+    const done = await mobileComplete(flow);
+    expect(done.response.status).toBe(200);
+    expect(done.response.headers.get('location')).toBeNull();
+    expect(done.html).not.toContain('learner.');
+    expect(done.html).not.toContain(flow.verifier);
+    const waiting = await poll(flow);
+    expect(waiting.status).toBe(202);
+    expect(await waiting.json()).toEqual({ status: 'confirmation_required' });
+    const session = await poll(flow, { code: done.code });
+    const data = await session.json();
+    expect(session.status).toBe(200);
+    expect(data.status).toBe('complete');
+    expect(data.token).toBe(`learner.${store.users[0].id}`);
+    expect(data.user.id).toBe(store.users[0].id);
+    expect(data.progress.xp).toBe(0);
+    expect((await poll(flow, { code: done.code })).status).toBe(410);
+    expect(store.users).toHaveLength(1);
+  });
+  it('does not let a wrong verifier spend a valid sign-in, and bounds code guesses', async () => {
+    const flow = await mobileStart(); const done = await mobileComplete(flow);
+    expect((await poll(flow, { verifier: 'A'.repeat(43), code: done.code })).status).toBe(410);
+    const wrong = done.code === '000000' ? '999999' : '000000';
+    for (let i = 0; i < 5; i++) expect((await poll(flow, { code: wrong })).status).toBe(400);
+    expect((await poll(flow, { code: done.code })).status).toBe(410);
+  });
+  it('surfaces provider failure privately and will not link without a current learner session', async () => {
+    expect((await mobileStart({ link: true })).response.status).toBe(401);
+    const flow = await mobileStart();
+    exchangeImpl = async () => { throw new OAuthError('Provider verification failed.'); };
+    const done = await mobileComplete(flow);
+    expect(done.html).not.toContain('Provider verification failed.');
+    const result = await poll(flow);
+    expect(result.status).toBe(400);
+    expect((await result.json()).error).toBe('Provider verification failed.');
+    expect(store.users).toHaveLength(0);
+  });
+  it('links an existing password account and refuses redemption after password reset', async () => {
+    const user = passwordAccount();
+    const flow = await mobileStart({ link: true }, signLearnerToken(user));
+    const done = await mobileComplete(flow);
+    expect(store.users).toHaveLength(1);
+    expect(store.users[0].identities.google.providerUserId).toBe(IDENTITY.providerUserId);
+    user.tokenVersion = 1;
+    expect((await poll(flow, { code: done.code })).status).toBe(401);
+  });
+  it('will not attach a provider if the initiating session was reset during sign-in', async () => {
+    const user = passwordAccount();
+    const flow = await mobileStart({ link: true }, signLearnerToken(user));
+    user.tokenVersion = 1;
+    const done = await mobileComplete(flow);
+    expect(done.code).toBeUndefined();
+    expect(user.identities.google).toBeUndefined();
+    expect((await poll(flow)).status).toBe(400);
+  });
+  it('expires pending and completed handoffs', async () => {
+    const flow = await mobileStart(); const done = await mobileComplete(flow);
+    const now = Date.now(); vi.spyOn(Date, 'now').mockReturnValue(now + 600001);
+    expect((await poll(flow, { code: done.code })).status).toBe(410);
+  });
+});
+
+describe('native Google credential exchange', () => {
+  async function begin(token) {
+    const response = await mobilePost('/api/auth/mobile/google/native/start', { link: Boolean(token) }, token);
+    return { response, ...(await response.json()) };
+  }
+  it('verifies a nonce-bound credential and redeems a native request exactly once', async () => {
+    const challenge = await begin();
+    expect(challenge.response.status).toBe(200);
+    expect(challenge.response.headers.get('cache-control')).toContain('no-store');
+    expect(challenge.nonce).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(challenge.clientId).toBe('native-web-client.apps.googleusercontent.com');
+    const response = await mobilePost('/api/auth/mobile/google/native/complete', { id: challenge.id, idToken: `signed:${challenge.nonce}` });
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe('complete');
+    expect(nativeVerifyImpl).toHaveBeenCalledWith(`signed:${challenge.nonce}`, challenge.nonce);
+    expect(store.users).toHaveLength(1);
+    expect((await mobilePost('/api/auth/mobile/google/native/complete', { id: challenge.id, idToken: `signed:${challenge.nonce}` })).status).toBe(410);
+  });
+  it('rejects another request’s credential and preserves password-account linking rules', async () => {
+    const wrong = await begin();
+    expect((await mobilePost('/api/auth/mobile/google/native/complete', { id: wrong.id, idToken: 'signed:some-other-nonce' })).status).toBe(400);
+    expect(store.users).toHaveLength(0);
+    const user = passwordAccount();
+    const unlinked = await begin();
+    expect((await mobilePost('/api/auth/mobile/google/native/complete', { id: unlinked.id, idToken: `signed:${unlinked.nonce}` })).status).toBe(409);
+    expect(user.identities.google).toBeUndefined();
+    const linked = await begin(signLearnerToken(user));
+    expect((await mobilePost('/api/auth/mobile/google/native/complete', { id: linked.id, idToken: `signed:${linked.nonce}` }, signLearnerToken(user))).status).toBe(200);
+    expect(user.identities.google.providerUserId).toBe(IDENTITY.providerUserId);
+    expect(store.users).toHaveLength(1);
+  });
+  it('refuses linking after password reset and releases cancelled requests', async () => {
+    const user = passwordAccount();
+    const linking = await begin(signLearnerToken(user));
+    nativeVerifyImpl = async () => { user.tokenVersion = 1; return { ...IDENTITY }; };
+    expect((await mobilePost('/api/auth/mobile/google/native/complete', { id: linking.id, idToken: 'signed' })).status).toBe(401);
+    expect(user.identities.google).toBeUndefined();
+    const cancelled = await begin();
+    await mobilePost('/api/auth/mobile/google/native/cancel', { id: cancelled.id });
+    expect((await mobilePost('/api/auth/mobile/google/native/complete', { id: cancelled.id, idToken: 'signed' })).status).toBe(410);
+  });
+});
 
 /* ------------------------------------------------------------- providers */
 

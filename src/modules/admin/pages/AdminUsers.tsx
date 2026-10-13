@@ -6,6 +6,7 @@ import { AdminPageHeader, Badge, Button, Card, ConfirmDialog, Drawer, EmptyState
 import { PasswordResetDialog } from '../components/PasswordResetDialog';
 import { UserHabitsPanel } from '../components/UserHabitsPanel';
 import { UserSetupPanel } from '../components/UserSetupPanel';
+import { UserSessionsPanel } from '../components/UserSessionsPanel';
 
 const PROVIDER_LABEL: Record<string, string> = { google: 'Google', github: 'GitHub' };
 /* The same heat scale as the learner dashboard. */
@@ -25,7 +26,7 @@ function shortDate(iso: string | null | undefined): string {
 const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void; onChanged: () => void }> = ({ user, onClose, onChanged }) => {
   const [data, setData] = useState<UserLearning | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'activity' | 'habits' | 'setup'>('activity');
+  const [tab, setTab] = useState<'activity' | 'habits' | 'setup' | 'sessions'>('activity');
 
   useEffect(() => {
     setData(null);
@@ -57,6 +58,7 @@ const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void;
           {(
             [
               ['activity', 'Activity'],
+              ['sessions', 'Devices & sign-ins'],
               ...(data.summary ? ([['habits', 'Streak & goal']] as const) : []),
               ...(data.setup ? ([['setup', 'Setup & test-outs']] as const) : [])
             ] as const
@@ -74,6 +76,7 @@ const LearningDrawer: React.FC<{ user: AdminUserRow | null; onClose: () => void;
           ))}
         </div>
       )}
+      {user && tab === 'sessions' && <UserSessionsPanel userId={user.id} />}
       {data && user && tab === 'habits' && data.summary && data.habit && (
         <UserHabitsPanel
           user={user}
