@@ -43,7 +43,7 @@ describe('account playground library', () => {
   it('migrates version 7 additively and is idempotent', () => {
     const previous = { version: 7, progress: { one: { xp: 40 } }, drafts: { one: { lesson: { code: 'work' } } } };
     const next = store.migrateState(previous);
-    expect(next.version).toBe(8);
+    expect(next.version).toBe(store.SCHEMA_VERSION);
     expect(next.playgroundSnippets).toEqual({});
     expect(next.progress).toEqual(previous.progress);
     expect(next.drafts).toEqual(previous.drafts);

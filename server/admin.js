@@ -1,3 +1,4 @@
+import { createNotificationAdminRouter } from './notification-routes.js';
 /**
  * The admin API - every route here is mounted at /api/admin/* and every
  * route requires a valid ADMINISTRATOR session token, verified by
@@ -461,6 +462,8 @@ export function createAdminRouter(deps = {}) {
       details: details ?? null
     });
   }
+
+  if (deps.notifications) router.use(createNotificationAdminRouter({ service: deps.notifications, requireAdminAuth, audit, store }));
 
   /* -------------------------------------------------------------- who am I */
   router.get('/me', (req, res) => {

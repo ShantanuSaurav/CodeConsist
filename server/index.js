@@ -43,6 +43,9 @@ import { runPythonTests } from './python-judge.js';
 import { executionLimits, executionProfile } from '../src/platform/execution/limits.mjs';
 import { createLargeRunAdmission, largeRunBusyMessage } from './execution-admission.js';
 import { createAdminRouter } from './admin.js';
+import { createNotificationService } from './notifications.js';
+import { createNotificationRouter } from './notification-routes.js';
+import { createPushTransport } from './push-transport.js';
 import { createGeminiClient } from './ai.js';
 import { initAuthSecret, signLearnerToken, verifyLearnerToken, signAdminToken, learnerTokenIsCurrent } from './auth.js';
 import { bootstrapAdminAccount, authenticateAdmin, publicAdmin, requireAdminAuth } from './admin-auth.js';
@@ -168,6 +171,11 @@ const adminDeps = { validateChallenge: null, validateConcept: null, runSolution:
  */
 const learningDeps = { lib: null, settings: null, activity: null, units: null, habits: null, review: null, leagues: null, runtimeInfo: null, canVerify: null };
 adminDeps.learning = learningDeps;
+const notifications = createNotificationService({ store, transport: createPushTransport(), learning: learningDeps,
+  catalog: () => { const view = applyLearnerOverrides(contentSnapshot(), store.getContentOverrides()); return view.challenges.filter(c => view.stages.some(s => s.id === c.stageId)); },
+  reviewsDue: (user, now, today) => learningDeps.lib.buildReviewSession({ progress: store.getProgress(user.id), misses: store.getActivity(user.id)?.misses, bank: visibleBankFor(user).challenges, settings: learningDeps.settings.current().review, today, zone: learningDeps.activity.zoneFor(user), seed: `${user.id}:${today}` }).pool.due
+});
+adminDeps.notifications = notifications;
 
 /**
  * One effective setting (src/platform/settings), read per request so an
@@ -926,6 +934,7 @@ app.get(
 // token against the live admin record - nothing about optionalAuth/req.user
 // above is involved in, or a substitute for, that check.
 app.use('/api/admin', createAdminRouter(adminDeps));
+app.use('/api', createNotificationRouter({ service: notifications, requireAuth, sessionOf: req => sessionId(verifyLearnerToken(readToken(req))), writeLimit: limitBy('write.account', byAccount) }));
 
 /* ------------------------------------------------------------------ drafts */
 
@@ -1708,6 +1717,10 @@ bootstrap()
       );
       process.exit(1);
     });
+
+    const deliverNotifications = () => notifications.tick().catch(() => console.error('[notifications] Delivery cycle failed; it will retry.'));
+    deliverNotifications();
+    setInterval(deliverNotifications, 60_000).unref();
 
     // The weekly league: weeks past their final time close once now, then
     // every ten minutes (and lazily on any board read). Unref'd, so it never

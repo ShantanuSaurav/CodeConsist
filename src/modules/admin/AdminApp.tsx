@@ -18,6 +18,7 @@ import { AdminRules } from './pages/AdminRules';
 import { AdminFeedback } from './pages/AdminFeedback';
 import { AdminTeaching } from './pages/AdminTeaching';
 import { AdminLeagues } from './pages/AdminLeagues';
+import { AdminNotifications } from './pages/AdminNotifications';
 import './styles/admin.css';
 
 /**
@@ -33,6 +34,7 @@ export const AdminApp: React.FC = () => (
         <Route index element={<AdminDashboard />} />
         <Route path="users" element={<AdminUsers />} />
         <Route path="billing" element={<AdminBilling />} />
+        <Route path="notifications" element={<AdminNotifications />} />
         <Route path="languages" element={<AdminLanguages />} />
         <Route path="stages" element={<AdminStages />} />
         {/* One stage's lessons grouped into units - opened from a stage row. */}

@@ -1381,3 +1381,5 @@ export const adminApi = {
     return request('/admin/settings/credentials', { method: 'PATCH', body: patch });
   }
 };
+
+export { request as adminRequest };
