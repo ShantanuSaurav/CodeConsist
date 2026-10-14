@@ -50,10 +50,11 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
  *       joins, groups, baselines, exclusions and results), plus - lazily,
  *       on first read - progress `everSolved`.
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 const EMPTY = {
   version: SCHEMA_VERSION,
+  notifications: {},
   users: [],
   progress: {},
   /**
@@ -273,6 +274,7 @@ function migrate(loaded) {
   next.progress = plainObject(loaded.progress);
   next.settings = normalizeSettingsRecord(loaded.settings);
   next.activity = plainObject(loaded.activity);
+  next.notifications = plainObject(loaded.notifications);
   next.auditLog = Array.isArray(loaded.auditLog) ? loaded.auditLog : [];
   next.admin = loaded.admin && typeof loaded.admin === 'object' ? loaded.admin : null;
   next.contentOverrides = {
@@ -477,6 +479,12 @@ export function deleteUser(id) {
   const before = db().users.length;
   db().users = db().users.filter((u) => u.id !== id);
   delete db().progress[id];
+  const notifications = db().notifications;
+  if (notifications) {
+    delete notifications.preferences?.[id];
+    for (const [key, device] of Object.entries(notifications.devices ?? {})) if (device.userId === id) delete notifications.devices[key];
+    if (Array.isArray(notifications.messages)) notifications.messages = notifications.messages.filter(message => message.userId !== id);
+  }
   delete db().excelSync.rowIndexByUserId[id];
   // Their unsolved work in progress goes too - it is their code, and nothing
   // else in the database refers to it.

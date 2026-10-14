@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
+  Bell,
   BarChart3,
   BookOpen,
   Compass,
@@ -83,6 +84,7 @@ const GROUPS: Array<{ label: string; items: NavItem[] }> = [
     label: 'Operations',
     items: [
       { icon: <Users size={ICON} />, label: 'Users', path: '/admin/users' },
+      { icon: <Bell size={ICON} />, label: 'Notifications', path: '/admin/notifications' },
       { icon: <CreditCard size={ICON} />, label: 'Billing', path: '/admin/billing' },
       { icon: <FileSpreadsheet size={ICON} />, label: 'Excel sync', path: '/admin/excel' },
       { icon: <Gauge size={ICON} />, label: 'Limits & access', path: '/admin/rules/access' },
