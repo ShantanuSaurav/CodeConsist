@@ -52,7 +52,7 @@ References: [Android setup](https://firebase.google.com/docs/android/setup),
 [Android messaging and permission](https://firebase.google.com/docs/cloud-messaging/android/get-started),
 [server authorization](https://firebase.google.com/docs/cloud-messaging/send/v1-api).
 
-## Current setup status — 14 October 2026
+## Current setup status â€” 14 October 2026
 
 The matching CodeConsist service-account key is installed in the PC-only data
 folder and GOOGLE_APPLICATION_CREDENTIALS is set. Google authorization and an
@@ -117,6 +117,28 @@ responses. Account deletion removes notification/device/preference records.
 
 Android is the push target in this implementation. Web-browser push and iOS/APNs
 are not configured. The PC hosts the admin console and delivery service.
+
+## Notification sounds - 16 October 2026
+
+Android has twelve independent notification channels with original bundled
+chimes: personal messages, broadcasts, streaks, daily goals, weekly goals,
+welcome-back reminders, new questions, reviews, membership expiring, membership
+expired, certificates and general updates. The server sends a fixed semantic
+`type`; automatic messages derive it from their rule id, and manual sends use
+individual/broadcast audience. Older untyped messages use the general sound.
+
+Settings > Notifications > Sounds & notification categories opens Android's
+notification controls. Users can customise or silence each category. Existing
+channel settings are preserved; no media playback bypasses Android notification
+volume or Do Not Disturb. Versioned channel ids replace the original single
+channel for newly delivered messages. An updated Android Studio build is needed
+to install the bundled sounds; no Android compilation or phone audio test was
+performed by Codex.
+
+The Kotlin project's scripts/generate-notification-sounds.py reproduces the
+12 WAV assets. Asset checks verify matching type/resource names, unique audio,
+short duration, faded boundaries and unclipped PCM. Transport tests verify the
+semantic types and safe fallback.
 
 ## Checks
 

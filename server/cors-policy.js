@@ -22,7 +22,7 @@
  */
 import cors from 'cors';
 
-export const ALLOWED_HEADERS = ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning', 'X-Time-Zone'];
+export const ALLOWED_HEADERS = ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning', 'X-Time-Zone', 'X-CodeConsist-Client', 'X-CodeConsist-Device'];
 const DEV_ORIGINS = ['http://localhost:3000', 'http://127.0.0.1:3000'];
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const RING_SIZE = 100;

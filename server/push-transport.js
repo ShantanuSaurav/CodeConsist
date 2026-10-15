@@ -1,6 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { createSign } from 'node:crypto';
 
+const SOUND_TYPES = new Set(['direct_message', 'broadcast', 'streak', 'daily_goal', 'weekly_goal', 'inactive', 'new_questions', 'review_due', 'subscription_expiring', 'subscription_expired', 'certificate']);
+/** A fixed semantic type; clients never accept a remote sound URL or filename. */
+export function notificationSoundType(message) {
+  const type = message.ruleId || message.type;
+  return SOUND_TYPES.has(type) ? type : 'general';
+}
+
 /** HTTP v1 only. Credentials live on the PC; never in the Android application. */
 export function createPushTransport({ env = process.env, fetcher = fetch, now = Date.now } = {}) {
   let cached = null;
@@ -28,7 +35,7 @@ export function createPushTransport({ env = process.env, fetcher = fetch, now = 
         // Data-only allows the app to verify the recipient before showing private text.
         const response = await fetcher(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(auth.project)}/messages:send`, {
           method: 'POST', signal: AbortSignal.timeout(15_000), headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: { token: device.token, data: { id: message.id, userId: message.userId, title: message.title, body: message.body, destination: message.destination }, android: { priority: 'HIGH', ttl: '86400s' } } })
+          body: JSON.stringify({ message: { token: device.token, data: { id: message.id, userId: message.userId, title: message.title, body: message.body, destination: message.destination, type: notificationSoundType(message) }, android: { priority: 'HIGH', ttl: '86400s' } } })
         });
         if (response.ok) return { status: 'accepted' };
         const result = await response.json().catch(() => ({}));

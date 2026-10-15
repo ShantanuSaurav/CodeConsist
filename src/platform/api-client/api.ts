@@ -573,7 +573,10 @@ function withoutLocalOnly<T extends object>(progress: T): T {
 
 /* ----------------------------------------------------------------- methods */
 
+export interface DeviceSession { id:string;deviceName:string;platform:string;browser:string;signedInAt:string;lastSeenAt:string;expiresAt:string;status:string;active:boolean;current:boolean }
 export const api = {
+  deviceSessions:()=>request<{sessions:DeviceSession[]}>('/me/sessions'),
+  logoutDevice:(id:string|null)=>request<{ok:boolean;signedOutCurrent:boolean}>(id?`/me/sessions/${encodeURIComponent(id)}/logout`:'/me/sessions/logout-all',{method:'POST',body:{}}),
   async logout(): Promise<void> {
     await request('/auth/logout', { method: 'POST', body: {}, timeoutMs: 3000 });
   },

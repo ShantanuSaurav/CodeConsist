@@ -15,6 +15,7 @@
 // Must stay the first import - see server/env.js.
 // Environment and admin credentials loaded.
 import './env.js';
+import { createLearnerSessionsRouter } from './session-routes.js';
 import { sessionId, touchSession } from './learner-sessions.js';
 import express from 'express';
 import bcrypt from 'bcryptjs';
@@ -934,6 +935,7 @@ app.get(
 // token against the live admin record - nothing about optionalAuth/req.user
 // above is involved in, or a substitute for, that check.
 app.use('/api/admin', createAdminRouter(adminDeps));
+app.use('/api',createLearnerSessionsRouter({store,requireAuth,sessionOf:req=>sessionId(verifyLearnerToken(readToken(req))),writeLimit:limitBy('write.account',byAccount)}));
 app.use('/api', createNotificationRouter({ service: notifications, requireAuth, sessionOf: req => sessionId(verifyLearnerToken(readToken(req))), writeLimit: limitBy('write.account', byAccount) }));
 
 /* ------------------------------------------------------------------ drafts */

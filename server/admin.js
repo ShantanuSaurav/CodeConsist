@@ -1,3 +1,4 @@
+import { createAdminSessionsRouter } from './session-routes.js';
 import { createNotificationAdminRouter } from './notification-routes.js';
 /**
  * The admin API - every route here is mounted at /api/admin/* and every
@@ -464,6 +465,8 @@ export function createAdminRouter(deps = {}) {
   }
 
   if (deps.notifications) router.use(createNotificationAdminRouter({ service: deps.notifications, requireAdminAuth, audit, store }));
+
+  router.use(createAdminSessionsRouter({store,audit}));
 
   /* -------------------------------------------------------------- who am I */
   router.get('/me', (req, res) => {

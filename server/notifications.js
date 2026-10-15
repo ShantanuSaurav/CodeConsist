@@ -94,7 +94,8 @@ export function createNotificationService({ store, transport, learning, catalog 
     if (raw.audience === 'all') users = store.allUsers();
     else if (raw.audience === 'user' && typeof raw.userId === 'string') { const user = store.findUserById(raw.userId); if (!user) throw new NotificationError('User not found.',404); users = [user]; }
     else throw new NotificationError('Choose one user or all users.');
-    const accepted = users.filter(u => enqueue(u, message, 'announcement', `manual:${adminId}:${raw.requestId}`)).length;
+    const typedMessage = { ...message, type: raw.audience === 'all' ? 'broadcast' : 'direct_message' };
+    const accepted = users.filter(u => enqueue(u, typedMessage, 'announcement', `manual:${adminId}:${raw.requestId}`)).length;
     store.persist(); return { accepted, audience: users.length };
   }
   function saveRules(input) {
