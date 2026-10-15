@@ -1671,6 +1671,16 @@ export const SessionProvider: React.FC<SessionProviderProps> = ({ content, child
         // the offline -> online transition.
         const needsRestore = getToken() && (recovered || !userRef.current || userRef.current.provider === 'guest');
         if (needsRestore) await restoreSession();
+        else if (getToken() && userRef.current && userRef.current.provider !== 'guest') {
+          const checkedToken=getToken();
+          try { await api.deviceSessions(); }
+          catch(error) {
+            if(error instanceof ApiError && error.status===401 && getToken()===checkedToken) {
+              setToken(null);setUser(null);clearDraftsFromMemory();
+              notify('This device was signed out. Sign in again to continue syncing.','info');
+            }
+          }
+        }
       } catch {
         if (cancelled) return;
         if (wasOnline) eventBus.emit('server:status', { online: false });

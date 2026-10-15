@@ -975,7 +975,8 @@ export interface PasswordResetRow {
 /* ----------------------------------------------------------------- methods */
 
 export const adminApi = {
-  async userSessions(id: string): Promise<{ sessions: { id: string; platform: string; browser: string; signedInAt: string; lastSeenAt: string; expiresAt: string; status: string }[] }> {
+  logoutUserDevice:(userId:string,sessionId:string|null)=>request<{ok:boolean}>(sessionId?`/admin/users/${encodeURIComponent(userId)}/sessions/${encodeURIComponent(sessionId)}/logout`:`/admin/users/${encodeURIComponent(userId)}/sessions/logout-all`,{method:'POST',body:{}}),
+  async userSessions(id: string): Promise<{ sessions: import('@/platform/api-client/api').DeviceSession[] }> {
     return request(`/admin/users/${encodeURIComponent(id)}/sessions`);
   },
   /**

@@ -3,7 +3,7 @@ import { generateKeyPairSync, verify } from 'node:crypto';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createPushTransport } from '../push-transport.js';
+import { createPushTransport, notificationSoundType } from '../push-transport.js';
 
 const folders=[];
 afterEach(async()=>{for(const folder of folders.splice(0))await rm(folder,{recursive:true,force:true});});
@@ -25,7 +25,7 @@ describe('FCM HTTP v1 transport',()=>{
     expect(verify('RSA-SHA256',Buffer.from(parts.slice(0,2).join('.')),f.publicKey,Buffer.from(parts[2],'base64url'))).toBe(true);
     const claim=JSON.parse(Buffer.from(parts[1],'base64url'));expect(claim.scope).toBe('https://www.googleapis.com/auth/firebase.messaging');
     const send=f.fetcher.mock.calls[1];expect(send[0]).toBe('https://fcm.googleapis.com/v1/projects/test-project/messages:send');
-    expect(JSON.parse(send[1].body).message).toMatchObject({data:message,android:{priority:'HIGH',ttl:'86400s'}});
+    expect(JSON.parse(send[1].body).message).toMatchObject({data:{...message,type:'general'},android:{priority:'HIGH',ttl:'86400s'}});
     expect(send[1].body).not.toContain('PRIVATE KEY');await f.transport.send(device,message);expect(f.fetcher).toHaveBeenCalledTimes(3);
   });
   it.each([[404,'UNREGISTERED','invalid'],[429,null,'retry'],[403,null,'retry'],[400,'INVALID_ARGUMENT','failed']])('classifies HTTP %s',async(status,code,expected)=>{
@@ -33,5 +33,13 @@ describe('FCM HTTP v1 transport',()=>{
   });
   it('does not contact Firebase when unconfigured',async()=>{
     const fetcher=vi.fn();const f=createPushTransport({env:{},fetcher});expect(await f.send(device,message)).toEqual({status:'unconfigured'});expect(fetcher).not.toHaveBeenCalled();
+  });
+  it.each(['direct_message','broadcast','streak','daily_goal','weekly_goal','inactive','new_questions','review_due','subscription_expiring','subscription_expired','certificate'])('preserves the semantic sound type %s',type=>{
+    expect(notificationSoundType(type==='direct_message'||type==='broadcast'?{type}:{ruleId:type})).toBe(type);
+  });
+  it('uses a safe fallback for older or unknown notifications',()=>{
+    expect(notificationSoundType({})).toBe('general');
+    expect(notificationSoundType({type:'https://example.invalid/sound.wav'})).toBe('general');
+    expect(notificationSoundType({ruleId:'streak',type:'broadcast'})).toBe('streak');
   });
 });

@@ -1,3 +1,4 @@
+import { DeviceSessionsPanel } from '../components/DeviceSessionsPanel';
 import '../styles/account.css';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -247,7 +248,7 @@ export const SettingsPage: React.FC = () => {
         <a href="#settings-account">Account</a>
         <a href="#settings-appearance">Appearance</a>
         <a href="#settings-learning">Learning</a>
-        {signedIn && <><a href="#settings-signin">Sign-in methods</a><a href="#settings-purchases">Purchases</a><a href="#settings-certificates">Certificates</a></>}
+        {signedIn && <><a href="#settings-signin">Sign-in methods</a><a href="#settings-devices">Devices</a><a href="#settings-purchases">Purchases</a><a href="#settings-certificates">Certificates</a></>}
         <a href="#settings-danger">Reset progress</a>
       </nav>
 
@@ -309,6 +310,7 @@ export const SettingsPage: React.FC = () => {
         </Row>
       </Section>
 
+      {signedIn && <Section id="settings-devices" title="Your devices"><DeviceSessionsPanel key={user!.id} online={serverStatus==='online'} onSignedOut={logout}/></Section>}
       {signedIn && (
         <Section id="settings-signin" title="Sign-in methods">
           <p className="row-desc">
